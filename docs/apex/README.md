@@ -1,0 +1,158 @@
+# RAD_PDF — Oracle APEX Integration Guide
+
+This guide explains how to use RAD_PDF inside Oracle APEX to generate and deliver
+PDF documents from page processes, dynamic actions, or PL/SQL regions.
+
+---
+
+## Installation for APEX
+
+RAD_PDF must be installed in a schema that is accessible from your APEX workspace.
+
+### Option A — Install in the workspace schema (simplest)
+
+Connect to the same schema your APEX workspace parses as and run the installer:
+
+```sql
+-- In SQL Workshop → SQL Scripts, or SQL*Plus connected as the workspace schema:
+@src/install.sql
+```
+
+The packages are now available directly.
+
+### Option B — Install in a shared utility schema
+
+If you want one RAD_PDF installation shared by multiple workspaces:
+
+1. Install RAD_PDF in the utility schema (e.g. `RAD_UTILS`):
+
+   ```sql
+   -- connected as RAD_UTILS:
+   @src/install.sql
+   ```
+
+2. Grant EXECUTE on all eight packages to each workspace schema (or to PUBLIC):
+
+   ```sql
+   -- connected as RAD_UTILS:
+   GRANT EXECUTE ON rad_pdf_types   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_units   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_codec   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_styles  TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_ctx     TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_serial  TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_fonts   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_images  TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_canvas  TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_layout  TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_table   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf         TO <workspace_schema>;
+   ```
+
+3. In the workspace schema, create public synonyms if you do not want to prefix
+   every call with `RAD_UTILS.`:
+
+   ```sql
+   -- connected as <workspace_schema>:
+   CREATE OR REPLACE SYNONYM rad_pdf_types  FOR rad_utils.rad_pdf_types;
+   CREATE OR REPLACE SYNONYM rad_pdf_styles FOR rad_utils.rad_pdf_styles;
+   CREATE OR REPLACE SYNONYM rad_pdf_table  FOR rad_utils.rad_pdf_table;
+   CREATE OR REPLACE SYNONYM rad_pdf        FOR rad_utils.rad_pdf;
+   -- ... repeat for any packages you call directly
+   ```
+
+---
+
+## Streaming a PDF to the browser
+
+To make APEX deliver the PDF as a file download instead of rendering an HTML page,
+use this pattern inside an **Execute Server-side Code** page process:
+
+```sql
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+BEGIN
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf.write(l_doc, 'Hello from APEX');
+  l_pdf := rad_pdf.finalize(l_doc);
+
+  -- Stream the BLOB as a PDF download
+  owa_util.mime_header('application/pdf', FALSE);
+  htp.p('Content-Length: ' || DBMS_LOB.getlength(l_pdf));
+  htp.p('Content-Disposition: attachment; filename="report.pdf"');
+  htp.p('Cache-Control: no-store, no-cache, must-revalidate');
+  htp.p('Pragma: no-cache');
+  owa_util.http_header_close;
+  wpg_docload.download_file(l_pdf);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- Stop APEX from rendering the rest of the page
+  apex_application.stop_apex_engine;
+END;
+```
+
+**Key points:**
+
+- `owa_util.mime_header` must be called *before* `http_header_close` and before
+  any page output has been sent.  Place the process early in the processing order.
+- `apex_application.stop_apex_engine` raises an exception that APEX catches and
+  uses to halt normal page rendering.  Always call it as the last statement.
+- `Content-Disposition: attachment` forces a Save As dialog.  Omit it to let the
+  browser decide (inline view or download) based on the user's PDF viewer settings.
+
+---
+
+## Using APEX page items as bind variables
+
+Use `rad_pdf_table.refcursor2table` instead of `rad_pdf.query2table` when the query
+depends on APEX session state.  Open the cursor using APEX's `:PXXX_ITEM` bind
+variable syntax:
+
+```sql
+OPEN l_rc FOR
+  SELECT order_id, product_name, qty, unit_price
+  FROM   order_lines
+  WHERE  order_id = :P5_ORDER_ID;   -- APEX page item as bind variable
+
+rad_pdf_table.refcursor2table(l_doc, l_rc, l_cols);
+```
+
+Never concatenate APEX item values directly into a query string — that is a
+SQL injection vulnerability.  Always use the bind variable syntax.
+
+You can also call `V('P5_ORDER_ID')` (returns VARCHAR2) or `NV('P5_ORDER_ID')`
+(returns NUMBER) inside the PL/SQL block to use item values in PL/SQL logic.
+
+---
+
+## Storing generated PDFs in a table
+
+For large PDFs, or when the same PDF is downloaded multiple times, generate the
+BLOB once and store it in a table rather than re-generating on every request:
+
+```sql
+-- Table to hold generated PDFs
+CREATE TABLE generated_pdfs (
+  id           NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at   DATE           DEFAULT SYSDATE NOT NULL,
+  filename     VARCHAR2(200)  NOT NULL,
+  pdf_data     BLOB
+);
+```
+
+An APEX process (or a background job) inserts the row; a separate download
+page process reads and streams it.
+
+---
+
+## Examples
+
+| File | Description |
+|---|---|
+| [apex_sample00.sql](apex_sample00.sql) | Letterhead template: logo, company info, page header/footer on every page |
+| [apex_sample01.sql](apex_sample01.sql) | Minimal page process: generate PDF and stream to browser |
+| [apex_sample02.sql](apex_sample02.sql) | Filtered report using APEX page items as bind variables |
+| [apex_sample03.sql](apex_sample03.sql) | Multi-section report: department summary + employee detail tables |
+| [apex_sample04.sql](apex_sample04.sql) | Full report with dynamic header, footer, and V() session info |

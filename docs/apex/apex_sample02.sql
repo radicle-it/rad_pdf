@@ -1,0 +1,157 @@
+-- =============================================================================
+-- apex_sample02.sql  —  Filtered report using an APEX page item as bind variable
+-- =============================================================================
+--
+-- WHAT THIS SHOWS
+--   How to filter a PDF report based on a value the user selected on an APEX
+--   page.
+--
+--   Key points:
+--   • Use rad_pdf_table.refcursor2table instead of rad_pdf.query2table.
+--     refcursor2table accepts a SYS_REFCURSOR so the query can use
+--     PL/SQL bind variables (the :PXXX_ITEM syntax).
+--   • NEVER concatenate APEX item values into a query string — that is a
+--     SQL injection vulnerability.  Always use bind variables.
+--   • NV('PXXX_ITEM') returns the item value as NUMBER; NULL means "not set".
+--
+-- DATA
+--   Uses the standard EMP and DEPT tables (always present in Oracle databases).
+--
+-- SCENARIO
+--   Page 5 has one page item:
+--     P5_DEPTNO  — department filter (NUMBER; comes from a Select List
+--                  populated with DEPT values; NULL means "all departments")
+--   A "Download PDF" button submits the page and triggers this process.
+--
+-- PAGE SETUP IN APEX
+--   Processing → Execute Server-side Code
+--   Point:     After Submit
+--   Condition: Button Pressed = DOWNLOAD_PDF
+--
+-- PREREQUISITES
+--   RAD_PDF installed in the workspace schema (or with synonyms).
+--   See docs/apex/README.md.
+-- =============================================================================
+
+DECLARE
+  l_doc    rad_pdf_types.t_doc_handle;
+  l_pdf    BLOB;
+  l_cols   rad_pdf_types.t_columns;
+  l_clr    rad_pdf_types.t_color_scheme;
+  l_rc     SYS_REFCURSOR;
+  l_title  VARCHAR2(200);
+  l_dept   NUMBER := NV('P5_DEPTNO');   -- NULL = all departments
+  i        PLS_INTEGER;
+BEGIN
+  rad_pdf_styles.load_defaults;
+
+  -- =========================================================================
+  -- Column definitions
+  -- =========================================================================
+  l_cols := rad_pdf_types.t_columns();
+  l_cols.EXTEND(5);
+
+  FOR i IN 1..5 LOOP
+    l_cols(i).data_fmt.margin_top  := 4;
+    l_cols(i).data_fmt.margin_bot  := 4;
+    l_cols(i).data_fmt.margin_left := 5;
+    l_cols(i).data_fmt.margin_rgt  := 5;
+    l_cols(i).header_fmt.margin_top  := 4;
+    l_cols(i).header_fmt.margin_bot  := 4;
+    l_cols(i).header_fmt.margin_left := 5;
+    l_cols(i).header_fmt.margin_rgt  := 5;
+  END LOOP;
+
+  l_cols(1).label              := 'Emp#';
+  l_cols(1).width              := 55;
+  l_cols(1).data_fmt.align_h   := 'R';
+  l_cols(1).header_fmt.align_h := 'C';
+
+  l_cols(2).label := 'Name';
+  l_cols(2).width := 110;
+
+  l_cols(3).label := 'Job';
+  l_cols(3).width := 100;
+
+  l_cols(4).label              := 'Hired';
+  l_cols(4).width              := 90;
+  l_cols(4).data_fmt.align_h   := 'C';
+  l_cols(4).header_fmt.align_h := 'C';
+
+  l_cols(5).label              := 'Salary';
+  l_cols(5).width              := 90;
+  l_cols(5).data_fmt.align_h   := 'R';
+  l_cols(5).header_fmt.align_h := 'C';
+  l_cols(5).data_fmt.num_format := 'FM999,999,990.00';
+
+  -- =========================================================================
+  -- Color scheme — teal
+  -- =========================================================================
+  l_clr.header_paper  := '1A5276';
+  l_clr.header_ink    := 'FFFFFF';
+  l_clr.header_border := '1A5276';
+  l_clr.odd_paper     := 'EAF4FB';
+  l_clr.odd_border    := 'AED6F1';
+  l_clr.even_paper    := 'FFFFFF';
+  l_clr.even_border   := 'AED6F1';
+
+  -- =========================================================================
+  -- Open cursor with bind variable — no string concatenation, no injection
+  -- :P5_DEPTNO is resolved by Oracle at parse time from the APEX item value.
+  -- =========================================================================
+  OPEN l_rc FOR
+    SELECT e.empno,
+           e.ename,
+           e.job,
+           TO_CHAR(e.hiredate, 'DD-MON-YYYY') AS hiredate,
+           e.sal
+    FROM   emp  e
+    WHERE  (e.deptno = :P5_DEPTNO OR :P5_DEPTNO IS NULL)
+    ORDER BY e.ename;
+
+  -- =========================================================================
+  -- Build report title from the selected department
+  -- =========================================================================
+  IF l_dept IS NOT NULL THEN
+    SELECT 'Employees — ' || dname
+    INTO   l_title
+    FROM   dept
+    WHERE  deptno = l_dept;
+  ELSE
+    l_title := 'All Employees';
+  END IF;
+
+  -- =========================================================================
+  -- Build document
+  -- =========================================================================
+  l_doc := rad_pdf.new_document;
+
+  rad_pdf.heading(l_doc, 'Employee Report', 1);
+  rad_pdf.heading(l_doc, l_title, 2);
+  rad_pdf.spacer (l_doc, 8);
+
+  -- refcursor2table consumes and closes l_rc.
+  rad_pdf_table.refcursor2table(l_doc, l_rc, l_cols, p_colors => l_clr);
+
+  rad_pdf.spacer(l_doc, 8);
+  rad_pdf.write (l_doc,
+    'Generated by ' || V('APP_USER') ||
+    ' on '          || TO_CHAR(SYSDATE, 'DD-MON-YYYY HH24:MI'), 'caption');
+
+  -- =========================================================================
+  -- Stream to browser
+  -- =========================================================================
+  l_pdf := rad_pdf.finalize(l_doc);
+
+  owa_util.mime_header('application/pdf', FALSE);
+  htp.p('Content-Length: ' || DBMS_LOB.getlength(l_pdf));
+  htp.p('Content-Disposition: attachment; filename="employees_' ||
+        TO_CHAR(SYSDATE, 'YYYYMMDD') || '.pdf"');
+  htp.p('Cache-Control: no-store, no-cache, must-revalidate');
+  htp.p('Pragma: no-cache');
+  owa_util.http_header_close;
+  wpg_docload.download_file(l_pdf);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  apex_application.stop_apex_engine;
+END;
