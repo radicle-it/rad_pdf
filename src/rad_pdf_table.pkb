@@ -170,10 +170,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                          p_row_nr IN PLS_INTEGER,
                          p_x      IN NUMBER,
                          p_y      IN NUMBER) RETURN NUMBER IS
-    l_h   NUMBER;
-    l_cx  NUMBER := p_x;
-    l_fmt rad_pdf_types.t_cell_format;
-    i     PLS_INTEGER;
+    l_h    NUMBER;
+    l_cx   NUMBER := p_x;
+    l_fmt  rad_pdf_types.t_cell_format;
+    l_text VARCHAR2(32767);
+    i      PLS_INTEGER;
   BEGIN
     i   := p_def.col_defs.FIRST;
     l_h := row_height(p_def.col_defs(i).data_fmt, p_def.options.t_row_height);
@@ -191,8 +192,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
       END IF;
       IF l_fmt.font_name IS NULL THEN l_fmt.font_name := 'Helvetica'; END IF;
       IF l_fmt.font_size IS NULL THEN l_fmt.font_size := 9; END IF;
+      l_text := CASE WHEN p_row.EXISTS(i) THEN p_row(i) ELSE NULL END;
+      IF l_text IS NOT NULL AND l_fmt.num_format IS NOT NULL THEN
+        BEGIN
+          l_text := TO_CHAR(TO_NUMBER(l_text), l_fmt.num_format);
+        EXCEPTION
+          WHEN OTHERS THEN NULL;
+        END;
+      END IF;
       draw_cell(p_doc,
-                CASE WHEN p_row.EXISTS(i) THEN p_row(i) ELSE NULL END,
+                l_text,
                 l_cx, p_y - l_h,
                 p_ws(i), l_h,
                 l_fmt);
