@@ -1,6 +1,6 @@
-# RAD_PDF — User Guide
+# RAD_PDF - User Guide
 
-**Author:** Roberto Capancioni — [Radicle S.r.l.](https://radicle.it)  
+**Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer  
 ← [Back to project README](../README.md)
 
@@ -172,7 +172,7 @@ optional extensions for advanced use.
 `rad_pdf.new_document` returns a `rad_pdf_types.t_doc_handle` (a `PLS_INTEGER`).  
 Pass this handle to every subsequent call. **One handle = one document.**  
 `rad_pdf.finalize` closes the handle and returns the PDF BLOB.  
-After `finalize`, the handle is invalid — do not reuse it.
+After `finalize`, the handle is invalid - do not reuse it.
 
 ### Two rendering modes
 
@@ -219,7 +219,7 @@ BEGIN
   rad_pdf.heading(l_doc, 'Title', 1);
   rad_pdf.write  (l_doc, 'Body text...');
 
-  -- 4a. Finalise — returns BLOB, closes handle
+  -- 4a. Finalise - returns BLOB, closes handle
   DECLARE l_pdf BLOB; BEGIN
     l_pdf := rad_pdf.finalize(l_doc);
     -- … use l_pdf …
@@ -332,15 +332,31 @@ l_pdf := rad_pdf.finalize(l_doc);
 
 ### State queries
 
-```sql
-l_x := rad_pdf_canvas.get_x(l_doc);    -- current cursor X (pt)
-l_y := rad_pdf_canvas.get_y(l_doc);    -- current cursor Y (pt)
+Use `rad_pdf.get_info` (public facade) to query document state at any point
+during generation:
 
--- Named info selectors:
-l_w := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_page_width);
-l_h := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_page_height);
-l_mt := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_margin_top);
+```sql
+l_pg := rad_pdf.get_info(l_doc, rad_pdf_types.c_info_page_nr);     -- current page (1-based)
+l_w  := rad_pdf.get_info(l_doc, rad_pdf_types.c_info_page_width);  -- page width in pt
+l_mt := rad_pdf.get_info(l_doc, rad_pdf_types.c_info_margin_top);  -- top margin in pt
 ```
+
+| Constant | Returns |
+|---|---|
+| `c_info_page_nr` | Current page number (1-based) |
+| `c_info_page_count` | Total pages finalised so far |
+| `c_info_page_width` | Page width in pt |
+| `c_info_page_height` | Page height in pt |
+| `c_info_margin_top` | Top margin in pt |
+| `c_info_margin_bot` | Bottom margin in pt |
+| `c_info_margin_left` | Left margin in pt |
+| `c_info_margin_right` | Right margin in pt |
+| `c_info_cursor_x` | Current canvas X cursor in pt |
+| `c_info_cursor_y` | Current canvas Y cursor in pt |
+| `c_info_font_size` | Active font size in pt |
+
+The same constants are also accessible via `rad_pdf_canvas.get_info` for use
+inside `header_proc` / `footer_proc` strings.
 
 ---
 
@@ -374,10 +390,22 @@ END;
 |---|---|---|
 | `label` | NULL | Column header text |
 | `width` | 30 | Column width in the unit set by `t_table_options.unit` |
+| `wrap` | FALSE | When TRUE, data cell text wraps across multiple lines; row height expands to fit |
 | `header_fmt` | Helvetica B 9, center | Header cell format (see below) |
 | `data_fmt` | Helvetica N 9, left | Data cell format |
 | `cell_row` | 1 | Row within a multi-line cell group (advanced) |
 | `offset_x/y` | NULL | Cell offset in multi-line groups (advanced) |
+
+When `wrap = TRUE` the column text flows top-to-bottom inside the cell. The
+row height for that row is computed as the maximum wrapped height across all
+wrap-enabled columns in the row. Non-wrap columns in the same row use the
+computed height unchanged.
+
+```sql
+l_cols(2).label  := 'Notes';
+l_cols(2).width  := 200;
+l_cols(2).wrap   := TRUE;   -- long text wraps; row grows to fit
+```
 
 ### Cell format fields (`rad_pdf_types.t_cell_format`)
 
@@ -523,8 +551,8 @@ DECLARE
   l_tpl rad_pdf_types.t_page_template;
 BEGIN
   l_tpl.page_format_name := 'A4';
-  l_tpl.margin_top       := 70;    -- points — leave room for header
-  l_tpl.margin_bottom    := 50;    -- points — leave room for footer
+  l_tpl.margin_top       := 70;    -- points - leave room for header
+  l_tpl.margin_bottom    := 50;    -- points - leave room for footer
 
   -- Header proc: anonymous PL/SQL block.
   -- Tokens substituted before execution:
@@ -550,8 +578,46 @@ BEGIN
 END;
 ```
 
-> **Tip:** `rad_pdf_canvas.h_line(doc, x, y, width_pt, thickness, color, unit)` —
+> **Tip:** `rad_pdf_canvas.h_line(doc, x, y, width_pt, thickness, color, unit)` -
 > a quick horizontal line without needing `set_color` separately.
+
+### Cover page with header/footer from page 2
+
+A common pattern is a custom cover on page 1 (no header, no footer) followed
+by a standard header on every subsequent page. Use an `IF #PAGE_NR# > 1` guard
+inside `header_proc` and `footer_proc`:
+
+```sql
+l_tpl.header_proc :=
+  'BEGIN
+     IF #PAGE_NR# > 1 THEN
+       rad_pdf_canvas.write_text(#DOC_HANDLE#, ''My Report'', 42, 820, ''pt'');
+       rad_pdf_canvas.h_line   (#DOC_HANDLE#, 42, 778, 511, 0.5, ''1A3A5C'', ''pt'');
+     END IF;
+   END;';
+```
+
+Then force page 2 after placing the cover content:
+
+```sql
+l_doc := rad_pdf.new_document;          -- no template yet
+-- ... load images, build proc strings, call set_template ...
+rad_pdf_layout.set_template(l_doc, l_tpl);
+
+-- Cover content on page 1
+rad_pdf.spacer (l_doc, 280);
+rad_pdf.heading(l_doc, 'Annual Report 2026', 1);
+rad_pdf.new_page(l_doc);               -- header/footer appear from here
+
+-- Report content on pages 2+
+rad_pdf.query2table(l_doc, l_query, l_cols);
+```
+
+> **Important:** `header_proc` runs via `EXECUTE IMMEDIATE` at finalize time.
+> PL/SQL locals from the outer block are out of scope at that point. Embed
+> runtime values (image IDs, dates, APEX session items) as string literals in
+> the proc string before passing it to `set_template`.
+> See [docs/apex/apex_sample05.sql](apex/apex_sample05.sql).
 
 ---
 
@@ -596,7 +662,7 @@ all viewer platforms). **`p_compress => TRUE`** (default) compresses the embedde
 Per-document fonts are freed on `finalize`. For batch reports generating many PDFs:
 
 ```sql
--- Preload once per session — survives close_doc
+-- Preload once per session - survives close_doc
 rad_pdf_fonts.preload_ttf('MY_FONTS_DIR', 'OpenSans-Regular.ttf', p_embed => TRUE);
 -- Then in each loop iteration:
 l_doc := rad_pdf.new_document;
@@ -621,7 +687,7 @@ BEGIN
   -- Load from Oracle directory
   l_img := rad_pdf_images.load_image(l_doc, 'MY_IMAGES_DIR', 'logo.png');
 
-  -- Place on canvas (x, y in points from lower-left; width/height optional — keeps aspect)
+  -- Place on canvas (x, y in points from lower-left; width/height optional - keeps aspect)
   rad_pdf_canvas.put_image(l_doc, l_img, 42, 760, 120, NULL, 'L', 'T', 'pt');
 
   -- Or add to layout flow (auto-positioned by layout engine)
@@ -646,7 +712,7 @@ rad_pdf_images.clear_image_cache;
 
 ## API Reference
 
-### `rad_pdf` package — public facade
+### `rad_pdf` package - public facade
 
 | Subprogram | Description |
 |---|---|
@@ -661,11 +727,12 @@ rad_pdf_images.clear_image_cache;
 | `new_page(p_doc)` | Page break (layout) or new page (canvas). |
 | `query2table(p_doc, p_query, p_columns, ...)` | Add table from SQL string or CLOB. |
 | `image(p_doc, p_image_id, p_width, p_height)` | Add image flowable (layout mode). |
+| `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
 | `set_margins(p_doc, p_top, p_bottom, p_left, p_right)` | Set individual margins (points). |
 
-### `rad_pdf_layout` package — flowable constructors
+### `rad_pdf_layout` package - flowable constructors
 
 | Function | Returns |
 |---|---|
@@ -676,7 +743,7 @@ rad_pdf_images.clear_image_cache;
 | `page_break` | `t_flowable` for an explicit page break |
 | `image(p_image_id, p_width, p_height)` | `t_flowable` for an image |
 
-### `rad_pdf_styles` package — style registry
+### `rad_pdf_styles` package - style registry
 
 | Subprogram | Description |
 |---|---|
@@ -708,10 +775,10 @@ rad_pdf_images.clear_image_cache;
    in header/footer procs during the measure pass (page count is unknown).  
    Use the default non-streaming mode for accurate page-count tokens.
 
-3. **Standard fonts** (Helvetica, Times, Courier) are not embedded — the viewer must have them.  
+3. **Standard fonts** (Helvetica, Times, Courier) are not embedded - the viewer must have them.  
    For full portability, embed a TTF font via `rad_pdf_fonts.load_ttf(..., p_embed => TRUE)`.
 
-4. **GIF animation** — only the first frame is used.
+4. **GIF animation** - only the first frame is used.
 
 5. **Right-to-left text** (Arabic, Hebrew) is not supported; glyphs are placed left-to-right.
 
@@ -743,4 +810,5 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation and stre
 | [apex/apex_sample02.sql](apex/apex_sample02.sql) | Filtered report using APEX page items as bind variables |
 | [apex/apex_sample03.sql](apex/apex_sample03.sql) | Store PDF in a table; stream from a separate download page |
 | [apex/apex_sample04.sql](apex/apex_sample04.sql) | Full report with dynamic header, footer, and `V()` session info |
+| [apex/apex_sample05.sql](apex/apex_sample05.sql) | Cover page on page 1, header/footer from page 2, `get_info` usage |
 

@@ -3,7 +3,7 @@
 Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
 No Java, no external tools, no OS dependencies.
 
-**Author:** Roberto Capancioni — [Radicle S.r.l.](https://radicle.it)  
+**Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer
 
 ---
@@ -11,7 +11,7 @@ No Java, no external tools, no OS dependencies.
 ## What it does
 
 RAD_PDF generates PDF files entirely inside Oracle Database using PL/SQL.  
-You write SQL and PL/SQL; RAD_PDF produces a valid PDF BLOB — no Java, no file system, no middle tier required.
+You write SQL and PL/SQL; RAD_PDF produces a valid PDF BLOB - no Java, no file system, no middle tier required.
 
 ```sql
 DECLARE
@@ -55,16 +55,16 @@ END;
 
 ## Features
 
-- **Layout engine** — automatic text wrap, page breaks, headings h1–h6, paragraphs, spacers, horizontal rules
-- **Tables** — `query2table` / `refcursor2table`; column widths, alignment, color schemes, break fields, label grids
-- **Standard PDF fonts** — Helvetica, Times, Courier (no embedding needed)
-- **TrueType fonts** — load from BLOB, Oracle Directory, or HTTPS URL; embed and compress
-- **Images** — JPEG, PNG, GIF; SHA-256 session cache; load from BLOB, directory, or HTTPS URL
-- **Page templates** — header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
-- **Styles** — named, session-scoped style registry with built-in heading and table styles
-- **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
-- **Document metadata** — title, author, subject, keywords in PDF Info dictionary
-- **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
+- **Layout engine** - automatic text wrap, page breaks, headings h1–h6, paragraphs, spacers, horizontal rules
+- **Tables** - `query2table` / `refcursor2table`; column widths, alignment, color schemes, break fields, label grids
+- **Standard PDF fonts** - Helvetica, Times, Courier (no embedding needed)
+- **TrueType fonts** - load from BLOB, Oracle Directory, or HTTPS URL; embed and compress
+- **Images** - JPEG, PNG, GIF; SHA-256 session cache; load from BLOB, directory, or HTTPS URL
+- **Page templates** - header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
+- **Styles** - named, session-scoped style registry with built-in heading and table styles
+- **Canvas API** - absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
+- **Document metadata** - title, author, subject, keywords in PDF Info dictionary
+- **AUTHID CURRENT_USER** - runs with the caller's privileges; safe in shared schemas
 
 ---
 
@@ -110,7 +110,7 @@ The PDF generation algorithms and font-width tables from AS_PDF are the foundati
 |---|---|
 | Original author | Anton Scheffer |
 | AS_PDF contributors | Valerio Rossetti, Andreas Weiden, Lee Lindley, Javier Meza |
-| RAD_PDF rewrite | Roberto Capancioni — Radicle S.r.l. |
+| RAD_PDF rewrite | Roberto Capancioni - Radicle S.r.l. |
 
 ---
 

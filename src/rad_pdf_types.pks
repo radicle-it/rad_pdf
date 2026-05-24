@@ -84,6 +84,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     cell_row   PLS_INTEGER    := 1,
     offset_x   NUMBER         := NULL,
     offset_y   NUMBER         := NULL,
+    wrap       BOOLEAN        := FALSE,
     header_fmt t_cell_format,
     data_fmt   t_cell_format
   );

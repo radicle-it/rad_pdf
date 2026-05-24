@@ -80,6 +80,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
 -- Draw a single cell: background, text, border.
 -- p_x, p_y: lower-left corner of cell (PDF coords).
 -- p_w, p_h: width and height in pt.
+-- p_wrap: when TRUE text flows top-down via write_wrapped.
 -- ---------------------------------------------------------------------------
   PROCEDURE draw_cell(p_doc   IN rad_pdf_types.t_doc_handle,
                       p_text  IN VARCHAR2,
@@ -87,10 +88,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                       p_y     IN NUMBER,
                       p_w     IN NUMBER,
                       p_h     IN NUMBER,
-                      p_fmt   IN rad_pdf_types.t_cell_format) IS
-    l_tx   NUMBER;
-    l_ty   NUMBER;
-    l_tw   NUMBER;
+                      p_fmt   IN rad_pdf_types.t_cell_format,
+                      p_wrap  IN BOOLEAN DEFAULT FALSE) IS
+    l_tx      NUMBER;
+    l_ty      NUMBER;
+    l_tw      NUMBER;
+    l_inner_w NUMBER;
   BEGIN
     -- Background: p_x/p_y is the lower-left corner; rect takes lower-left coords.
     rad_pdf_canvas.rect(p_doc, p_x, p_y, p_w, p_h, NULL, p_fmt.back_color, 0, 'pt');
@@ -113,16 +116,63 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     IF p_text IS NOT NULL AND LENGTH(p_text) > 0 THEN
       rad_pdf_canvas.set_font(p_doc, p_fmt.font_name, p_fmt.font_style, p_fmt.font_size);
       rad_pdf_canvas.set_color(p_doc, p_fmt.font_color);
-      l_tw := rad_pdf_canvas.text_width(p_doc, p_text);
-      l_ty := p_y + NVL(p_fmt.margin_bot,  1);
-      CASE p_fmt.align_h
-        WHEN 'R' THEN l_tx := p_x + p_w - l_tw - NVL(p_fmt.margin_rgt,  1);
-        WHEN 'C' THEN l_tx := p_x + (p_w - l_tw) / 2;
-        ELSE           l_tx := p_x + NVL(p_fmt.margin_left, 1);
-      END CASE;
-      rad_pdf_canvas.write_text(p_doc, p_text, l_tx, l_ty, 'pt');
+      IF p_wrap THEN
+        -- Wrapped: flow top-down from inside top margin
+        l_tx      := p_x + NVL(p_fmt.margin_left, 1);
+        l_ty      := p_y + p_h - NVL(p_fmt.margin_top, 1) - NVL(p_fmt.font_size, 9);
+        l_inner_w := p_w - NVL(p_fmt.margin_left, 1) - NVL(p_fmt.margin_rgt, 1);
+        rad_pdf_canvas.write_wrapped(p_doc, p_text, l_tx, l_ty, l_inner_w,
+                                     NVL(p_fmt.align_h, 'L'), 'pt');
+      ELSE
+        l_tw := rad_pdf_canvas.text_width(p_doc, p_text);
+        l_ty := p_y + NVL(p_fmt.margin_bot, 1);
+        CASE p_fmt.align_h
+          WHEN 'R' THEN l_tx := p_x + p_w - l_tw - NVL(p_fmt.margin_rgt,  1);
+          WHEN 'C' THEN l_tx := p_x + (p_w - l_tw) / 2;
+          ELSE           l_tx := p_x + NVL(p_fmt.margin_left, 1);
+        END CASE;
+        rad_pdf_canvas.write_text(p_doc, p_text, l_tx, l_ty, 'pt');
+      END IF;
     END IF;
   END draw_cell;
+
+-- ---------------------------------------------------------------------------
+-- Compute actual height of a data row when one or more columns have wrap=TRUE.
+-- For non-wrap columns the fixed row_height is used; for wrap columns the cell
+-- height is measured via measure_wrapped. The max across all columns is returned.
+-- ---------------------------------------------------------------------------
+  FUNCTION wrapped_row_height(p_doc IN rad_pdf_types.t_doc_handle,
+                               p_def IN rad_pdf_types.t_table_def,
+                               p_ws  IN rad_pdf_types.t_number_list,
+                               p_row IN t_row_values) RETURN NUMBER IS
+    l_h      NUMBER := row_height(p_def.col_defs(p_def.col_defs.FIRST).data_fmt,
+                                  p_def.options.t_row_height);
+    l_ch     NUMBER;
+    l_inner  NUMBER;
+    l_fmt    rad_pdf_types.t_cell_format;
+    l_text   VARCHAR2(32767);
+    i        PLS_INTEGER;
+  BEGIN
+    i := p_def.col_defs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF p_def.col_defs(i).wrap THEN
+        l_fmt   := p_def.col_defs(i).data_fmt;
+        l_text  := CASE WHEN p_row.EXISTS(i) THEN p_row(i) ELSE NULL END;
+        IF l_text IS NOT NULL AND LENGTH(l_text) > 0 THEN
+          rad_pdf_canvas.set_font(p_doc,
+            NVL(l_fmt.font_name, 'Helvetica'),
+            l_fmt.font_style,
+            NVL(l_fmt.font_size, 9));
+          l_inner := p_ws(i) - NVL(l_fmt.margin_left, 1) - NVL(l_fmt.margin_rgt, 1);
+          l_ch    := rad_pdf_canvas.measure_wrapped(p_doc, l_text, l_inner, 'pt')
+                     + NVL(l_fmt.margin_top, 1) + NVL(l_fmt.margin_bot, 1);
+          IF l_ch > l_h THEN l_h := l_ch; END IF;
+        END IF;
+      END IF;
+      i := p_def.col_defs.NEXT(i);
+    END LOOP;
+    RETURN l_h;
+  END wrapped_row_height;
 
 -- ---------------------------------------------------------------------------
 -- Draw header row starting at (p_x, p_y upper edge). Returns row height.
@@ -169,17 +219,22 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                          p_row    IN t_row_values,
                          p_row_nr IN PLS_INTEGER,
                          p_x      IN NUMBER,
-                         p_y      IN NUMBER) RETURN NUMBER IS
+                         p_y      IN NUMBER,
+                         p_h_override IN NUMBER DEFAULT NULL) RETURN NUMBER IS
     l_h    NUMBER;
     l_cx   NUMBER := p_x;
     l_fmt  rad_pdf_types.t_cell_format;
     l_text VARCHAR2(32767);
+    l_wrap BOOLEAN;
     i      PLS_INTEGER;
   BEGIN
-    i   := p_def.col_defs.FIRST;
-    l_h := row_height(p_def.col_defs(i).data_fmt, p_def.options.t_row_height);
+    i := p_def.col_defs.FIRST;
+    -- Use pre-computed height when provided (wrap mode), else fixed height
+    l_h := NVL(p_h_override,
+               row_height(p_def.col_defs(i).data_fmt, p_def.options.t_row_height));
     WHILE i IS NOT NULL LOOP
-      l_fmt := p_def.col_defs(i).data_fmt;
+      l_fmt  := p_def.col_defs(i).data_fmt;
+      l_wrap := NVL(p_def.col_defs(i).wrap, FALSE);
       -- Apply even/odd color scheme
       IF MOD(p_row_nr, 2) = 0 THEN
         l_fmt.font_color  := p_def.color_scheme.even_ink;
@@ -204,7 +259,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                 l_text,
                 l_cx, p_y - l_h,
                 p_ws(i), l_h,
-                l_fmt);
+                l_fmt,
+                l_wrap);
       l_cx := l_cx + p_ws(i);
       i    := p_def.col_defs.NEXT(i);
     END LOOP;
@@ -507,6 +563,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_row_nr PLS_INTEGER := 0;
     l_hdr_h  NUMBER;
     l_row_h  NUMBER;
+    l_ws     rad_pdf_types.t_number_list;
   BEGIN
     l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
     ensure_cache(p_doc, p_table_ref);
@@ -547,14 +604,40 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     IF l_def.col_defs IS NOT NULL AND l_def.col_defs.COUNT > 0 THEN
       l_hdr_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).header_fmt,
                              l_def.options.h_row_height);
-      l_row_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
-                             l_def.options.t_row_height);
+      IF has_wrap_cols(l_def) THEN
+        -- Sum actual per-row heights when any column wraps
+        l_ws    := col_widths(l_def.col_defs, p_width, NVL(l_def.options.unit, 'pt'));
+        l_row_h := 0;
+        FOR r IN 1 .. l_row_nr LOOP
+          l_row_h := l_row_h +
+            wrapped_row_height(p_doc, l_def, l_ws,
+                               g_table_cache(p_doc)(p_table_ref).data(r));
+        END LOOP;
+        RETURN l_hdr_h + l_row_h;
+      ELSE
+        l_row_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
+                               l_def.options.t_row_height);
+      END IF;
     ELSE
       l_hdr_h := 14;
       l_row_h := 12;
     END IF;
     RETURN l_hdr_h + l_row_nr * l_row_h;
   END measure_table;
+
+-- ---------------------------------------------------------------------------
+-- Returns TRUE if any column in the definition has wrap = TRUE.
+-- ---------------------------------------------------------------------------
+  FUNCTION has_wrap_cols(p_def IN rad_pdf_types.t_table_def) RETURN BOOLEAN IS
+    i PLS_INTEGER;
+  BEGIN
+    i := p_def.col_defs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF NVL(p_def.col_defs(i).wrap, FALSE) THEN RETURN TRUE; END IF;
+      i := p_def.col_defs.NEXT(i);
+    END LOOP;
+    RETURN FALSE;
+  END has_wrap_cols;
 
 -- ---------------------------------------------------------------------------
 -- draw_table: draw header + data rows using cached data.
@@ -565,14 +648,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                        p_x         IN NUMBER,
                        p_y         IN NUMBER,
                        p_width     IN NUMBER) IS
-    l_def    rad_pdf_types.t_table_def;
-    l_ws     rad_pdf_types.t_number_list;
-    l_cur_y  NUMBER := p_y;
-    l_h      NUMBER;
-    l_row    t_row_values;
-    l_row_nr PLS_INTEGER;
-    l_frame_y NUMBER;
+    l_def        rad_pdf_types.t_table_def;
+    l_ws         rad_pdf_types.t_number_list;
+    l_cur_y      NUMBER := p_y;
+    l_h          NUMBER;
+    l_row        t_row_values;
+    l_row_nr     PLS_INTEGER;
+    l_frame_y    NUMBER;
     l_margin_bot NUMBER;
+    l_do_wrap    BOOLEAN;
   BEGIN
     l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
     IF l_def.col_defs IS NULL OR l_def.col_defs.COUNT = 0 THEN RETURN; END IF;
@@ -583,6 +667,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_frame_y    := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_page_height)
                     - rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_top);
     l_margin_bot := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_bot);
+    l_do_wrap    := has_wrap_cols(l_def);
 
     -- Header row
     l_h     := draw_header_row(p_doc, l_def, l_ws, p_x, l_cur_y);
@@ -591,8 +676,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     -- Data rows
     l_row_nr := 1;
     WHILE l_row_nr <= g_table_cache(p_doc)(p_table_ref).row_count LOOP
-      l_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
-                        l_def.options.t_row_height);
+      l_row := g_table_cache(p_doc)(p_table_ref).data(l_row_nr);
+      -- Compute row height (dynamic when any column wraps)
+      IF l_do_wrap THEN
+        l_h := wrapped_row_height(p_doc, l_def, l_ws, l_row);
+      ELSE
+        l_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
+                          l_def.options.t_row_height);
+      END IF;
       -- Page break if row doesn't fit
       IF l_cur_y - l_h < l_margin_bot THEN
         rad_pdf_canvas.new_page(p_doc);
@@ -600,11 +691,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
         -- Repeat header on new page
         l_h     := draw_header_row(p_doc, l_def, l_ws, p_x, l_cur_y);
         l_cur_y := l_cur_y - l_h;
-        l_h     := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
-                              l_def.options.t_row_height);
+        -- Recompute row height after header (font state may have changed)
+        IF l_do_wrap THEN
+          l_h := wrapped_row_height(p_doc, l_def, l_ws, l_row);
+        ELSE
+          l_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
+                            l_def.options.t_row_height);
+        END IF;
       END IF;
-      l_row    := g_table_cache(p_doc)(p_table_ref).data(l_row_nr);
-      l_h      := draw_data_row(p_doc, l_def, l_ws, l_row, l_row_nr, p_x, l_cur_y);
+      l_h      := draw_data_row(p_doc, l_def, l_ws, l_row, l_row_nr, p_x, l_cur_y, l_h);
       l_cur_y  := l_cur_y - l_h;
       l_row_nr := l_row_nr + 1;
     END LOOP;

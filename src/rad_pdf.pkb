@@ -246,6 +246,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END image;
 
 -- ---------------------------------------------------------------------------
+  FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
+                    p_info IN PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    RETURN rad_pdf_canvas.get_info(p_doc, p_info);
+  END get_info;
+
+-- ---------------------------------------------------------------------------
   PROCEDURE set_page_format(p_doc IN rad_pdf_types.t_doc_handle, p_name IN VARCHAR2) IS
   BEGIN
     rad_pdf_canvas.set_page_format(p_doc, rad_pdf_units.page_format(p_name));

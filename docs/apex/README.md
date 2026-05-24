@@ -1,4 +1,4 @@
-# RAD_PDF — Oracle APEX Integration Guide
+# RAD_PDF - Oracle APEX Integration Guide
 
 This guide explains how to use RAD_PDF inside Oracle APEX to generate and deliver
 PDF documents from page processes, dynamic actions, or PL/SQL regions.
@@ -9,7 +9,7 @@ PDF documents from page processes, dynamic actions, or PL/SQL regions.
 
 RAD_PDF must be installed in a schema that is accessible from your APEX workspace.
 
-### Option A — Install in the workspace schema (simplest)
+### Option A - Install in the workspace schema (simplest)
 
 Connect to the same schema your APEX workspace parses as and run the installer:
 
@@ -20,7 +20,7 @@ Connect to the same schema your APEX workspace parses as and run the installer:
 
 The packages are now available directly.
 
-### Option B — Install in a shared utility schema
+### Option B - Install in a shared utility schema
 
 If you want one RAD_PDF installation shared by multiple workspaces:
 
@@ -119,7 +119,7 @@ OPEN l_rc FOR
 rad_pdf_table.refcursor2table(l_doc, l_rc, l_cols);
 ```
 
-Never concatenate APEX item values directly into a query string — that is a
+Never concatenate APEX item values directly into a query string - that is a
 SQL injection vulnerability.  Always use the bind variable syntax.
 
 You can also call `V('P5_ORDER_ID')` (returns VARCHAR2) or `NV('P5_ORDER_ID')`
@@ -147,6 +147,65 @@ page process reads and streams it.
 
 ---
 
+---
+
+## Cover page with header/footer from page 2
+
+A common requirement is a custom cover page on page 1 (full-bleed image, title,
+no header/footer) and a standard header on every subsequent page.
+
+RAD_PDF supports this with a single `IF #PAGE_NR# > 1` guard inside
+`header_proc` and `footer_proc`. Both blocks execute for every page at
+finalization time, but the guard makes them a no-op on page 1.
+
+```sql
+l_tpl.header_proc :=
+  'BEGIN
+     IF #PAGE_NR# > 1 THEN
+       rad_pdf_canvas.write_text(#DOC_HANDLE#, ''My Header'', 42, 820, ''pt'');
+       rad_pdf_canvas.h_line   (#DOC_HANDLE#, 42, 778, 511, 0.5, ''1A3A5C'', ''pt'');
+     END IF;
+   END;';
+```
+
+After placing cover content, call `rad_pdf.new_page(l_doc)` to start page 2
+where header and footer will appear.
+
+Important: `header_proc` is executed via `EXECUTE IMMEDIATE` at `finalize` time,
+so PL/SQL locals from the outer block are out of scope. Capture any runtime
+values (APEX session items, image IDs, dates) into local variables first and
+embed them as literals in the proc string before passing it to `set_template`.
+
+See [apex_sample05.sql](apex_sample05.sql) for a complete working example.
+
+---
+
+## Reading the current page number
+
+To read the current page number at any point during document generation:
+
+```sql
+l_page := rad_pdf.get_info(l_doc, rad_pdf_types.c_info_page_nr);
+```
+
+Available `c_info_*` constants (all return values in points unless noted):
+
+| Constant | Returns |
+|---|---|
+| `c_info_page_nr` | Current page number (1-based) |
+| `c_info_page_count` | Total pages finalised so far |
+| `c_info_page_width` | Page width in pt |
+| `c_info_page_height` | Page height in pt |
+| `c_info_margin_top` | Top margin in pt |
+| `c_info_margin_bot` | Bottom margin in pt |
+| `c_info_margin_left` | Left margin in pt |
+| `c_info_margin_right` | Right margin in pt |
+| `c_info_cursor_x` | Current canvas X cursor in pt |
+| `c_info_cursor_y` | Current canvas Y cursor in pt |
+| `c_info_font_size` | Active font size in pt |
+
+---
+
 ## Examples
 
 | File | Description |
@@ -156,3 +215,4 @@ page process reads and streams it.
 | [apex_sample02.sql](apex_sample02.sql) | Filtered report using APEX page items as bind variables |
 | [apex_sample03.sql](apex_sample03.sql) | Multi-section report: department summary + employee detail tables |
 | [apex_sample04.sql](apex_sample04.sql) | Full report with dynamic header, footer, and V() session info |
+| [apex_sample05.sql](apex_sample05.sql) | Cover page on page 1, header/footer from page 2, get_info usage |

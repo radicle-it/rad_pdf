@@ -96,6 +96,21 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                   p_height   IN NUMBER DEFAULT NULL);
 
 -- ---------------------------------------------------------------------------
+-- Document state query
+-- ---------------------------------------------------------------------------
+
+  -- Return a numeric property of the current document state.
+  -- Use the c_info_* constants from rad_pdf_types as p_info:
+  --   c_info_page_nr      current page number (1-based)
+  --   c_info_page_count   total pages finalised so far
+  --   c_info_page_width / c_info_page_height   page size in pt
+  --   c_info_margin_top / _bot / _left / _right margins in pt
+  --   c_info_cursor_x / c_info_cursor_y        current canvas cursor in pt
+  --   c_info_font_size                         active font size in pt
+  FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
+                    p_info IN PLS_INTEGER) RETURN NUMBER;
+
+-- ---------------------------------------------------------------------------
 -- Page geometry
 -- ---------------------------------------------------------------------------
 
