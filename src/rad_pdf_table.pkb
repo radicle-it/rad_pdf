@@ -175,6 +175,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
   END wrapped_row_height;
 
 -- ---------------------------------------------------------------------------
+-- Returns TRUE if any column in the definition has wrap = TRUE.
+-- ---------------------------------------------------------------------------
+  FUNCTION has_wrap_cols(p_def IN rad_pdf_types.t_table_def) RETURN BOOLEAN IS
+    i PLS_INTEGER;
+  BEGIN
+    i := p_def.col_defs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF NVL(p_def.col_defs(i).wrap, FALSE) THEN RETURN TRUE; END IF;
+      i := p_def.col_defs.NEXT(i);
+    END LOOP;
+    RETURN FALSE;
+  END has_wrap_cols;
+
+-- ---------------------------------------------------------------------------
 -- Draw header row starting at (p_x, p_y upper edge). Returns row height.
 -- ---------------------------------------------------------------------------
   FUNCTION draw_header_row(p_doc   IN rad_pdf_types.t_doc_handle,
@@ -624,20 +638,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     END IF;
     RETURN l_hdr_h + l_row_nr * l_row_h;
   END measure_table;
-
--- ---------------------------------------------------------------------------
--- Returns TRUE if any column in the definition has wrap = TRUE.
--- ---------------------------------------------------------------------------
-  FUNCTION has_wrap_cols(p_def IN rad_pdf_types.t_table_def) RETURN BOOLEAN IS
-    i PLS_INTEGER;
-  BEGIN
-    i := p_def.col_defs.FIRST;
-    WHILE i IS NOT NULL LOOP
-      IF NVL(p_def.col_defs(i).wrap, FALSE) THEN RETURN TRUE; END IF;
-      i := p_def.col_defs.NEXT(i);
-    END LOOP;
-    RETURN FALSE;
-  END has_wrap_cols;
 
 -- ---------------------------------------------------------------------------
 -- draw_table: draw header + data rows using cached data.
