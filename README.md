@@ -1,6 +1,6 @@
 # RAD_PDF
 
-Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
+**Version 1.1.0** - Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
 No Java, no external tools, no OS dependencies.
 
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  

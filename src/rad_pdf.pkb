@@ -16,6 +16,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 */
 
 -- ---------------------------------------------------------------------------
+-- Version
+-- ---------------------------------------------------------------------------
+  FUNCTION version RETURN VARCHAR2 IS
+  BEGIN
+    RETURN rad_pdf_types.c_version;
+  END version;
+
+-- ---------------------------------------------------------------------------
 -- PRIVATE: build PDF date string in D:YYYYMMDDHHmmSSZ format (UTC).
 -- ---------------------------------------------------------------------------
   FUNCTION pdf_date RETURN VARCHAR2 IS

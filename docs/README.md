@@ -1,5 +1,6 @@
 # RAD_PDF - User Guide
 
+**Version:** 1.1.0  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer  
 ← [Back to project README](../README.md)
@@ -716,6 +717,7 @@ rad_pdf_images.clear_image_cache;
 
 | Subprogram | Description |
 |---|---|
+| `version` | Return the library version string, e.g. `'1.1.0'`. |
 | `new_document(p_info, p_template)` | Create document. Returns handle. |
 | `finalize(p_doc)` | Finalise, close handle, return BLOB. Caller must `FREETEMPORARY`. |
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
@@ -799,6 +801,7 @@ rad_pdf_images.clear_image_cache;
 | [sample07.sql](sample07.sql) | Label sheet: `query2labels` with `t_label_def` (peel-off label grid) |
 | [sample08.sql](sample08.sql) | Wide table in landscape orientation (`set_page_orientation`) |
 | [sample09.sql](sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |
+| [sample10.sql](sample10.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
 
 ### Oracle APEX examples
 

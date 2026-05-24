@@ -216,3 +216,4 @@ Available `c_info_*` constants (all return values in points unless noted):
 | [apex_sample03.sql](apex_sample03.sql) | Multi-section report: department summary + employee detail tables |
 | [apex_sample04.sql](apex_sample04.sql) | Full report with dynamic header, footer, and V() session info |
 | [apex_sample05.sql](apex_sample05.sql) | Cover page on page 1, header/footer from page 2, get_info usage |
+| [apex_sample06.sql](apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
