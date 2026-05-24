@@ -104,7 +104,7 @@ BEGIN
     '  FROM dual UNION ALL '                                                ||
     '  SELECT 2, ''Architecture Review'','                                  ||
     '    ''Reviewed the proposed three-tier architecture. Decision: adopt ' ||
-    '    microservices for the reporting layer. Security review scheduled '' ||
+    '    microservices for the reporting layer. Security review scheduled ' ||
     '    for next sprint.'' '                                               ||
     '  FROM dual UNION ALL '                                                ||
     '  SELECT 3, ''Performance'','                                          ||
