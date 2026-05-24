@@ -106,7 +106,7 @@ BEGIN
     AND    file_name      = 'radicle_logo.png';
 
     l_logo_id := rad_pdf_images.load_image(l_doc, l_logo_blob);
-    -- Note: l_logo_blob is a persistent LOB locator (not temporary) — no FREETEMPORARY needed.
+    -- Note: l_logo_blob is a persistent LOB locator (not temporary) - no FREETEMPORARY needed.
   EXCEPTION
     WHEN NO_DATA_FOUND THEN NULL;  -- file not uploaded yet: proceed without logo
     WHEN OTHERS        THEN NULL;  -- unsupported format (e.g. RGBA PNG not yet supported):

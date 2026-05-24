@@ -1,18 +1,18 @@
 -- =============================================================================
--- sample04.sql  —  Table report: query2table with column definitions
+-- sample04.sql  -  Table report: query2table with column definitions
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
 --   How to produce a formatted table from a SQL query using rad_pdf.query2table.
---   • rad_pdf_types.t_columns      — nested table of t_column_def records; defines
+--   • rad_pdf_types.t_columns      - nested table of t_column_def records; defines
 --                                 label, width, alignment, and number format
 --                                 for each column
---   • rad_pdf_types.t_color_scheme — six color fields controlling the header row
+--   • rad_pdf_types.t_color_scheme - six color fields controlling the header row
 --                                 and alternating data row backgrounds/borders
---   • rad_pdf_types.t_table_options — positioning overrides (start_x / start_y)
+--   • rad_pdf_types.t_table_options - positioning overrides (start_x / start_y)
 --                                 and row-height settings
 --   • The layout engine handles page breaks automatically when the table is
---     taller than the printable area — no manual page management needed
+--     taller than the printable area - no manual page management needed
 --
 -- COLUMN WIDTH ARITHMETIC
 --   Column widths are in points by default (pt).  A4 portrait printable width
@@ -34,7 +34,7 @@
 --     'FM$999,999,990'  →  $1,234,567
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -65,23 +65,23 @@ BEGIN
   l_cols := rad_pdf_types.t_columns();
   l_cols.EXTEND(4);   -- must EXTEND before assigning subscripts
 
-  -- Column 1: row number — narrow, data right-aligned, header centered
+  -- Column 1: row number - narrow, data right-aligned, header centered
   l_cols(1).label              := '#';
   l_cols(1).width              := 40;
   l_cols(1).data_fmt.align_h   := 'R';
   l_cols(1).header_fmt.align_h := 'C';
 
-  -- Column 2: product name — wider, left-aligned (default)
+  -- Column 2: product name - wider, left-aligned (default)
   l_cols(2).label              := 'Product Name';
   l_cols(2).width              := 190;
 
-  -- Column 3: unit price — right-aligned with FM format mask
+  -- Column 3: unit price - right-aligned with FM format mask
   l_cols(3).label              := 'Unit Price';
   l_cols(3).width              := 90;
   l_cols(3).data_fmt.align_h   := 'R';
   l_cols(3).data_fmt.num_format := 'FM999,999.00';
 
-  -- Column 4: yes/no flag — narrow, centered
+  -- Column 4: yes/no flag - narrow, centered
   l_cols(4).label              := 'In Stock';
   l_cols(4).width              := 70;
   l_cols(4).data_fmt.align_h   := 'C';
@@ -89,7 +89,7 @@ BEGIN
   -- =========================================================================
   -- Color scheme
   -- Header: white text on navy blue.  Odd rows: light blue stripe.
-  -- All color values are 6-character hex RGB strings — no '#' prefix.
+  -- All color values are 6-character hex RGB strings - no '#' prefix.
   -- =========================================================================
   l_clr.header_paper  := '003366';   -- navy background
   l_clr.header_ink    := 'FFFFFF';   -- white text on header
@@ -149,7 +149,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

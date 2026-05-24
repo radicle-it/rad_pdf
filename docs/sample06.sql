@@ -1,16 +1,16 @@
 -- =============================================================================
--- sample06.sql  —  Grouped report: refcursor2table with break_field
+-- sample06.sql  -  Grouped report: refcursor2table with break_field
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf_table.refcursor2table — feeds a SYS_REFCURSOR into the table engine
+--   • rad_pdf_table.refcursor2table - feeds a SYS_REFCURSOR into the table engine
 --     instead of a static SQL string.  Use this whenever you need:
 --       - Runtime PL/SQL bind variables (APEX page items, local variables)
 --       - A cursor opened by a stored procedure that you cannot reproduce as a
 --         plain VARCHAR2 string
 --       - Protection against SQL injection (the query is pre-parsed by Oracle
 --         before the BLOB is generated)
---   • t_table_options.break_field — inserts a visual separator row each time
+--   • t_table_options.break_field - inserts a visual separator row each time
 --     the value in the nominated column changes.  Column numbering is 1-based.
 --     The nominated column must be the primary ORDER BY column.
 --
@@ -27,7 +27,7 @@
 --   For cursors, call rad_pdf_table.refcursor2table directly.
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -46,7 +46,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
 
   -- =========================================================================
-  -- Column definitions — Department | Employee | Annual Salary
+  -- Column definitions - Department | Employee | Annual Salary
   -- =========================================================================
   l_cols := rad_pdf_types.t_columns();
   l_cols.EXTEND(3);
@@ -64,7 +64,7 @@ BEGIN
   l_cols(3).data_fmt.num_format := 'FM999,999,990';
 
   -- =========================================================================
-  -- Color scheme — green header, alternating off-white / white rows
+  -- Color scheme - green header, alternating off-white / white rows
   -- =========================================================================
   l_clr.header_paper  := '2E6B3E';
   l_clr.header_ink    := 'FFFFFF';
@@ -75,7 +75,7 @@ BEGIN
   l_clr.even_border   := 'C8E6C9';
 
   -- =========================================================================
-  -- Table options — activate grouping by column 1 (Department)
+  -- Table options - activate grouping by column 1 (Department)
   -- =========================================================================
   l_opts.break_field := 1;   -- insert separator when column 1 value changes
 
@@ -120,7 +120,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

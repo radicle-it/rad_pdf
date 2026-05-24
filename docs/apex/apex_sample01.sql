@@ -1,5 +1,5 @@
 -- =============================================================================
--- apex_sample01.sql  —  Minimal APEX page process: generate and stream a PDF
+-- apex_sample01.sql  -  Minimal APEX page process: generate and stream a PDF
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -14,7 +14,7 @@
 --     1. Open your page in Page Designer.
 --     2. In the Processing panel, create a new process:
 --          Type:   Execute Server-side Code
---          Point:  On Load — Before Header   (must run before any HTML output)
+--          Point:  On Load - Before Header   (must run before any HTML output)
 --          Name:   Download PDF
 --     3. Paste this code into the PL/SQL Code area (omit SET SERVEROUTPUT ON).
 --
@@ -27,7 +27,7 @@
 --
 -- PROCESS ORDER
 --   The process must run BEFORE APEX has sent any HTML to the browser.
---   "On Load — Before Header" is the correct point.
+--   "On Load - Before Header" is the correct point.
 --
 -- PREREQUISITES
 --   RAD_PDF installed in (or accessible from) the workspace schema.

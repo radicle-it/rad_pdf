@@ -1,5 +1,5 @@
 -- =============================================================================
--- sample02.sql  —  Styled report: headings, body text, custom styles
+-- sample02.sql  -  Styled report: headings, body text, custom styles
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -11,7 +11,7 @@
 --   • Document metadata embedded in the PDF (title, author, subject)
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 --
 -- WHAT TO EXPECT
 --   A two-page PDF.  Page 1: large heading, two sections, grey divider.
@@ -32,7 +32,7 @@ BEGIN
 
   -- -------------------------------------------------------------------------
   -- Define a custom style.
-  -- rad_pdf_styles.define() is idempotent — safe to call on every run.
+  -- rad_pdf_styles.define() is idempotent - safe to call on every run.
   -- Parameters not supplied inherit from the 'default' style.
   -- -------------------------------------------------------------------------
   rad_pdf_styles.define(
@@ -44,7 +44,7 @@ BEGIN
   );
 
   -- -------------------------------------------------------------------------
-  -- Document metadata — appears in File → Properties in PDF viewers
+  -- Document metadata - appears in File → Properties in PDF viewers
   -- -------------------------------------------------------------------------
   l_info.title   := 'Quarterly Report Q1 2026';
   l_info.author  := 'Finance Department';
@@ -57,12 +57,12 @@ BEGIN
   -- =========================================================================
 
   -- h1: Helvetica Bold 18 pt (built-in 'h1' style)
-  rad_pdf.heading(l_doc, 'Quarterly Report — Q1 2026', 1);
+  rad_pdf.heading(l_doc, 'Quarterly Report - Q1 2026', 1);
 
   -- h2: Helvetica Bold 16 pt (built-in 'h2' style)
   rad_pdf.heading(l_doc, 'Executive Summary', 2);
 
-  -- Body paragraph — text wraps automatically when wider than the printable area
+  -- Body paragraph - text wraps automatically when wider than the printable area
   rad_pdf.write(l_doc,
     'Revenue for Q1 2026 reached $4.2 M, an 18% increase year-over-year. ' ||
     'Operating costs decreased by 6% due to process automation initiatives.');
@@ -71,7 +71,7 @@ BEGIN
 
   -- Write with the custom 'notice' style
   rad_pdf.write(l_doc,
-    'NET PROFIT MARGIN: 23% — above the 20% annual target.',
+    'NET PROFIT MARGIN: 23% - above the 20% annual target.',
     'notice');
 
   rad_pdf.spacer(l_doc, 8);
@@ -88,7 +88,7 @@ BEGIN
     'APAC growth was 24%, driven by new enterprise contracts in Japan and Australia.');
 
   -- =========================================================================
-  -- PAGE BREAK — everything after this starts on a new page
+  -- PAGE BREAK - everything after this starts on a new page
   -- In layout mode, rad_pdf.new_page() inserts a page-break flowable.
   -- The engine places it precisely when rendering.
   -- =========================================================================
@@ -110,7 +110,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

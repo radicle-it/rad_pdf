@@ -1,5 +1,5 @@
 -- =============================================================================
--- apex_sample02.sql  —  Filtered report using an APEX page item as bind variable
+-- apex_sample02.sql  -  Filtered report using an APEX page item as bind variable
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -10,7 +10,7 @@
 --   • Use rad_pdf_table.refcursor2table instead of rad_pdf.query2table.
 --     refcursor2table accepts a SYS_REFCURSOR so the query can use
 --     PL/SQL bind variables (the :PXXX_ITEM syntax).
---   • NEVER concatenate APEX item values into a query string — that is a
+--   • NEVER concatenate APEX item values into a query string - that is a
 --     SQL injection vulnerability.  Always use bind variables.
 --   • NV('PXXX_ITEM') returns the item value as NUMBER; NULL means "not set".
 --
@@ -19,7 +19,7 @@
 --
 -- SCENARIO
 --   Page 5 has one page item:
---     P5_DEPTNO  — department filter (NUMBER; comes from a Select List
+--     P5_DEPTNO  - department filter (NUMBER; comes from a Select List
 --                  populated with DEPT values; NULL means "all departments")
 --   A "Download PDF" button submits the page and triggers this process.
 --
@@ -85,7 +85,7 @@ BEGIN
   l_cols(5).data_fmt.num_format := 'FM999,999,990.00';
 
   -- =========================================================================
-  -- Color scheme — teal
+  -- Color scheme - teal
   -- =========================================================================
   l_clr.header_paper  := '1A5276';
   l_clr.header_ink    := 'FFFFFF';
@@ -96,7 +96,7 @@ BEGIN
   l_clr.even_border   := 'AED6F1';
 
   -- =========================================================================
-  -- Open cursor with bind variable — no string concatenation, no injection
+  -- Open cursor with bind variable - no string concatenation, no injection
   -- :P5_DEPTNO is resolved by Oracle at parse time from the APEX item value.
   -- =========================================================================
   OPEN l_rc FOR
@@ -113,7 +113,7 @@ BEGIN
   -- Build report title from the selected department
   -- =========================================================================
   IF l_dept IS NOT NULL THEN
-    SELECT 'Employees — ' || dname
+    SELECT 'Employees - ' || dname
     INTO   l_title
     FROM   dept
     WHERE  deptno = l_dept;

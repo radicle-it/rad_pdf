@@ -1,9 +1,9 @@
 -- =============================================================================
--- sample08.sql  —  Wide table in landscape orientation
+-- sample08.sql  -  Wide table in landscape orientation
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf.set_page_orientation — switches the current page to LANDSCAPE,
+--   • rad_pdf.set_page_orientation - switches the current page to LANDSCAPE,
 --     swapping width and height.  A4 landscape becomes 842 × 595 pt instead
 --     of the default 595 × 842 pt portrait.
 --   • How to lay out a wide table (7 columns) that would overflow in portrait
@@ -20,7 +20,7 @@
 --   because the page format is stored per-document, not per-page.
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -35,7 +35,7 @@ BEGIN
 
   -- =========================================================================
   -- Column definitions
-  -- 7 columns totalling 620 pt — fits landscape A4 (~786 pt printable),
+  -- 7 columns totalling 620 pt - fits landscape A4 (~786 pt printable),
   -- but would overflow portrait A4 (~510 pt printable).
   -- =========================================================================
   l_cols := rad_pdf_types.t_columns();
@@ -88,7 +88,7 @@ BEGIN
   l_clr.even_border   := 'B0D4E0';
 
   -- =========================================================================
-  -- New document — switch to landscape before adding any content
+  -- New document - switch to landscape before adding any content
   -- =========================================================================
   l_doc := rad_pdf.new_document;
   rad_pdf.set_page_orientation(l_doc, 'LANDSCAPE');
@@ -126,7 +126,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

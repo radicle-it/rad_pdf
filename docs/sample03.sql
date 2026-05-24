@@ -1,5 +1,5 @@
 -- =============================================================================
--- sample03.sql  —  Canvas API: precise positioning without the layout engine
+-- sample03.sql  -  Canvas API: precise positioning without the layout engine
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -7,12 +7,12 @@
 --   Unlike the layout engine (rad_pdf.write / rad_pdf.heading), you specify exact
 --   x / y coordinates in points (pt) from the lower-left corner of the page.
 --
---   • rad_pdf_canvas.set_font    — choose font family, style, size
---   • rad_pdf_canvas.set_color   — set ink (text / line) colour
---   • rad_pdf_canvas.write_text  — place a string at an exact position
---   • rad_pdf_canvas.rect        — draw a filled and/or bordered rectangle
---   • rad_pdf_canvas.h_line      — draw a horizontal line
---   • rad_pdf_canvas.polygon     — draw an arbitrary filled polygon
+--   • rad_pdf_canvas.set_font    - choose font family, style, size
+--   • rad_pdf_canvas.set_color   - set ink (text / line) colour
+--   • rad_pdf_canvas.write_text  - place a string at an exact position
+--   • rad_pdf_canvas.rect        - draw a filled and/or bordered rectangle
+--   • rad_pdf_canvas.h_line      - draw a horizontal line
+--   • rad_pdf_canvas.polygon     - draw an arbitrary filled polygon
 --
 -- COORDINATE SYSTEM
 --   Origin (0, 0) is the BOTTOM-LEFT corner of the page.
@@ -29,7 +29,7 @@
 --   Use the layout engine (sample01/02) for flowing text and tables.
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -64,7 +64,7 @@ BEGIN
 
   -- write_text(doc, text, x, y, unit)
   -- y=779 places the baseline 9 pt above the rectangle bottom (y=770)
-  rad_pdf_canvas.write_text(l_doc, 'RAD_PDF — Canvas Drawing Sample', 58, 779, 'pt');
+  rad_pdf_canvas.write_text(l_doc, 'RAD_PDF - Canvas Drawing Sample', 58, 779, 'pt');
 
   -- =========================================================================
   -- Body text (back to black)
@@ -96,14 +96,14 @@ BEGIN
     rad_pdf_canvas.set_font(l_doc, 'Helvetica', 'N', 9);
     FOR i IN 1..5 LOOP
       l_y := l_y - 14;   -- move 14 pt down for each row
-      rad_pdf_canvas.write_text(l_doc, 'Row ' || i || ' — A',       50, l_y, 'pt');
+      rad_pdf_canvas.write_text(l_doc, 'Row ' || i || ' - A',       50, l_y, 'pt');
       rad_pdf_canvas.write_text(l_doc, TO_CHAR(i * 1000),           200, l_y, 'pt');
       rad_pdf_canvas.write_text(l_doc, TO_CHAR(ROUND(i*3.14159,2)), 380, l_y, 'pt');
     END LOOP;
   END;
 
   -- =========================================================================
-  -- Polygon — a triangle with a light-blue fill
+  -- Polygon - a triangle with a light-blue fill
   -- Each vertex is an entry in the l_xs / l_ys index-by tables.
   -- =========================================================================
   l_xs(1) := 50;   l_ys(1) := 620;   -- bottom-left vertex
@@ -125,14 +125,14 @@ BEGIN
     p_fill_color => NULL,          -- NULL = transparent (no fill)
     p_line_width => 1.5,
     p_unit       => 'pt');
-  rad_pdf_canvas.write_text(l_doc, 'rect() — no fill', 210, 605, 'pt');
+  rad_pdf_canvas.write_text(l_doc, 'rect() - no fill', 210, 605, 'pt');
 
   -- =========================================================================
-  -- Finalise — the canvas-only path skips the layout engine entirely
+  -- Finalise - the canvas-only path skips the layout engine entirely
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

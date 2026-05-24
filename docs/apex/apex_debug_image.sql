@@ -1,5 +1,5 @@
 -- =============================================================================
--- apex_debug_image.sql  —  Step-by-step diagnostic
+-- apex_debug_image.sql  -  Step-by-step diagnostic
 -- =============================================================================
 -- STEP 1: Run this first (image code commented out).
 --         Expected: PDF with the two text lines visible.
@@ -16,7 +16,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document;
 
-  -- Pure canvas text — no image, no layout flowables
+  -- Pure canvas text - no image, no layout flowables
   rad_pdf_canvas.set_font (l_doc, 'Helvetica', 'N', 12);
   rad_pdf_canvas.set_color(l_doc, '000000');
   rad_pdf_canvas.write_text(l_doc, 'STEP 1 - canvas text test', 42, 780, 'pt');

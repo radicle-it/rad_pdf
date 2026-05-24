@@ -1,23 +1,23 @@
 -- =============================================================================
--- sample07.sql  —  Label sheet: query2labels with t_label_def
+-- sample07.sql  -  Label sheet: query2labels with t_label_def
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf_types.t_label_def    — defines the physical layout of one label and
+--   • rad_pdf_types.t_label_def    - defines the physical layout of one label and
 --                                 how many labels fit across and down the page
---   • rad_pdf_table.query2labels   — fills labels left-to-right, top-to-bottom,
+--   • rad_pdf_table.query2labels   - fills labels left-to-right, top-to-bottom,
 --                                 exactly like peel-off label sheets
 --   • Column definitions control how data appears inside each label cell
 --
 -- LABEL GEOMETRY (t_label_def fields, all in points)
---   max_columns  — labels per row              (default 2)
---   max_rows     — label rows per page         (default 8)
---   width        — width of one label          (default ~60 mm)
---   height       — height of one label         (default ~30 mm)
---   h_distance   — horizontal gap between labels
---   v_distance   — vertical gap between labels
+--   max_columns  - labels per row              (default 2)
+--   max_rows     - label rows per page         (default 8)
+--   width        - width of one label          (default ~60 mm)
+--   height       - height of one label         (default ~30 mm)
+--   h_distance   - horizontal gap between labels
+--   v_distance   - vertical gap between labels
 --
---   The sample below targets Avery L7159 (or compatible) — 3 columns × 8 rows
+--   The sample below targets Avery L7159 (or compatible) - 3 columns × 8 rows
 --   = 24 labels per A4 page, each 70 × 37.1 mm.
 --   For other sizes, look up the specification in the manufacturer's PDF
 --   template library and convert mm → pt (1 mm = 2.8346 pt).
@@ -33,7 +33,7 @@
 -- NOTE: query2labels lives in rad_pdf_table, not in the rad_pdf facade.
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for save/download options.
+--   Same as sample01.sql - see its header for save/download options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -85,7 +85,7 @@ BEGIN
   l_cols(2).data_fmt.align_h    := 'L';
 
   -- =========================================================================
-  -- Color scheme — white background, thin grey border per label
+  -- Color scheme - white background, thin grey border per label
   -- =========================================================================
   l_clr.header_paper  := 'FFFFFF';
   l_clr.header_ink    := '000000';
@@ -124,7 +124,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

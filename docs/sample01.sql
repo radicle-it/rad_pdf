@@ -1,26 +1,26 @@
 -- =============================================================================
--- sample01.sql  —  Minimal: create a PDF with one line of text
+-- sample01.sql  -  Minimal: create a PDF with one line of text
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
 --   The absolute minimum to generate a PDF with RAD_PDF:
---     1. new_document  — opens a new blank document
---     2. write         — adds a paragraph of text
---     3. finalize      — closes the document and returns the PDF as a BLOB
+--     1. new_document  - opens a new blank document
+--     2. write         - adds a paragraph of text
+--     3. finalize      - closes the document and returns the PDF as a BLOB
 --
 -- HOW TO RUN
---   Option A — SQL*Plus or SQL Developer (Script Output):
+--   Option A - SQL*Plus or SQL Developer (Script Output):
 --     The script prints the file size to confirm it worked.
 --     To save the PDF file, see Option B.
 --
---   Option B — Save to a file via Oracle Directory:
+--   Option B - Save to a file via Oracle Directory:
 --     Requires an Oracle Directory object pointing to a writable folder.
 --     Uncomment the rad_pdf.save() call at the bottom and set the directory name.
 --     Example setup (run once as DBA):
 --       CREATE OR REPLACE DIRECTORY PDF_OUT AS '/tmp/rad_pdf';
 --       GRANT WRITE ON DIRECTORY PDF_OUT TO your_schema;
 --
---   Option C — SQL Developer bind variable:
+--   Option C - SQL Developer bind variable:
 --     Uncomment the ":rad_pdf := l_pdf" line.
 --     After running, right-click the BLOB result in Script Output → Save As.
 --
@@ -48,11 +48,11 @@ BEGIN
 
   -- Finalise the document: this builds the PDF binary (xref table,
   -- font objects, page streams) and returns it as a temporary BLOB.
-  -- After finalize() the handle l_doc is invalid — do not use it again.
+  -- After finalize() the handle l_doc is invalid - do not use it again.
   l_pdf := rad_pdf.finalize(l_doc);
 
   -- Confirm it worked.
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
 
   -- Option B: save to a directory on the database server.
   -- rad_pdf.save opens a new document internally, so call it INSTEAD of finalize,

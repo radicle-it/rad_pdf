@@ -1,19 +1,19 @@
 -- =============================================================================
--- sample05.sql  —  Production report: page template, header, footer, save
+-- sample05.sql  -  Production report: page template, header, footer, save
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf_types.t_page_template — assigns margin overrides AND embeds the
+--   • rad_pdf_types.t_page_template - assigns margin overrides AND embeds the
 --     header/footer PL/SQL code that runs on every page
---   • header_proc / footer_proc — anonymous PL/SQL blocks (BEGIN...END;),
+--   • header_proc / footer_proc - anonymous PL/SQL blocks (BEGIN...END;),
 --     stored as VARCHAR2 and executed by EXECUTE IMMEDIATE AFTER the render
 --     pass, so they can reference the final #PAGE_COUNT# value
 --   • Tokens replaced at runtime:
---       #DOC_HANDLE#   — document handle integer (lets the block call
+--       #DOC_HANDLE#   - document handle integer (lets the block call
 --                         rad_pdf_canvas.* without knowing the handle value)
---       #PAGE_NR#      — current page number, 1-based
---       #PAGE_COUNT#   — total number of pages in the document
---   • rad_pdf.save() — writes the PDF directly to an Oracle Directory object
+--       #PAGE_NR#      - current page number, 1-based
+--       #PAGE_COUNT#   - total number of pages in the document
+--   • rad_pdf.save() - writes the PDF directly to an Oracle Directory object
 --                  instead of returning a BLOB
 --
 -- PAGE TEMPLATE MECHANICS
@@ -34,7 +34,7 @@
 --   Then uncomment the rad_pdf.save() call and comment out finalize().
 --
 -- HOW TO RUN
---   Same as sample01.sql — see its header for other output options.
+--   Same as sample01.sql - see its header for other output options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -73,7 +73,7 @@ BEGIN
       'rad_pdf_canvas.set_font (#DOC_HANDLE#, ''Helvetica'', ''B'', 9); ' ||
       'rad_pdf_canvas.set_color(#DOC_HANDLE#, ''003366''); ' ||
       'rad_pdf_canvas.write_text(#DOC_HANDLE#, ' ||
-        '''Monthly Sales Report — Confidential'', 42, 818, ''pt''); ' ||
+        '''Monthly Sales Report - Confidential'', 42, 818, ''pt''); ' ||
       -- Page n / total at top-right in normal weight
       'rad_pdf_canvas.set_color(#DOC_HANDLE#, ''000000''); ' ||
       'rad_pdf_canvas.set_font (#DOC_HANDLE#, ''Helvetica'', ''N'', 9); ' ||
@@ -106,7 +106,7 @@ BEGIN
   l_info.keywords := 'sales report revenue region Q1 2026';
 
   -- =========================================================================
-  -- Column definitions — four columns; total ~390 pt
+  -- Column definitions - four columns; total ~390 pt
   -- =========================================================================
   l_cols := rad_pdf_types.t_columns();
   l_cols.EXTEND(4);
@@ -136,12 +136,12 @@ BEGIN
   l_clr.header_ink   := 'FFFFFF';
 
   -- =========================================================================
-  -- Build document — pass the template so it applies to every page
+  -- Build document - pass the template so it applies to every page
   -- =========================================================================
   l_doc := rad_pdf.new_document(p_info => l_info, p_template => l_tpl);
 
   rad_pdf.heading(l_doc, 'Monthly Sales Report', 1);
-  rad_pdf.heading(l_doc, 'Revenue by Region — Q1 2026', 2);
+  rad_pdf.heading(l_doc, 'Revenue by Region - Q1 2026', 2);
   rad_pdf.write  (l_doc,
     'The following table summarises closed deals and revenue per region for the ' ||
     'first quarter of 2026. Figures are in thousands of USD.');
@@ -166,12 +166,12 @@ BEGIN
     'Overall YoY growth: +17.4%', 'caption');
 
   -- =========================================================================
-  -- Output — choose one option:
+  -- Output - choose one option:
   -- =========================================================================
 
   -- Option A (default): return as BLOB for testing or SQL Developer preview
   l_pdf := rad_pdf.finalize(l_doc);
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;   -- uncomment to expose as SQL Developer bind variable
   DBMS_LOB.FREETEMPORARY(l_pdf);
 

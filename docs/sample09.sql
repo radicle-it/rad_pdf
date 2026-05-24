@@ -1,35 +1,35 @@
 -- =============================================================================
--- sample09.sql  —  Embedding images (JPEG / PNG / GIF)
+-- sample09.sql  -  Embedding images (JPEG / PNG / GIF)
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf_images.load_image      — load an image from a BLOB, Oracle Directory,
+--   • rad_pdf_images.load_image      - load an image from a BLOB, Oracle Directory,
 --                                   or HTTPS URL; returns an image_id integer
---   • rad_pdf_canvas.put_image       — place a loaded image at an exact x/y position
+--   • rad_pdf_canvas.put_image       - place a loaded image at an exact x/y position
 --                                   using the Canvas API
---   • rad_pdf.image                  — alternative: flow an image via the layout
+--   • rad_pdf.image                  - alternative: flow an image via the layout
 --                                   engine alongside headings and paragraphs
---   • rad_pdf_images.get_image_dimensions — query natural pixel dimensions before
+--   • rad_pdf_images.get_image_dimensions - query natural pixel dimensions before
 --                                   placing (useful for proportional scaling)
 --
 -- SUPPORTED FORMATS
---   JPEG (.jpg / .jpeg) — best for photographs
---   PNG  (.png)         — best for logos and sharp-edged diagrams (lossless)
---   GIF  (.gif)         — supported for legacy content
+--   JPEG (.jpg / .jpeg) - best for photographs
+--   PNG  (.png)         - best for logos and sharp-edged diagrams (lossless)
+--   GIF  (.gif)         - supported for legacy content
 --
 -- THREE WAYS TO LOAD AN IMAGE
---   Option A — from an Oracle Directory (most common in production)
+--   Option A - from an Oracle Directory (most common in production)
 --     Requires a DIRECTORY object pointing to a readable OS path:
 --       CREATE OR REPLACE DIRECTORY IMG_DIR AS '/tmp/images';
 --       GRANT READ ON DIRECTORY IMG_DIR TO <your_schema>;
 --     Then: l_img_id := rad_pdf_images.load_image(l_doc, 'IMG_DIR', 'logo.png');
 --
---   Option B — from a BLOB in memory
+--   Option B - from a BLOB in memory
 --     If the image is stored in a table column:
 --       SELECT img_data INTO l_blob FROM my_images WHERE id = 1;
 --       l_img_id := rad_pdf_images.load_image(l_doc, l_blob);
 --
---   Option C — from an HTTPS URL
+--   Option C - from an HTTPS URL
 --     The database server must be able to make outbound HTTPS connections.
 --     A network ACL must grant the calling schema 'http' privilege for the host.
 --     Run once as DBA:
@@ -51,7 +51,7 @@
 -- HOW TO RUN
 --   Edit the load_image call (choose Option A, B, or C) and set the correct
 --   directory name / filename / URL for your environment.
---   Then run as any other sample — see sample01.sql for options.
+--   Then run as any other sample - see sample01.sql for options.
 -- =============================================================================
 
 SET SERVEROUTPUT ON
@@ -68,7 +68,7 @@ BEGIN
   l_doc := rad_pdf.new_document;
 
   -- =========================================================================
-  -- Load the image — choose ONE of Options A, B, or C (see header above)
+  -- Load the image - choose ONE of Options A, B, or C (see header above)
   -- =========================================================================
 
   -- Option A: from an Oracle Directory
@@ -81,7 +81,7 @@ BEGIN
   --   l_img_id := rad_pdf_images.load_image(l_doc, l_blob);
   -- END;
 
-  -- Option C: from an HTTPS URL (uncomment, requires ACL — see header):
+  -- Option C: from an HTTPS URL (uncomment, requires ACL - see header):
   -- l_img_id := rad_pdf_images.load_image(l_doc, 'https://your.server/images/logo.png');
 
   -- =========================================================================
@@ -125,7 +125,7 @@ BEGIN
   -- Caption directly below the image (canvas API, absolute positioning)
   rad_pdf_canvas.set_font (l_doc, 'Helvetica', 'I', 8);
   rad_pdf_canvas.set_color(l_doc, '808080');
-  rad_pdf_canvas.write_text(l_doc, 'Figure 1 — logo.png loaded from Oracle Directory', 50, 492, 'pt');
+  rad_pdf_canvas.write_text(l_doc, 'Figure 1 - logo.png loaded from Oracle Directory', 50, 492, 'pt');
 
   -- =========================================================================
   -- Alternative: flow the image via the layout engine
@@ -140,7 +140,7 @@ BEGIN
   -- =========================================================================
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 END;

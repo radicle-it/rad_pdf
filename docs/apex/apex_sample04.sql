@@ -1,5 +1,5 @@
 -- =============================================================================
--- apex_sample04.sql  —  Full report with page header, footer, logo, and session info
+-- apex_sample04.sql  -  Full report with page header, footer, logo, and session info
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -20,7 +20,7 @@
 --
 -- LOGO
 --   Upload a JPEG or RGB PNG (no alpha channel) to APEX Static Application
---   Files and name it 'app_logo.jpg' (or .png — update file_name below).
+--   Files and name it 'app_logo.jpg' (or .png - update file_name below).
 --   If the file is missing or unsupported the document is generated without
 --   the logo; no error is raised.
 --
@@ -28,11 +28,11 @@
 --   Uses the standard EMP and DEPT tables (always present in Oracle databases).
 --
 -- V() AND NV() FUNCTIONS
---   V('APP_USER')           — APEX logged-in username
---   V('APP_SESSION')        — APEX session ID
---   V('APP_NAME')           — Application name
---   NV('APP_ID')            — Application ID as NUMBER
---   SYS_CONTEXT('USERENV','SESSION_USER') — Database session user
+--   V('APP_USER')           - APEX logged-in username
+--   V('APP_SESSION')        - APEX session ID
+--   V('APP_NAME')           - Application name
+--   NV('APP_ID')            - Application ID as NUMBER
+--   SYS_CONTEXT('USERENV','SESSION_USER') - Database session user
 --
 -- NOTE ON #DOC_HANDLE# IN header_proc / footer_proc
 --   The PL/SQL string is stored in the document handle and executed via
@@ -66,7 +66,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
 
   -- =========================================================================
-  -- Step 1: document metadata — displayed in PDF viewer File -> Properties
+  -- Step 1: document metadata - displayed in PDF viewer File -> Properties
   -- =========================================================================
   l_info.title    := l_app_name || ' - HR Report';
   l_info.author   := l_apex_user;
@@ -97,7 +97,7 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- Step 4: page template — A4 portrait with room for header and footer
+  -- Step 4: page template - A4 portrait with room for header and footer
   --
   --   Header area : y = [772 .. 842]   (margin_top = 70)
   --   Footer area : y = [0  ..  50]    (margin_bottom = 50)
@@ -194,7 +194,7 @@ BEGIN
   l_cols(6).data_fmt.num_format := 'FM999,999,990.00';
 
   -- =========================================================================
-  -- Color scheme — navy blue
+  -- Color scheme - navy blue
   -- =========================================================================
   l_clr.header_paper  := '1A3A5C';
   l_clr.header_ink    := 'FFFFFF';
