@@ -107,7 +107,7 @@ can be stored in a database table and updated without redeploying code.
 |---|---|
 | [docs/README.md](docs/README.md) | Full user guide and API reference |
 | [docs/apex/README.md](docs/apex/README.md) | Oracle APEX integration: streaming, page items, APEX-specific patterns |
-| [docs/apex/TEMPLATE_GUIDE.md](docs/apex/TEMPLATE_GUIDE.md) | Template engine reference: tag catalogue, bind syntax, options, patterns |
+| [docs/TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md) | Template engine reference: tag catalogue, bind syntax, options, patterns |
 
 ### Canvas API examples
 
@@ -151,7 +151,7 @@ See **[docs/apex/README.md](docs/apex/README.md)** for APEX-specific streaming a
 | [docs/apex/apex_sample06.sql](docs/apex/apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
 | [docs/apex/apex_sample07.sql](docs/apex/apex_sample07.sql) | Template engine quick-start: bind substitution, block tags, data table |
 
-Template engine examples for APEX (progressive curriculum — see [TEMPLATE_GUIDE.md](docs/apex/TEMPLATE_GUIDE.md)):
+Template engine examples for APEX (progressive curriculum — see [TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md)):
 
 | File | Feature |
 |---|---|

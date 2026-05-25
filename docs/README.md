@@ -193,7 +193,7 @@ rad_pdf_template.render(l_doc,
   l_binds);
 ```
 
-Full tag reference and patterns: **[apex/TEMPLATE_GUIDE.md](apex/TEMPLATE_GUIDE.md)**  
+Full tag reference and patterns: **[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)**  
 Template engine section of this guide: [Template Engine](#template-engine)
 
 ---
@@ -851,7 +851,7 @@ l_pdf := rad_pdf.finalize(l_doc);
 
 ### Full reference
 
-**[apex/TEMPLATE_GUIDE.md](apex/TEMPLATE_GUIDE.md)** — complete tag catalogue, all attributes, error codes,
+**[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)** — complete tag catalogue, all attributes, error codes,
 security notes, and patterns for APEX and non-APEX use.
 
 ---

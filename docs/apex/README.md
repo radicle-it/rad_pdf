@@ -230,7 +230,7 @@ The template engine (`rad_pdf_template`) lets you describe a PDF document as an
 XML-like CLOB string — no per-primitive canvas calls required.  It is the
 recommended approach for new reports.
 
-**Full reference and patterns:** [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)
+**Full reference and patterns:** [TEMPLATE_GUIDE.md](../TEMPLATE_GUIDE.md)
 
 ### Template engine examples (progressive, EMP/DEPT)
 
