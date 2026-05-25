@@ -45,7 +45,7 @@ PROMPT    @tests/phase9_integration.sql
 PROMPT    @tests/phase10_template.sql
 PROMPT
 PROMPT  Public API entry point rad_pdf package (rad_pdf.pks / rad_pdf.pkb)
-PROMPT  Template engine: rad_pdf_template.pks / rad_pdf_template.pkb
+PROMPT  Template engine (rad_pdf_template.pks / rad_pdf_template.pkb)
 PROMPT  See docs/sample01.sql .. sample10.sql for usage examples.
 PROMPT  See docs/apex/ for APEX-specific examples.
 PROMPT ================================================================

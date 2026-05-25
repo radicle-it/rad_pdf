@@ -2,7 +2,7 @@
 -- Run from the target schema in SQL*Plus or SQL Developer.
 -- All four packages are self-contained; no other RAD_PDF packages needed.
 --
--- Prerequisites (run once as SYSDBA or DBA before compiling):
+-- Prerequisites (run once as SYSDBA or DBA before compiling)
 --   GRANT EXECUTE ON SYS.DBMS_CRYPTO TO <your_schema>;
 --   GRANT EXECUTE ON SYS.UTL_COMPRESS TO <your_schema>;  -- needed by Phase 3 (rad_pdf_serial)
 
