@@ -11,19 +11,21 @@
 
 1. [Installation](#installation)
 2. [Quick Start](#quick-start)
-3. [Core Concepts](#core-concepts)
-4. [Document Lifecycle](#document-lifecycle)
-5. [Layout Engine](#layout-engine)
-6. [Canvas API](#canvas-api)
-7. [Tables](#tables)
-8. [Styles](#styles)
-9. [Page Geometry](#page-geometry)
-10. [Page Templates (Header / Footer)](#page-templates)
-11. [Fonts](#fonts)
-12. [Images](#images)
-13. [API Reference](#api-reference)
-14. [Known Limitations](#known-limitations)
-15. [Examples Index](#examples-index)
+3. [Choose Your Approach](#choose-your-approach)
+4. [Core Concepts](#core-concepts)
+5. [Document Lifecycle](#document-lifecycle)
+6. [Layout Engine](#layout-engine)
+7. [Canvas API](#canvas-api)
+8. [Tables](#tables)
+9. [Styles](#styles)
+10. [Page Geometry](#page-geometry)
+11. [Page Templates (Header / Footer)](#page-templates)
+12. [Fonts](#fonts)
+13. [Images](#images)
+14. [Template Engine](#template-engine)
+15. [API Reference](#api-reference)
+16. [Known Limitations](#known-limitations)
+17. [Examples Index](#examples-index)
 
 ---
 
@@ -77,7 +79,8 @@ The installer compiles all 12 packages in dependency order. Each phase prints it
 
 ```sql
 -- From the repo root directory:
-@tests/phase9_integration.sql
+@tests/phase9_integration.sql      -- canvas API + core packages
+@tests/phase10_template.sql        -- template engine
 ```
 
 All lines should read `PASS`. The final line will show the total count:
@@ -129,6 +132,7 @@ benchmark_large_table: 10 passed, 0 failed.
 ### Uninstall
 
 ```sql
+DROP PACKAGE rad_pdf_template;
 DROP PACKAGE rad_pdf;
 DROP PACKAGE rad_pdf_table;   DROP PACKAGE rad_pdf_layout;
 DROP PACKAGE rad_pdf_canvas;  DROP PACKAGE rad_pdf_images;
@@ -160,9 +164,37 @@ BEGIN
 END;
 ```
 
-The **only package application code needs to call** is `rad_pdf`.  
-All other packages (`rad_pdf_canvas`, `rad_pdf_table`, `rad_pdf_styles`, `rad_pdf_fonts`, `rad_pdf_images`) are
-optional extensions for advanced use.
+The **only packages application code needs to call** are `rad_pdf` (Canvas API) and optionally
+`rad_pdf_template` (Template engine).  All other packages are extensions for advanced use.
+
+---
+
+## Choose Your Approach
+
+RAD_PDF offers two ways to generate a PDF.  Both use the same document handle and the same
+underlying layout engine; choose based on your use case.
+
+| | Canvas API | Template engine |
+|---|---|---|
+| **How** | Call individual procedures (`heading`, `write`, `query2table`, …) | Pass an XML-like CLOB string with `#BIND#` tokens to `rad_pdf_template.render` |
+| **Best for** | Complex or unique layouts; canvas drawing (images at exact coordinates, polygons, rotated text); reports built entirely in PL/SQL | Consistent structure with varying content; templates stored in a DB table; rapid report development without per-element procedure calls |
+| **Flexibility** | Full pixel-level control | Covers the most common document elements; falls back to Canvas API for unusual layouts |
+| **Mixing** | Can call Canvas API before or between `render()` calls | Yes — both approaches share the same document handle |
+
+**Quick template engine example:**
+
+```sql
+l_binds(1).key := 'DEPT'; l_binds(1).value := 'Accounting';
+
+rad_pdf_template.render(l_doc,
+  '<h1>#DEPT# Report</h1>'                          ||
+  '<p>Revenue increased <b>18%</b> year-over-year.</p>' ||
+  '<if bind="NOTES"><p>#NOTES#</p></if>',
+  l_binds);
+```
+
+Full tag reference and patterns: **[apex/TEMPLATE_GUIDE.md](apex/TEMPLATE_GUIDE.md)**  
+Template engine section of this guide: [Template Engine](#template-engine)
 
 ---
 
@@ -711,6 +743,119 @@ rad_pdf_images.clear_image_cache;
 
 ---
 
+## Template Engine
+
+The template engine (`rad_pdf_template`) lets you describe a PDF as an XML-like CLOB string
+instead of making per-element procedure calls.  It is the recommended approach for new reports
+whose structure stays the same while content varies.
+
+### Quick start
+
+```sql
+DECLARE
+  l_doc    rad_pdf_types.t_doc_handle;
+  l_pdf    BLOB;
+  l_binds  rad_pdf_types.t_bind_array;
+BEGIN
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+
+  l_binds(1).key := 'CUSTOMER'; l_binds(1).value := 'Acme Corp';
+  l_binds(2).key := 'YEAR';     l_binds(2).value := '2025';
+
+  rad_pdf_template.render(l_doc,
+    '<h1>#CUSTOMER# — Annual Report #YEAR#</h1>'    ||
+    '<p>Revenue grew <b>18%</b> year-over-year.</p>',
+    l_binds);
+
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+END;
+```
+
+### Supported block tags
+
+| Tag | Description |
+|---|---|
+| `<p [style="name"]>…</p>` | Paragraph; optional style name |
+| `<h1>…</h1>` … `<h6>…</h6>` | Headings; inline markup supported |
+| `<ul><li>…</li></ul>` | Unordered (bullet) list |
+| `<ol><li>…</li></ol>` | Ordered (numbered) list |
+| `<spacer [height="20pt"]/>` | Vertical gap; any unit (pt, mm, cm) |
+| `<hr [color="RRGGBB"] [width="N"]/>` | Horizontal rule |
+| `<img id="N" [width="Xmm"] [height="Ymm"]/>` | Embedded image by image-ID |
+| `<table columns="NAME" query="…" allow_query="true" …/>` | Data table |
+| `<pagebreak/>` | Explicit page break |
+
+### Supported inline tags (inside `<p>`, `<li>`, `<h1>`–`<h6>`)
+
+| Tag | Description |
+|---|---|
+| `<b>…</b>` | Bold run |
+| `<i>…</i>` | Italic run |
+| `<br/>` | Forced line break within the paragraph |
+| `<color rgb="RRGGBB">…</color>` | Custom ink colour; unlimited nesting depth |
+| `<font size="Xpt">…</font>` | Custom font size; unlimited nesting depth |
+
+### Bind substitution
+
+```sql
+-- Bind values are auto-escaped (&, <, > → entities) by default.
+-- Set raw=TRUE only for values that already contain trusted inline markup.
+l_binds(1).key   := 'NOTES';
+l_binds(1).value := apex_item.text(1);  -- user-supplied: keep raw=FALSE (default)
+
+l_binds(2).key   := 'STATUS_HTML';
+l_binds(2).value := '<b><color rgb="006600">Active</color></b>';
+l_binds(2).raw   := TRUE;              -- trusted markup from PL/SQL code
+```
+
+### Conditional blocks
+
+```sql
+-- Block is rendered only when the bind value for KEY is non-NULL and non-empty.
+-- Tokens inside a suppressed block are never evaluated.
+'<if bind="COMM"><p>Commission: #COMM#</p></if>'
+```
+
+### Data tables
+
+```sql
+-- 1. Register a named column set once per session.
+rad_pdf_template.register_columns('EMP_COLS', l_cols);
+
+-- 2. Reference it in the template; enable queries in t_template_options.
+l_opts.allow_queries := TRUE;
+
+rad_pdf_template.render(l_doc,
+  '<table columns="EMP_COLS"'
+    || ' query="SELECT empno, ename, sal FROM emp WHERE deptno = #DEPTNO#"'
+    || ' allow_query="true"/>',
+  l_binds, l_opts);
+```
+
+Both `allow_query="true"` on the tag **and** `allow_queries := TRUE` in the options are required.
+Omitting either raises ORA-20815.
+
+### Multiple render() calls
+
+```sql
+-- Multiple render() calls on the same handle are additive (append, not replace).
+rad_pdf_template.render(l_doc, '<h1>Cover</h1>…');            -- page 1
+FOR dept IN c_dept LOOP
+  rad_pdf_template.render(l_doc, '<pagebreak/><h1>#DNAME#</h1>…', l_binds, l_opts);
+END LOOP;
+rad_pdf_template.render(l_doc, '<pagebreak/><p>End of report.</p>');
+l_pdf := rad_pdf.finalize(l_doc);
+```
+
+### Full reference
+
+**[apex/TEMPLATE_GUIDE.md](apex/TEMPLATE_GUIDE.md)** — complete tag catalogue, all attributes, error codes,
+security notes, and patterns for APEX and non-APEX use.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -766,6 +911,18 @@ rad_pdf_images.clear_image_cache;
 | `c_err_layout` | -20750 | Layout engine error |
 | `c_err_handle` | -20760 | Invalid document handle |
 
+**Template engine error codes** (`rad_pdf_template`):
+
+| Constant | Code | When raised |
+|---|---|---|
+| `c_err_template` | -20810 | Unclosed tag, unclosed `<if>`, malformed template |
+| — | -20811 | Unknown block tag (when `strict_tags = TRUE`) |
+| `c_err_table_attr` | -20813 | `<table>` missing required attribute (`columns` or `query`) |
+| `c_err_table_cols` | -20814 | `<table>` column set not registered |
+| `c_err_table_qry` | -20815 | `<table>` query execution blocked (missing tag or options flag) |
+| `c_err_img_id` | -20816 | `<img>` missing required `id` attribute |
+| `c_err_attr_val` | -20817 | Invalid attribute value (e.g. non-numeric height) |
+
 ---
 
 ## Known Limitations
@@ -788,7 +945,7 @@ rad_pdf_images.clear_image_cache;
 
 ## Examples Index
 
-### Core examples
+### Canvas API examples (standalone PL/SQL)
 
 | File | Description |
 |---|---|
@@ -803,15 +960,53 @@ rad_pdf_images.clear_image_cache;
 | [sample09.sql](sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |
 | [sample10.sql](sample10.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
 
-### Oracle APEX examples
+### Template engine examples (standalone PL/SQL)
 
-See **[apex/README.md](apex/README.md)** for APEX-specific installation and streaming patterns.
+For APEX-specific template examples see [apex/README.md](apex/README.md).
 
 | File | Description |
 |---|---|
+| [template_sample01.sql](template_sample01.sql) | Basic structure: h1–h6, p, spacer, hr, pagebreak — no binds |
+| [template_sample02.sql](template_sample02.sql) | Bind substitution, inline markup, conditional blocks — EMP data |
+| [template_sample03.sql](template_sample03.sql) | Lists (`<ul>`, `<ol>`), inline colour and font size |
+| [template_sample04.sql](template_sample04.sql) | Data table: `register_columns` + `<table>` tag with query |
+| [template_sample05.sql](template_sample05.sql) | Multi-section document: one `render()` call per department |
+| [sample11.sql](sample11.sql) | Template engine: department salary report with `<table>` and CLOB build |
+| [sample12.sql](sample12.sql) | DB-driven templates: load and render CLOB templates stored in a table |
+
+### Oracle APEX examples
+
+See **[apex/README.md](apex/README.md)** for APEX-specific installation, streaming, and page-item patterns.
+
+**Canvas API:**
+
+| File | Description |
+|---|---|
+| [apex/apex_sample00.sql](apex/apex_sample00.sql) | Letterhead: logo, company info, page header/footer on every page |
 | [apex/apex_sample01.sql](apex/apex_sample01.sql) | Minimal page process: generate PDF and stream to browser |
 | [apex/apex_sample02.sql](apex/apex_sample02.sql) | Filtered report using APEX page items as bind variables |
-| [apex/apex_sample03.sql](apex/apex_sample03.sql) | Store PDF in a table; stream from a separate download page |
+| [apex/apex_sample03.sql](apex/apex_sample03.sql) | Multi-section report: department summary + employee detail tables |
 | [apex/apex_sample04.sql](apex/apex_sample04.sql) | Full report with dynamic header, footer, and `V()` session info |
-| [apex/apex_sample05.sql](apex/apex_sample05.sql) | Cover page on page 1, header/footer from page 2, `get_info` usage |
+| [apex/apex_sample05.sql](apex/apex_sample05.sql) | Cover page on page 1, header/footer from page 2, `get_info` |
+| [apex/apex_sample06.sql](apex/apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
+| [apex/apex_sample07.sql](apex/apex_sample07.sql) | Template engine quick-start: bind substitution, tags, data table |
+
+**Template engine (progressive curriculum — start at 01, work through to 14):**
+
+| File | Feature introduced |
+|---|---|
+| [apex/apex_template_01.sql](apex/apex_template_01.sql) | Document structure: h1–h6, p, spacer, hr |
+| [apex/apex_template_02.sql](apex/apex_template_02.sql) | Bind substitution with `#KEY#` tokens |
+| [apex/apex_template_03.sql](apex/apex_template_03.sql) | Inline markup: `<b>`, `<i>`, raw binds |
+| [apex/apex_template_04.sql](apex/apex_template_04.sql) | Inline colour and font size |
+| [apex/apex_template_05.sql](apex/apex_template_05.sql) | Line breaks with `<br/>` |
+| [apex/apex_template_06.sql](apex/apex_template_06.sql) | Conditional blocks `<if bind="…">` |
+| [apex/apex_template_07.sql](apex/apex_template_07.sql) | Lists: `<ul>`, `<ol>`, `<li>` |
+| [apex/apex_template_08.sql](apex/apex_template_08.sql) | Data table: `<table columns="…" query="…">` |
+| [apex/apex_template_09.sql](apex/apex_template_09.sql) | Page break: two-page report |
+| [apex/apex_template_10.sql](apex/apex_template_10.sql) | Inline markup inside h1–h6 headings |
+| [apex/apex_template_11.sql](apex/apex_template_11.sql) | Multiple `render()` calls — one per department |
+| [apex/apex_template_12.sql](apex/apex_template_12.sql) | Custom default font via `t_template_options` |
+| [apex/apex_template_13.sql](apex/apex_template_13.sql) | DB-driven templates loaded from a table |
+| [apex/apex_template_14.sql](apex/apex_template_14.sql) | Complete department report — all features combined |
 
