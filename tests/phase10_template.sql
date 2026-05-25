@@ -886,6 +886,269 @@ EXCEPTION WHEN OTHERS THEN
 END;
 /
 
+-- ===========================================================================
+-- Test 27: <IF> uppercase normalization (Usability A fix)
+-- <IF bind="KEY"> and </IF> must be normalized to lowercase automatically.
+-- ===========================================================================
+DECLARE
+  l_doc   rad_pdf_types.t_doc_handle;
+  l_pdf   BLOB;
+  l_binds rad_pdf_types.t_bind_array;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 27: <IF> uppercase normalization');
+  l_binds(1).key   := 'DEPT';
+  l_binds(1).value := 'SALES';
+  -- ABSENT key -> FALSE block -> dropped even though tags are uppercase
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc, TO_CLOB(
+    '<h1>Dept: #DEPT#</h1>'                                        ||
+    '<IF bind="ABSENT"><p>Should not appear.</p></IF>'             ||
+    '<IF bind="DEPT"><p>Department is #DEPT#.</p></IF>'            ||
+    '<p>Done.</p>'),
+    l_binds);
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 28: <LI> case-insensitive inside <ul> (Bug C fix)
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 28: <LI> case-insensitive inside <ul>/<ol>');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  -- Mix uppercase <LI> and lowercase <li> — both must be found
+  rad_pdf_template.render(l_doc,
+    '<h1>List Test</h1>'                                           ||
+    '<ul>'                                                         ||
+      '<LI>Item one (uppercase LI)</LI>'                          ||
+      '<li>Item two (lowercase li)</li>'                          ||
+      '<Li>Item three (mixed case Li)</Li>'                        ||
+    '</ul>'                                                        ||
+    '<ol>'                                                         ||
+      '<LI>Numbered one</LI>'                                      ||
+      '<li>Numbered two</li>'                                      ||
+    '</ol>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 29: <br/> in plain paragraph uses PARA_RUNS (Usability C fix)
+-- A <p> with only <br/> and no other inline tags previously produced a
+-- 2pt spacer (plain-paragraph path).  After the fix it uses PARA_RUNS,
+-- giving a true forced line break inside the paragraph.
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 29: <br/> routes through PARA_RUNS even without bold/italic');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Break Test</h1>'                              ||
+    '<p>Line one.<br/>Line two.<br/>Line three.</p>'   ||
+    '<p>Second paragraph (no breaks).</p>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 30: inline markup inside <h1>-<h6> (Completeness B fix)
+-- Inline <b>, <color>, <font> inside a heading route through dispatch_paragraph
+-- with 'h{N}' style instead of rad_pdf_layout.heading().
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 30: inline markup inside <h1>-<h6>');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Plain heading level 1</h1>'                                        ||
+    '<h2>Heading with <b>bold</b> word</h2>'                               ||
+    '<h3>Heading with <color rgb="CC0000">red</color> word</h3>'           ||
+    '<h4>Heading <b><color rgb="003399">bold blue</color></b> combined</h4>'||
+    '<h5>Heading with <font size="9pt">small</font> text</h5>'             ||
+    '<h6>Plain h6 heading</h6>'                                             ||
+    '<p>Body follows.</p>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 31: t_template_options.default_font_name/style/size (Bug E fix)
+-- Setting these options previously had no effect.  After the fix they
+-- create a derived style and use it as the default_style.
+-- ===========================================================================
+DECLARE
+  l_doc  rad_pdf_types.t_doc_handle;
+  l_pdf  BLOB;
+  l_opts rad_pdf_types.t_template_options;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 31: default_font_name / default_font_size options');
+  rad_pdf_styles.load_defaults;
+  l_opts.default_font_size  := 13;
+  l_opts.default_font_style := 'B';
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Font Options Test</h1>'                                   ||
+    '<p>This paragraph should be bold 13pt (from options).</p>'   ||
+    '<p>So should this one.</p>',
+    l_opts);
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 32: long <p> content (> 32767 chars) plain text (Bug B fix)
+-- A single <p> block whose content exceeds 32767 characters previously
+-- raised ORA-20810.  Plain text (no inline tags) now uses the CLOB overload
+-- of rad_pdf_layout.paragraph.
+-- ===========================================================================
+DECLARE
+  l_doc    rad_pdf_types.t_doc_handle;
+  l_pdf    BLOB;
+  l_tmpl   CLOB;
+  l_para   VARCHAR2(4000);
+  l_chunk  VARCHAR2(100);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 32: single <p> with content > 32767 chars (plain text)');
+  DBMS_LOB.CREATETEMPORARY(l_tmpl, TRUE);
+
+  -- Build a single <p> block with > 32767 chars of plain text
+  l_chunk := '<p>';
+  DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH(l_chunk), l_chunk);
+  l_para  := 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '
+          || 'Pellentesque habitant morbi tristique senectus. ';
+  WHILE NVL(DBMS_LOB.GETLENGTH(l_tmpl), 0) < 33800 LOOP
+    DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH(l_para), l_para);
+  END LOOP;
+  l_chunk := '</p>';
+  DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH(l_chunk), l_chunk);
+
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc, l_tmpl);
+  DBMS_LOB.FREETEMPORARY(l_tmpl);
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  IF DBMS_LOB.ISTEMPORARY(l_tmpl) = 1 THEN DBMS_LOB.FREETEMPORARY(l_tmpl); END IF;
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 33: <table> distinct error messages for tag vs options (Usability D fix)
+-- Error -20815 must name which of the two opt-in conditions is missing.
+-- ===========================================================================
+DECLARE
+  l_cols  rad_pdf_types.t_columns;
+  l_doc   rad_pdf_types.t_doc_handle;
+  l_pdf   BLOB;
+  l_opts  rad_pdf_types.t_template_options;
+  l_got   VARCHAR2(4000);
+  l_tmpl_tag  CONSTANT VARCHAR2(400) :=
+    '<table columns="ERR_COLS"'                            ||
+    ' query="SELECT 1 FROM DUAL"'                         ||
+    ' allow_query="true"/>';   -- tag has allow_query; options do NOT
+  l_tmpl_opt  CONSTANT VARCHAR2(400) :=
+    '<table columns="ERR_COLS"'                            ||
+    ' query="SELECT 1 FROM DUAL"/>';  -- tag missing allow_query; options DO
+
+  PROCEDURE assert_err(p_got IN VARCHAR2, p_fragment IN VARCHAR2) IS
+  BEGIN
+    IF INSTR(p_got, p_fragment) = 0 THEN
+      RAISE_APPLICATION_ERROR(-20999,
+        'Expected fragment "' || p_fragment || '" in error: ' || p_got);
+    END IF;
+  END;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 33: <table> distinct opt-in errors (tag vs options)');
+  l_cols := rad_pdf_types.t_columns();
+  l_cols.EXTEND(1);
+  l_cols(1).label := 'X';
+  l_cols(1).width := 50;
+  rad_pdf_template.register_columns('ERR_COLS', l_cols);
+
+  -- Case A: tag has allow_query="true" but options.allow_queries = FALSE (default)
+  BEGIN
+    rad_pdf_styles.load_defaults;
+    l_doc := rad_pdf.new_document;
+    rad_pdf_template.render(l_doc, l_tmpl_tag);  -- no options passed -> allow_queries=FALSE
+    l_pdf := rad_pdf.finalize(l_doc);
+    DBMS_LOB.FREETEMPORARY(l_pdf);
+    RAISE_APPLICATION_ERROR(-20999, 'Expected ORA-20815 but none raised (case A)');
+  EXCEPTION
+    WHEN OTHERS THEN
+      l_got := SQLERRM;
+      IF SQLCODE != -20815 THEN RAISE; END IF;
+      assert_err(l_got, 't_template_options');  -- error mentions options
+      BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END;
+
+  -- Case B: tag missing allow_query but options.allow_queries = TRUE
+  BEGIN
+    l_opts.allow_queries := TRUE;
+    rad_pdf_styles.load_defaults;
+    l_doc := rad_pdf.new_document;
+    rad_pdf_template.render(l_doc, l_tmpl_opt, l_opts);
+    l_pdf := rad_pdf.finalize(l_doc);
+    DBMS_LOB.FREETEMPORARY(l_pdf);
+    RAISE_APPLICATION_ERROR(-20999, 'Expected ORA-20815 but none raised (case B)');
+  EXCEPTION
+    WHEN OTHERS THEN
+      l_got := SQLERRM;
+      IF SQLCODE != -20815 THEN RAISE; END IF;
+      assert_err(l_got, 'allow_query="true"');  -- error mentions tag attribute
+      BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END;
+
+  rad_pdf_template.drop_columns('ERR_COLS');
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 10 template engine tests complete.

@@ -106,7 +106,7 @@ FUNCTION extract_attr(
   p_tag  IN VARCHAR2,
   p_attr IN VARCHAR2
 ) RETURN VARCHAR2 IS
-  l_val VARCHAR2(4000);
+  l_val VARCHAR2(32767);
 BEGIN
   -- Double-quoted:  attr="value"
   l_val := REGEXP_SUBSTR(p_tag, p_attr || '\s*=\s*"([^"]*)"', 1, 1, 'i', 1);
@@ -337,12 +337,15 @@ END parse_inline;
 -- ---------------------------------------------------------------------------
 -- Private: dispatch the text content of a <p> block.
 --
--- When the paragraph contains no inline style changes the text is emitted
--- as a plain PARAGRAPH flowable (single style, word-wrapped).
+-- When the paragraph contains no inline style changes and no <br/> tags
+-- the text is emitted as a plain PARAGRAPH flowable (single style,
+-- word-wrapped).
 --
 -- When the paragraph contains at least one styled run (<b>, <i>,
--- <color>, <font>) the text is emitted as a PARA_RUNS flowable, rendering
--- all runs on the same word-wrapped lines (true inline mixed styling).
+-- <color>, <font>) OR a forced line break (<br/>), the text is emitted as
+-- a PARA_RUNS flowable, rendering all runs on the same word-wrapped lines.
+-- Treating <br/> as a PARA_RUNS trigger ensures it always behaves as a
+-- true within-paragraph line break regardless of other inline markup.
 --
 -- Style variants are derived lazily via derive_style.
 -- ---------------------------------------------------------------------------
@@ -360,13 +363,15 @@ PROCEDURE dispatch_paragraph(
 BEGIN
   l_runs := parse_inline(p_text);
 
-  -- Quick scan: does this paragraph contain any styled run?
+  -- Quick scan: does this paragraph contain any styled run or a <br/>?
+  -- <br/> is included so it always routes through PARA_RUNS (true line break)
+  -- rather than the legacy plain-paragraph spacer path.
   i := l_runs.FIRST;
   WHILE i IS NOT NULL LOOP
-    IF NOT l_runs(i).is_br
-       AND (l_runs(i).bold OR l_runs(i).italic
-            OR l_runs(i).color IS NOT NULL
-            OR l_runs(i).font_size IS NOT NULL)
+    IF l_runs(i).is_br
+       OR l_runs(i).bold OR l_runs(i).italic
+       OR l_runs(i).color IS NOT NULL
+       OR l_runs(i).font_size IS NOT NULL
     THEN
       l_has_mix := TRUE;
       EXIT;
@@ -498,12 +503,17 @@ BEGIN
           '<table> column set not registered: "' || l_col_name || '"');
       END IF;
       -- Security double opt-in: tag AND options must both enable queries.
+      -- Two separate checks so the error message names the missing piece.
       l_allow_q := LOWER(NVL(extract_attr(p_tag, 'allow_query'), 'false'));
-      IF l_allow_q != 'true' OR NOT NVL(p_options.allow_queries, FALSE) THEN
+      IF l_allow_q != 'true' THEN
         RAISE_APPLICATION_ERROR(c_err_table_qry,
-          '<table> query execution not enabled; '
-          || 'set allow_query="true" in the tag '
-          || 'and allow_queries => TRUE in t_template_options');
+          '<table> query execution blocked: '
+          || 'add allow_query="true" to the <table> tag');
+      END IF;
+      IF NOT NVL(p_options.allow_queries, FALSE) THEN
+        RAISE_APPLICATION_ERROR(c_err_table_qry,
+          '<table> query execution blocked: '
+          || 'set allow_queries => TRUE in t_template_options');
       END IF;
       l_tdef.query_txt    := l_qry;
       l_tdef.col_defs     := g_col_registry(UPPER(l_col_name));
@@ -563,63 +573,136 @@ END dispatch_self_close;
 -- ---------------------------------------------------------------------------
 -- Private: dispatch an open/close block tag pair.
 -- p_tag     = opening tag raw string (may contain attributes).
--- p_content = text content between the opening and closing tags.
+-- p_content = CLOB slice of the content between the opening and closing tags.
+--             May be NULL for empty tags such as <p></p>.
+--
+-- <p>   : content <= 32767 chars uses the full inline-markup path.
+--         content  > 32767 chars without inline tags uses the CLOB overload
+--         of rad_pdf_layout.paragraph (no 32767 limit for plain text).
+--         content  > 32767 chars with inline tags raises ORA-20810.
+--
+-- <h1>-<h6> : always converted to VARCHAR2 (headings are always short).
+--             When inline tags are detected, dispatched as PARA_RUNS using
+--             the predefined 'h{N}' style so mixed markup is rendered inline.
+--
+-- <ul>/<ol> : short lists (content <= 32767) use LOWER for case-insensitive
+--             <li> search while preserving original case for extraction.
+--             Long lists (content > 32767) use DBMS_LOB.INSTR — <li> tags
+--             must be lowercase in that case.
 -- ---------------------------------------------------------------------------
 PROCEDURE dispatch_open_close(
   p_doc     IN rad_pdf_types.t_doc_handle,
   p_name    IN VARCHAR2,
   p_tag     IN VARCHAR2,
-  p_content IN VARCHAR2,
+  p_content IN CLOB,
   p_options IN rad_pdf_types.t_template_options
 ) IS
-  l_style   VARCHAR2(100);
-  l_level   PLS_INTEGER;
-  -- ul / ol list parsing
-  l_con     VARCHAR2(32767);
+  l_style      VARCHAR2(100);
+  l_level      PLS_INTEGER;
+  l_cnt_len    PLS_INTEGER;      -- CLOB length of p_content
+  l_content_vc VARCHAR2(32767);  -- VARCHAR2 extract for short content
+  l_con_lc     VARCHAR2(32767);  -- lowercase copy for case-insensitive search
+  -- List parsing
   l_li_s    PLS_INTEGER;
   l_li_e    PLS_INTEGER;
   l_li_txt  VARCHAR2(32767);
+  l_cnt_li  PLS_INTEGER;
   l_nr      PLS_INTEGER;
   l_prefix  VARCHAR2(20);
 BEGIN
+  l_cnt_len := NVL(DBMS_LOB.GETLENGTH(p_content), 0);
+
   IF p_name = 'p' THEN
-    -- Optional style attribute on the <p> tag; fall back to default_style.
+    -- -----------------------------------------------------------------------
+    -- Paragraph: optional style attribute, inline markup, CLOB-aware.
+    -- -----------------------------------------------------------------------
     l_style := NVL(extract_attr(p_tag, 'style'),
                NVL(p_options.default_style, 'body'));
-    dispatch_paragraph(p_doc, p_content, l_style);
+    IF l_cnt_len = 0 THEN
+      NULL;  -- <p></p>: no-op
+    ELSIF l_cnt_len <= 32767 THEN
+      -- Short content: full inline-markup path.
+      dispatch_paragraph(p_doc, DBMS_LOB.SUBSTR(p_content, l_cnt_len, 1), l_style);
+    ELSE
+      -- Long content (> 32767 chars).
+      IF DBMS_LOB.INSTR(p_content, '<') > 0 THEN
+        -- Inline markup present: can't scan inline tags beyond VARCHAR2 limit.
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+          '<p> content exceeds 32767 characters and contains inline tags. '
+          || 'Split the paragraph into multiple <p> blocks.');
+      END IF;
+      -- Plain long text: use the CLOB overload of rad_pdf_layout.paragraph.
+      rad_pdf_layout.add(p_doc, rad_pdf_layout.paragraph(p_content, l_style));
+    END IF;
 
   ELSIF REGEXP_LIKE(p_name, '^h[1-6]$') THEN
+    -- -----------------------------------------------------------------------
+    -- Heading: extract to VARCHAR2 (headings are always short in practice).
+    -- When inline tags are detected, dispatch as PARA_RUNS using the
+    -- predefined 'h{N}' style so <b>, <color>, etc. render inline.
+    -- -----------------------------------------------------------------------
     l_level := TO_NUMBER(SUBSTR(p_name, 2));
-    rad_pdf_layout.add(p_doc,
-      rad_pdf_layout.heading(decode_entities(p_content), l_level));
+    IF l_cnt_len > 0 THEN
+      l_content_vc := DBMS_LOB.SUBSTR(p_content, LEAST(l_cnt_len, 32767), 1);
+      IF INSTR(l_content_vc, '<') > 0 THEN
+        -- Inline markup detected: route through PARA_RUNS with heading style.
+        dispatch_paragraph(p_doc, l_content_vc, 'h' || l_level);
+      ELSE
+        rad_pdf_layout.add(p_doc,
+          rad_pdf_layout.heading(decode_entities(l_content_vc), l_level));
+      END IF;
+    END IF;
 
   ELSIF p_name IN ('ul', 'ol') THEN
     -- -----------------------------------------------------------------------
-    -- <ul>/<ol>: parse <li>...</li> items and emit each as a paragraph.
-    -- <li> content may contain inline tags (<b>, <i>, <br/>).
-    -- Bullet character: '*  ' for <ul>, 'N.  ' for <ol>.
+    -- List: parse <li>...</li> items and emit each as a paragraph.
+    -- Short lists: LOWER applied to a VARCHAR2 copy for case-insensitive
+    --              <li>/<li> search; extraction uses the original case.
+    -- Long lists:  DBMS_LOB.INSTR on the CLOB (lowercase <li> required).
+    -- Bullet prefix: '*  ' for <ul>, 'N.  ' for <ol>.
     -- Optional style="..." on the <ul>/<ol> tag sets the item text style.
     -- -----------------------------------------------------------------------
     l_style := NVL(extract_attr(p_tag, 'style'),
                NVL(p_options.default_style, 'body'));
-    l_con   := NVL(p_content, '');
     l_nr    := 0;
-    l_li_s  := INSTR(l_con, '<li>');
-    WHILE l_li_s > 0 LOOP
-      l_li_e  := INSTR(l_con, '</li>', l_li_s + 4);
-      IF l_li_e = 0 THEN EXIT; END IF;
-      l_li_txt := SUBSTR(l_con, l_li_s + 4, l_li_e - (l_li_s + 4));
-      l_nr     := l_nr + 1;
-      IF p_name = 'ol' THEN
-        l_prefix := TO_CHAR(l_nr) || '.  ';
+
+    IF l_cnt_len > 0 THEN
+      IF l_cnt_len <= 32767 THEN
+        -- Short list: case-insensitive <li> search via LOWER copy.
+        l_content_vc := DBMS_LOB.SUBSTR(p_content, l_cnt_len, 1);
+        l_con_lc     := LOWER(l_content_vc);
+        l_li_s       := INSTR(l_con_lc, '<li>');
+        WHILE l_li_s > 0 LOOP
+          l_li_e := INSTR(l_con_lc, '</li>', l_li_s + 4);
+          IF l_li_e = 0 THEN EXIT; END IF;
+          l_li_txt := SUBSTR(l_content_vc, l_li_s + 4, l_li_e - (l_li_s + 4));
+          l_nr     := l_nr + 1;
+          l_prefix := CASE WHEN p_name = 'ol'
+                           THEN TO_CHAR(l_nr) || '.  '
+                           ELSE '*  ' END;
+          dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
+          l_li_s := INSTR(l_con_lc, '<li>', l_li_e + 5);
+        END LOOP;
       ELSE
-        l_prefix := '*  ';
+        -- Long list: CLOB-based search (tags must be lowercase).
+        l_li_s := DBMS_LOB.INSTR(p_content, '<li>');
+        WHILE l_li_s > 0 LOOP
+          l_li_e := DBMS_LOB.INSTR(p_content, '</li>', l_li_s + 4);
+          IF l_li_e = 0 THEN EXIT; END IF;
+          l_cnt_li := l_li_e - (l_li_s + 4);
+          l_li_txt := CASE WHEN l_cnt_li > 0
+                           THEN DBMS_LOB.SUBSTR(p_content,
+                                  LEAST(l_cnt_li, 32767), l_li_s + 4)
+                           ELSE NULL END;
+          l_nr     := l_nr + 1;
+          l_prefix := CASE WHEN p_name = 'ol'
+                           THEN TO_CHAR(l_nr) || '.  '
+                           ELSE '*  ' END;
+          dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
+          l_li_s := DBMS_LOB.INSTR(p_content, '<li>', l_li_e + 5);
+        END LOOP;
       END IF;
-      -- Prefix is plain text; item content may contain inline <b>/<i> tags.
-      -- dispatch_paragraph handles both cases (PARA_RUNS or plain PARAGRAPH).
-      dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
-      l_li_s := INSTR(l_con, '<li>', l_li_e + 5);
-    END LOOP;
+    END IF;
 
   ELSE
     IF NVL(p_options.strict_tags, TRUE) THEN
@@ -913,6 +996,15 @@ END apply_conditionals;
 -- Scans the CLOB for block-level tags using DBMS_LOB.INSTR / DBMS_LOB.SUBSTR.
 -- Text between block tags is silently skipped (whitespace / newlines).
 -- Options are normalised before entering the loop.
+--
+-- Block content is extracted into a temporary CLOB (no 32767-char limit).
+-- dispatch_open_close handles content > 32767 for the tags that support it
+-- (plain <p>, long lists) and raises ORA-20810 when inline markup prevents it.
+--
+-- default_font_name / default_font_style / default_font_size:
+--   When any of these are set, a derived style variant is created lazily
+--   from the effective default_style and used as the new default_style for
+--   the duration of this render call.  This makes the font options work.
 -- ---------------------------------------------------------------------------
 PROCEDURE do_render(
   p_doc     IN rad_pdf_types.t_doc_handle,
@@ -928,11 +1020,16 @@ PROCEDURE do_render(
   l_close_tag VARCHAR2(110);
   l_close_pos PLS_INTEGER;
   l_cnt_len   PLS_INTEGER;
-  l_content   VARCHAR2(32767);
+  l_content   CLOB;             -- temporary CLOB for each block's content
   l_is_self   BOOLEAN;
   l_opts      rad_pdf_types.t_template_options;
+  -- For default_font_* style derivation
+  l_dft_fmt   rad_pdf_types.t_cell_format;
+  l_dft_sty   VARCHAR2(150);
 BEGIN
-  -- Normalise options (apply defaults for NULL fields)
+  -- -------------------------------------------------------------------------
+  -- Normalise options (apply defaults for NULL fields).
+  -- -------------------------------------------------------------------------
   l_opts.default_font_name  := p_options.default_font_name;
   l_opts.default_font_style := p_options.default_font_style;
   l_opts.default_font_size  := p_options.default_font_size;
@@ -940,10 +1037,54 @@ BEGIN
   l_opts.strict_tags        := NVL(p_options.strict_tags,   TRUE);
   l_opts.allow_queries      := NVL(p_options.allow_queries, FALSE);
 
+  -- -------------------------------------------------------------------------
+  -- Implement default_font_name / default_font_style / default_font_size.
+  -- Create a derived style variant from the effective default_style and
+  -- substitute it as l_opts.default_style for this render call.
+  -- -------------------------------------------------------------------------
+  IF l_opts.default_font_name  IS NOT NULL
+     OR l_opts.default_font_style IS NOT NULL
+     OR l_opts.default_font_size  IS NOT NULL
+  THEN
+    l_dft_sty := l_opts.default_style || '__dft'
+      || CASE WHEN l_opts.default_font_name IS NOT NULL
+              THEN '_fn' || LOWER(REGEXP_REPLACE(l_opts.default_font_name,
+                                                 '[^a-zA-Z0-9]', ''))
+              ELSE '' END
+      || CASE WHEN l_opts.default_font_style IS NOT NULL
+              THEN '_' || LOWER(l_opts.default_font_style)
+              ELSE '' END
+      || CASE WHEN l_opts.default_font_size IS NOT NULL
+              THEN '_s' || TO_CHAR(ROUND(l_opts.default_font_size))
+              ELSE '' END;
+
+    IF NOT rad_pdf_styles.exists_style(l_dft_sty) THEN
+      l_dft_fmt := rad_pdf_styles.get(l_opts.default_style);
+      IF l_opts.default_font_name  IS NOT NULL THEN
+        l_dft_fmt.font_name  := l_opts.default_font_name;
+      END IF;
+      IF l_opts.default_font_style IS NOT NULL THEN
+        l_dft_fmt.font_style := l_opts.default_font_style;
+      END IF;
+      IF l_opts.default_font_size  IS NOT NULL THEN
+        l_dft_fmt.font_size  := l_opts.default_font_size;
+      END IF;
+      rad_pdf_styles.define(
+        p_name       => l_dft_sty,
+        p_font_name  => l_dft_fmt.font_name,
+        p_font_style => l_dft_fmt.font_style,
+        p_font_size  => l_dft_fmt.font_size,
+        p_font_color => l_dft_fmt.font_color,
+        p_back_color => l_dft_fmt.back_color);
+    END IF;
+    l_opts.default_style := l_dft_sty;
+  END IF;
+
   l_len := NVL(DBMS_LOB.GETLENGTH(p_clob), 0);
   IF l_len = 0 THEN RETURN; END IF;
 
   WHILE l_pos <= l_len LOOP
+    l_content := NULL;  -- reset each iteration for EXCEPTION cleanup
 
     -- Locate next '<'
     l_tag_start := DBMS_LOB.INSTR(p_clob, '<', l_pos);
@@ -994,28 +1135,36 @@ BEGIN
               || l_close_tag || ' found)');
           END IF;
 
-          -- Guard: block content must fit in VARCHAR2
+          -- Extract block content into a temporary CLOB (no 32767 limit).
+          -- DBMS_LOB.COPY requires amount > 0; adjacent tags yield NULL.
           l_cnt_len := l_close_pos - l_tag_end - 1;
-          IF l_cnt_len > 32767 THEN
-            RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
-              'Content of <' || l_tag_name
-              || '> block exceeds 32767 characters (' || l_cnt_len || ')');
-          END IF;
-
-          -- Extract content (NULL when tags are adjacent, e.g. <p></p>)
           IF l_cnt_len > 0 THEN
-            l_content := DBMS_LOB.SUBSTR(p_clob, l_cnt_len, l_tag_end + 1);
-          ELSE
-            l_content := NULL;
+            DBMS_LOB.CREATETEMPORARY(l_content, TRUE);
+            DBMS_LOB.COPY(l_content, p_clob, l_cnt_len, 1, l_tag_end + 1);
           END IF;
 
           dispatch_open_close(p_doc, l_tag_name, l_tag_raw, l_content, l_opts);
+
+          -- Free the content CLOB after dispatching
+          IF l_content IS NOT NULL
+             AND DBMS_LOB.ISTEMPORARY(l_content) = 1
+          THEN
+            DBMS_LOB.FREETEMPORARY(l_content);
+            l_content := NULL;
+          END IF;
+
           l_pos := l_close_pos + LENGTH(l_close_tag);
         END IF;
       END IF;
     END IF;
 
   END LOOP;
+EXCEPTION
+  WHEN OTHERS THEN
+    IF l_content IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_content) = 1 THEN
+      DBMS_LOB.FREETEMPORARY(l_content);
+    END IF;
+    RAISE;
 END do_render;
 
 -- ===========================================================================
@@ -1062,6 +1211,8 @@ END escape_value;
 -- ===========================================================================
 
 -- CLOB + binds — full CLOB pipeline, no size limit on the template.
+-- Phase 0: normalise uppercase <IF ...> / </IF> to lowercase (DBMS_LOB.INSTR
+--          is case-sensitive; Oracle REPLACE works on CLOB).
 -- Phase 1 (when <if> blocks are present): evaluate conditional blocks.
 -- Phase 2: substitute bind tokens via CLOB-level scanning.
 -- Phase 3: parse and render the resulting CLOB.
@@ -1073,26 +1224,41 @@ PROCEDURE render(
 ) IS
   l_bound CLOB;
   l_cond  CLOB;
+  l_src   CLOB;  -- normalised source (alias to p_clob when no normalisation needed)
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
+
+  -- Phase 0: normalise <IF ...> / </IF> tags so the CLOB scanner sees lowercase.
+  IF DBMS_LOB.INSTR(p_clob, '<IF ', 1) > 0
+     OR DBMS_LOB.INSTR(p_clob, '</IF>', 1) > 0
+  THEN
+    l_src := REPLACE(REPLACE(p_clob, '<IF ', '<if '), '</IF>', '</if>');
+  ELSE
+    l_src := p_clob;  -- no copy; l_src is just an alias
+  END IF;
+
   DBMS_LOB.CREATETEMPORARY(l_bound, TRUE);
-  IF DBMS_LOB.INSTR(p_clob, '<if ', 1) > 0 THEN
+  IF DBMS_LOB.INSTR(l_src, '<if ', 1) > 0 THEN
     -- Phase 1: resolve <if bind="KEY"> conditional blocks
     DBMS_LOB.CREATETEMPORARY(l_cond, TRUE);
-    apply_conditionals(p_clob, l_cond, p_binds);
+    apply_conditionals(l_src, l_cond, p_binds);
     -- Phase 2: bind substitution on the post-conditional CLOB
     apply_binds_clob(l_cond, l_bound, p_binds);
     DBMS_LOB.FREETEMPORARY(l_cond);
   ELSE
     -- No conditionals: bind substitution directly on the source CLOB
-    apply_binds_clob(p_clob, l_bound, p_binds);
+    apply_binds_clob(l_src, l_bound, p_binds);
   END IF;
   do_render(p_doc, l_bound, p_options);
   DBMS_LOB.FREETEMPORARY(l_bound);
+  IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
+    DBMS_LOB.FREETEMPORARY(l_src);
+  END IF;
 EXCEPTION
   WHEN OTHERS THEN
     IF DBMS_LOB.ISTEMPORARY(l_bound) = 1 THEN DBMS_LOB.FREETEMPORARY(l_bound); END IF;
     IF DBMS_LOB.ISTEMPORARY(l_cond)  = 1 THEN DBMS_LOB.FREETEMPORARY(l_cond);  END IF;
+    IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN DBMS_LOB.FREETEMPORARY(l_src); END IF;
     RAISE;
 END render;
 
