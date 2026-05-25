@@ -43,10 +43,11 @@ If you want one RAD_PDF installation shared by multiple workspaces:
    GRANT EXECUTE ON rad_pdf_serial  TO <workspace_schema>;
    GRANT EXECUTE ON rad_pdf_fonts   TO <workspace_schema>;
    GRANT EXECUTE ON rad_pdf_images  TO <workspace_schema>;
-   GRANT EXECUTE ON rad_pdf_canvas  TO <workspace_schema>;
-   GRANT EXECUTE ON rad_pdf_layout  TO <workspace_schema>;
-   GRANT EXECUTE ON rad_pdf_table   TO <workspace_schema>;
-   GRANT EXECUTE ON rad_pdf         TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_canvas   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_layout   TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_table    TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf          TO <workspace_schema>;
+   GRANT EXECUTE ON rad_pdf_template TO <workspace_schema>;  -- Phase 9 template engine
    ```
 
 3. In the workspace schema, create public synonyms if you do not want to prefix
@@ -208,6 +209,8 @@ Available `c_info_*` constants (all return values in points unless noted):
 
 ## Examples
 
+### Canvas API examples
+
 | File | Description |
 |---|---|
 | [apex_sample00.sql](apex_sample00.sql) | Letterhead template: logo, company info, page header/footer on every page |
@@ -217,3 +220,36 @@ Available `c_info_*` constants (all return values in points unless noted):
 | [apex_sample04.sql](apex_sample04.sql) | Full report with dynamic header, footer, and V() session info |
 | [apex_sample05.sql](apex_sample05.sql) | Cover page on page 1, header/footer from page 2, get_info usage |
 | [apex_sample06.sql](apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
+| [apex_sample07.sql](apex_sample07.sql) | Template engine quick-start: bind substitution, block tags, table tag |
+
+---
+
+## Template engine
+
+The template engine (`rad_pdf_template`) lets you describe a PDF document as an
+XML-like CLOB string — no per-primitive canvas calls required.  It is the
+recommended approach for new reports.
+
+**Full reference and patterns:** [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)
+
+### Template engine examples (progressive, EMP/DEPT)
+
+The examples below build incrementally — each file introduces one new feature.
+Start from `apex_template_01.sql` and work through to `apex_template_14.sql`.
+
+| File | Feature introduced | APEX page items |
+|---|---|---|
+| [apex_template_01.sql](apex_template_01.sql) | Document structure: h1–h6, p, spacer, hr | none |
+| [apex_template_02.sql](apex_template_02.sql) | Bind substitution with `#KEY#` tokens | `P1_EMPNO` |
+| [apex_template_03.sql](apex_template_03.sql) | Inline markup: `<b>`, `<i>`, raw binds | `P1_DEPTNO` |
+| [apex_template_04.sql](apex_template_04.sql) | Inline colour and font size | `P1_DEPTNO` |
+| [apex_template_05.sql](apex_template_05.sql) | Line breaks with `<br/>` | `P1_EMPNO` |
+| [apex_template_06.sql](apex_template_06.sql) | Conditional blocks `<if bind="…">` | `P1_EMPNO`, `P1_SHOW_SALARY`, `P1_NOTES` |
+| [apex_template_07.sql](apex_template_07.sql) | Lists: `<ul>`, `<ol>`, `<li>` with inline markup | `P1_DEPTNO` |
+| [apex_template_08.sql](apex_template_08.sql) | Data table with `<table columns="…" query="…">` | `P1_DEPTNO` |
+| [apex_template_09.sql](apex_template_09.sql) | Page break — two-page report | `P1_DEPTNO` |
+| [apex_template_10.sql](apex_template_10.sql) | Inline markup inside headings h1–h6 | `P1_DEPTNO` |
+| [apex_template_11.sql](apex_template_11.sql) | Multiple `render()` calls — one per department | none |
+| [apex_template_12.sql](apex_template_12.sql) | Custom default font via `t_template_options` | `P1_DEPTNO`, `P1_FONT_SIZE`, `P1_FONT_STYLE` |
+| [apex_template_13.sql](apex_template_13.sql) | DB-driven templates loaded from a table | `P1_DEPTNO`, `P1_TEMPLATE_NAME` |
+| [apex_template_14.sql](apex_template_14.sql) | Complete department report — all features combined | `P1_DEPTNO`, `P1_NOTES`, `P1_SHOW_COMMS` |
