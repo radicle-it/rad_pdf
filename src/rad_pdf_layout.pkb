@@ -9,12 +9,33 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
 
   TYPE t_table_def_map IS TABLE OF rad_pdf_types.t_table_def INDEX BY PLS_INTEGER;
 
+  -- ---------------------------------------------------------------------------
+  -- PARA_RUNS support: inline mixed-style paragraphs
+  -- ---------------------------------------------------------------------------
+  -- Word atom: one non-space token from a run, with its resolved style name.
+  TYPE t_atom IS RECORD (
+    word         VARCHAR2(32767),
+    style_name   VARCHAR2(110),
+    space_before BOOLEAN := FALSE,   -- TRUE = space must precede this atom
+    is_br        BOOLEAN := FALSE    -- TRUE = forced line-break marker
+  );
+  TYPE t_atom_list IS TABLE OF t_atom INDEX BY PLS_INTEGER;
+
+  -- Registered run set per flowable (keyed by para_runs_ref_id).
+  TYPE t_runs_entry IS RECORD (
+    runs       rad_pdf_types.t_inline_run_list,
+    base_style VARCHAR2(110) := 'body'
+  );
+  TYPE t_runs_registry IS TABLE OF t_runs_entry INDEX BY PLS_INTEGER;
+
   TYPE t_layout_state IS RECORD (
     flowables     rad_pdf_types.t_flowable_list,
     table_defs    t_table_def_map,
+    runs_defs     t_runs_registry,
     template      rad_pdf_types.t_page_template,
     total_pages   PLS_INTEGER := 0,
-    next_table_id PLS_INTEGER := 1
+    next_table_id PLS_INTEGER := 1,
+    next_runs_id  PLS_INTEGER := 1
   );
   TYPE t_layout_map IS TABLE OF t_layout_state INDEX BY PLS_INTEGER;
   g_layout t_layout_map;
@@ -97,6 +118,310 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
   END apply_template_to_page;
 
 -- ---------------------------------------------------------------------------
+-- Private: expand a t_inline_run_list into a flat word-atom list.
+-- Each atom is a single non-space token from a run, tagged with its style.
+-- Space handling:
+--   • space_before=TRUE  → a space separates this atom from the previous one
+--   • space_before=FALSE → atoms are adjacent (e.g. mid-word style change)
+--   • is_br=TRUE         → forced line-break (from <br/>); word is NULL
+-- ---------------------------------------------------------------------------
+  PROCEDURE expand_atoms(
+    p_runs  IN  rad_pdf_types.t_inline_run_list,
+    p_atoms OUT t_atom_list,
+    p_count OUT PLS_INTEGER
+  ) IS
+    l_text    VARCHAR2(32767);
+    l_len     PLS_INTEGER;
+    l_pos     PLS_INTEGER;
+    l_ws      PLS_INTEGER;
+    l_word    VARCHAR2(32767);
+    l_skipped BOOLEAN;
+    l_first   BOOLEAN;
+    l_prev_sp BOOLEAN := FALSE;   -- did the previous run end with a space?
+    l_atom    t_atom;
+    i         PLS_INTEGER;
+  BEGIN
+    p_count := 0;
+    i := p_runs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF p_runs(i).is_br THEN
+        p_count := p_count + 1;
+        p_atoms(p_count).word         := NULL;
+        p_atoms(p_count).style_name   := NVL(p_runs(i).style_name, 'body');
+        p_atoms(p_count).space_before := FALSE;
+        p_atoms(p_count).is_br        := TRUE;
+        l_prev_sp := FALSE;
+      ELSE
+        l_text  := NVL(p_runs(i).text, '');
+        l_len   := NVL(LENGTH(l_text), 0);
+        l_pos   := 1;
+        l_first := TRUE;
+        WHILE l_pos <= l_len LOOP
+          -- Skip whitespace
+          l_skipped := FALSE;
+          WHILE l_pos <= l_len AND SUBSTR(l_text, l_pos, 1) = ' ' LOOP
+            l_skipped := TRUE;
+            l_pos     := l_pos + 1;
+          END LOOP;
+          EXIT WHEN l_pos > l_len;
+          -- Extract next word (non-space run)
+          l_ws := l_pos;
+          WHILE l_pos <= l_len AND SUBSTR(l_text, l_pos, 1) != ' ' LOOP
+            l_pos := l_pos + 1;
+          END LOOP;
+          l_word := SUBSTR(l_text, l_ws, l_pos - l_ws);
+          -- Build atom
+          p_count := p_count + 1;
+          p_atoms(p_count).word       := l_word;
+          p_atoms(p_count).style_name := NVL(p_runs(i).style_name, 'body');
+          p_atoms(p_count).is_br      := FALSE;
+          IF l_first THEN
+            -- First word of run: space_before = prev run ended with space
+            --                    OR this run starts with space(s).
+            p_atoms(p_count).space_before := l_prev_sp OR l_skipped;
+            l_first := FALSE;
+          ELSE
+            -- Subsequent words within same run: always space-separated.
+            p_atoms(p_count).space_before := TRUE;
+          END IF;
+        END LOOP;
+        -- Record whether this run ended with a space.
+        l_prev_sp := (l_len > 0 AND SUBSTR(l_text, l_len, 1) = ' ');
+      END IF;
+      i := p_runs.NEXT(i);
+    END LOOP;
+  END expand_atoms;
+
+-- ---------------------------------------------------------------------------
+-- Private: measure height of a PARA_RUNS flowable (no rendering).
+-- ---------------------------------------------------------------------------
+  FUNCTION measure_para_runs(
+    p_doc    IN rad_pdf_types.t_doc_handle,
+    p_ref_id IN PLS_INTEGER,
+    p_w      IN NUMBER
+  ) RETURN NUMBER IS
+    l_atoms    t_atom_list;
+    l_n        PLS_INTEGER;
+    l_entry    t_runs_entry;
+    l_base_sty rad_pdf_types.t_cell_format;
+    l_cur_sty  rad_pdf_types.t_cell_format;
+    l_lead     NUMBER;
+    l_lines    PLS_INTEGER := 0;
+    l_line_w   NUMBER      := 0;
+    l_word_w   NUMBER;
+    l_space_w  NUMBER;
+    l_first    BOOLEAN := TRUE;
+    j          PLS_INTEGER;
+  BEGIN
+    IF NOT g_layout.EXISTS(p_doc) THEN RETURN 0; END IF;
+    IF NOT g_layout(p_doc).runs_defs.EXISTS(p_ref_id) THEN RETURN 0; END IF;
+    l_entry    := g_layout(p_doc).runs_defs(p_ref_id);
+    l_base_sty := rad_pdf_styles.get(NVL(l_entry.base_style, 'body'));
+    l_lead     := l_base_sty.font_size * 1.2;
+    expand_atoms(l_entry.runs, l_atoms, l_n);
+    j := 1;
+    WHILE j <= l_n LOOP
+      IF l_atoms(j).is_br THEN
+        -- Forced line break; flush current line
+        IF NOT l_first THEN
+          l_lines  := l_lines + 1;
+          l_line_w := 0;
+          l_first  := TRUE;
+        END IF;
+      ELSE
+        l_cur_sty := rad_pdf_styles.get(l_atoms(j).style_name);
+        rad_pdf_canvas.set_font(p_doc,
+          l_cur_sty.font_name, l_cur_sty.font_style, l_cur_sty.font_size);
+        l_word_w  := rad_pdf_canvas.text_width(p_doc, l_atoms(j).word);
+        l_space_w := rad_pdf_canvas.text_width(p_doc, ' ');
+        IF l_first THEN
+          l_line_w := l_word_w;
+          l_first  := FALSE;
+        ELSIF l_atoms(j).space_before THEN
+          IF l_line_w + l_space_w + l_word_w > p_w THEN
+            l_lines  := l_lines + 1;
+            l_line_w := l_word_w;
+          ELSE
+            l_line_w := l_line_w + l_space_w + l_word_w;
+          END IF;
+        ELSE
+          -- Adjacent (no space): mid-word style change
+          IF l_line_w + l_word_w > p_w THEN
+            l_lines  := l_lines + 1;
+            l_line_w := l_word_w;
+          ELSE
+            l_line_w := l_line_w + l_word_w;
+          END IF;
+        END IF;
+      END IF;
+      j := j + 1;
+    END LOOP;
+    IF NOT l_first THEN
+      l_lines := l_lines + 1;   -- last (or only) line
+    END IF;
+    RETURN l_lines * l_lead;
+  END measure_para_runs;
+
+-- ---------------------------------------------------------------------------
+-- Private: render a PARA_RUNS flowable onto the current page.
+-- Uses a nested flush_line procedure to emit completed lines with alignment.
+-- ---------------------------------------------------------------------------
+  PROCEDURE render_para_runs(
+    p_doc    IN rad_pdf_types.t_doc_handle,
+    p_ref_id IN PLS_INTEGER,
+    p_frame  IN rad_pdf_types.t_frame,
+    p_y      IN NUMBER
+  ) IS
+    l_atoms  t_atom_list;
+    l_n      PLS_INTEGER;
+    l_entry  t_runs_entry;
+    l_base   rad_pdf_types.t_cell_format;
+    l_cur    rad_pdf_types.t_cell_format;
+    l_lead   NUMBER;
+    l_x      NUMBER := p_frame.x;
+    l_y      NUMBER := p_y;
+    l_w      NUMBER := p_frame.width;
+    l_align  rad_pdf_types.t_align_h;
+
+    -- Line segment buffer
+    TYPE t_seg IS RECORD (
+      word        VARCHAR2(32767),
+      style_name  VARCHAR2(110),
+      word_width  NUMBER,
+      space_width NUMBER,
+      space_before BOOLEAN := FALSE
+    );
+    TYPE t_seg_list IS TABLE OF t_seg INDEX BY PLS_INTEGER;
+    l_segs      t_seg_list;
+    l_seg_count PLS_INTEGER := 0;
+    l_line_w    NUMBER      := 0;
+    l_first     BOOLEAN     := TRUE;
+    l_word_w    NUMBER;
+    l_space_w   NUMBER;
+    j           PLS_INTEGER;
+
+    -- Nested: flush current line to PDF
+    PROCEDURE flush_line IS
+      l_total NUMBER := 0;
+      l_off_x NUMBER;
+      l_cur_x NUMBER;
+      l_sty   rad_pdf_types.t_cell_format;
+      k       PLS_INTEGER;
+    BEGIN
+      IF l_seg_count = 0 THEN RETURN; END IF;
+      -- Compute total line width (sum words + inter-word spaces)
+      k := 1;
+      WHILE k <= l_seg_count LOOP
+        IF k > 1 AND l_segs(k).space_before THEN
+          l_total := l_total + l_segs(k).space_width;
+        END IF;
+        l_total := l_total + l_segs(k).word_width;
+        k := k + 1;
+      END LOOP;
+      -- Alignment offset
+      l_off_x := CASE l_align
+                   WHEN 'R' THEN l_x + (l_w - l_total)
+                   WHEN 'C' THEN l_x + (l_w - l_total) / 2
+                   ELSE l_x
+                 END;
+      l_cur_x := l_off_x;
+      -- Draw each segment
+      k := 1;
+      WHILE k <= l_seg_count LOOP
+        IF k > 1 AND l_segs(k).space_before THEN
+          l_cur_x := l_cur_x + l_segs(k).space_width;
+        END IF;
+        l_sty := rad_pdf_styles.get(l_segs(k).style_name);
+        rad_pdf_canvas.set_font(p_doc,
+          l_sty.font_name, l_sty.font_style, l_sty.font_size);
+        rad_pdf_canvas.set_color(p_doc, NVL(l_sty.font_color, '000000'));
+        rad_pdf_canvas.write_text(p_doc, l_segs(k).word, l_cur_x, l_y, 'pt');
+        l_cur_x := l_cur_x + l_segs(k).word_width;
+        k := k + 1;
+      END LOOP;
+      -- Advance y by leading; reset line buffer
+      l_y         := l_y - l_lead;
+      l_seg_count := 0;
+      l_line_w    := 0;
+      l_first     := TRUE;
+    END flush_line;
+
+  BEGIN
+    IF NOT g_layout.EXISTS(p_doc) THEN RETURN; END IF;
+    IF NOT g_layout(p_doc).runs_defs.EXISTS(p_ref_id) THEN RETURN; END IF;
+    l_entry := g_layout(p_doc).runs_defs(p_ref_id);
+    l_base  := rad_pdf_styles.get(NVL(l_entry.base_style, 'body'));
+    l_lead  := l_base.font_size * 1.2;
+    l_align := NVL(l_base.align_h, 'L');
+    expand_atoms(l_entry.runs, l_atoms, l_n);
+    IF l_n = 0 THEN RETURN; END IF;
+
+    j := 1;
+    WHILE j <= l_n LOOP
+      IF l_atoms(j).is_br THEN
+        flush_line;
+      ELSE
+        l_cur   := rad_pdf_styles.get(l_atoms(j).style_name);
+        rad_pdf_canvas.set_font(p_doc,
+          l_cur.font_name, l_cur.font_style, l_cur.font_size);
+        l_word_w  := rad_pdf_canvas.text_width(p_doc, l_atoms(j).word);
+        l_space_w := rad_pdf_canvas.text_width(p_doc, ' ');
+        IF l_first THEN
+          l_seg_count := l_seg_count + 1;
+          l_segs(l_seg_count).word        := l_atoms(j).word;
+          l_segs(l_seg_count).style_name  := l_atoms(j).style_name;
+          l_segs(l_seg_count).word_width  := l_word_w;
+          l_segs(l_seg_count).space_width := l_space_w;
+          l_segs(l_seg_count).space_before := FALSE;
+          l_line_w := l_word_w;
+          l_first  := FALSE;
+        ELSIF l_atoms(j).space_before THEN
+          IF l_line_w + l_space_w + l_word_w > l_w THEN
+            flush_line;
+            l_seg_count := l_seg_count + 1;
+            l_segs(l_seg_count).word        := l_atoms(j).word;
+            l_segs(l_seg_count).style_name  := l_atoms(j).style_name;
+            l_segs(l_seg_count).word_width  := l_word_w;
+            l_segs(l_seg_count).space_width := l_space_w;
+            l_segs(l_seg_count).space_before := FALSE;
+            l_line_w := l_word_w;
+          ELSE
+            l_seg_count := l_seg_count + 1;
+            l_segs(l_seg_count).word        := l_atoms(j).word;
+            l_segs(l_seg_count).style_name  := l_atoms(j).style_name;
+            l_segs(l_seg_count).word_width  := l_word_w;
+            l_segs(l_seg_count).space_width := l_space_w;
+            l_segs(l_seg_count).space_before := TRUE;
+            l_line_w := l_line_w + l_space_w + l_word_w;
+          END IF;
+        ELSE
+          -- Adjacent (no space): mid-word style change
+          IF l_line_w + l_word_w > l_w THEN
+            flush_line;
+            l_seg_count := l_seg_count + 1;
+            l_segs(l_seg_count).word        := l_atoms(j).word;
+            l_segs(l_seg_count).style_name  := l_atoms(j).style_name;
+            l_segs(l_seg_count).word_width  := l_word_w;
+            l_segs(l_seg_count).space_width := l_space_w;
+            l_segs(l_seg_count).space_before := FALSE;
+            l_line_w := l_word_w;
+          ELSE
+            l_seg_count := l_seg_count + 1;
+            l_segs(l_seg_count).word        := l_atoms(j).word;
+            l_segs(l_seg_count).style_name  := l_atoms(j).style_name;
+            l_segs(l_seg_count).word_width  := l_word_w;
+            l_segs(l_seg_count).space_width := l_space_w;
+            l_segs(l_seg_count).space_before := FALSE;
+            l_line_w := l_line_w + l_word_w;
+          END IF;
+        END IF;
+      END IF;
+      j := j + 1;
+    END LOOP;
+    flush_line;   -- emit last (or only) line
+  END render_para_runs;
+
+-- ---------------------------------------------------------------------------
 -- Measure a single flowable (dry-run, no PDF output).
 -- Sets the current canvas font to match the flowable style (side effect).
 -- Returns height in pt.
@@ -143,6 +468,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
           RETURN rad_pdf_table.measure_table(p_doc, p_flow.table_ref_id, p_frame.width);
         END IF;
         RETURN 0;
+      WHEN rad_pdf_types.c_flow_para_runs THEN
+        RETURN measure_para_runs(p_doc, p_flow.para_runs_ref_id, p_frame.width);
       ELSE
         RETURN 0;
     END CASE;
@@ -190,6 +517,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
       WHEN rad_pdf_types.c_flow_table THEN
         rad_pdf_table.draw_table(p_doc, p_flow.table_ref_id,
                              p_frame.x, p_y, p_frame.width);
+      WHEN rad_pdf_types.c_flow_para_runs THEN
+        render_para_runs(p_doc, p_flow.para_runs_ref_id, p_frame, p_y);
       ELSE NULL;
     END CASE;
   END render_flowable;
@@ -314,6 +643,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
     l_f.flow_type := rad_pdf_types.c_flow_pagebreak;
     RETURN l_f;
   END page_break;
+
+-- ---------------------------------------------------------------------------
+  FUNCTION paragraph_runs(
+    p_doc   IN rad_pdf_types.t_doc_handle,
+    p_runs  IN rad_pdf_types.t_inline_run_list,
+    p_style IN VARCHAR2 DEFAULT 'body'
+  ) RETURN rad_pdf_types.t_flowable IS
+    l_f      rad_pdf_types.t_flowable;
+    l_ref_id PLS_INTEGER;
+    l_entry  t_runs_entry;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    l_ref_id           := g_layout(p_doc).next_runs_id;
+    l_entry.runs       := p_runs;
+    l_entry.base_style := NVL(p_style, 'body');
+    g_layout(p_doc).runs_defs(l_ref_id) := l_entry;
+    g_layout(p_doc).next_runs_id        := l_ref_id + 1;
+    l_f.flow_type        := rad_pdf_types.c_flow_para_runs;
+    l_f.para_runs_ref_id := l_ref_id;
+    l_f.style_name       := NVL(p_style, 'body');
+    RETURN l_f;
+  END paragraph_runs;
 
 -- ---------------------------------------------------------------------------
   FUNCTION register_table(p_doc       IN rad_pdf_types.t_doc_handle,
@@ -441,6 +793,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
       END IF;
       l_tidx := g_layout(p_doc).table_defs.NEXT(l_tidx);
     END LOOP;
+    -- runs_defs holds only VARCHAR2 data; no FREETEMPORARY needed.
+    g_layout(p_doc).runs_defs.DELETE;
     g_layout.DELETE(p_doc);
   END close_doc;
 

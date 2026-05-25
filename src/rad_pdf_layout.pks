@@ -48,6 +48,18 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
 
   FUNCTION page_break                                    RETURN rad_pdf_types.t_flowable;
 
+  -- paragraph_runs: a paragraph whose text may contain inline bold / italic /
+  -- colour changes.  p_runs is the pre-parsed list of inline segments; each
+  -- segment carries its pre-computed style_name (from derive_style) and an
+  -- optional is_br flag for forced line-breaks.
+  -- The flowable renders all runs on a single, word-wrapped paragraph —
+  -- different from creating separate flowables for each run (the v1 behaviour).
+  FUNCTION paragraph_runs(
+    p_doc   IN rad_pdf_types.t_doc_handle,
+    p_runs  IN rad_pdf_types.t_inline_run_list,
+    p_style IN VARCHAR2 DEFAULT 'body'
+  ) RETURN rad_pdf_types.t_flowable;
+
 -- ---------------------------------------------------------------------------
 -- Internal API (called by rad_pdf_table and rad_pdf — not for application use)
 -- ---------------------------------------------------------------------------

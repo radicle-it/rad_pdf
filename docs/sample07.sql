@@ -71,18 +71,35 @@ BEGIN
   l_cols := rad_pdf_types.t_columns();
   l_cols.EXTEND(2);
 
+  -- Oracle EXTEND creates NULL records; TYPE defaults are NOT applied to
+  -- nested-table elements.  Initialize every colour / font / margin field
+  -- that the renderer reads before overriding individual column values.
+  FOR i IN 1..2 LOOP
+    l_cols(i).data_fmt.font_name   := 'Helvetica';
+    l_cols(i).data_fmt.font_style  := 'N';
+    l_cols(i).data_fmt.font_size   := 10;
+    l_cols(i).data_fmt.font_color  := '000000';
+    l_cols(i).data_fmt.back_color  := 'FFFFFF';
+    l_cols(i).data_fmt.line_color  := '000000';
+    l_cols(i).data_fmt.line_size   := 0.5;
+    l_cols(i).data_fmt.border      := 0;
+    l_cols(i).data_fmt.margin_top  := 2;
+    l_cols(i).data_fmt.margin_bot  := 2;
+    l_cols(i).data_fmt.margin_left := 4;
+    l_cols(i).data_fmt.margin_rgt  := 4;
+    l_cols(i).data_fmt.align_h     := 'L';
+  END LOOP;
+
   l_cols(1).label               := NULL;     -- no column header row for labels
   l_cols(1).width               := 198.4;
   l_cols(1).cell_row            := 1;        -- first text line
-  l_cols(1).data_fmt.font_style := 'B';
+  l_cols(1).data_fmt.font_style := 'B';      -- bold company name
   l_cols(1).data_fmt.font_size  := 10;
-  l_cols(1).data_fmt.align_h    := 'L';
 
   l_cols(2).label               := NULL;
   l_cols(2).width               := 198.4;
   l_cols(2).cell_row            := 2;        -- second text line
   l_cols(2).data_fmt.font_size  := 9;
-  l_cols(2).data_fmt.align_h    := 'L';
 
   -- =========================================================================
   -- Color scheme - white background, thin grey border per label

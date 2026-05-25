@@ -6,28 +6,52 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_template IS
   Block tags parsed by do_render (CLOB scanner):
     <p [style="..."]>...</p>
     <h1>...</h1>  ..  <h6>...</h6>
+    <ul [style="..."]><li>...</li></ul>          unordered list (bullet)
+    <ol [style="..."]><li>...</li></ol>          ordered list (numbered)
     <spacer [height="20pt"]/>
     <hr [color="cccccc"] [width="0.5"]/>
     <img id="N" [width="Xmm"] [height="Ymm"]/>
-    <table columns="NAME" query="SELECT ..." allow_query="true"/>
+    <table columns="NAME" query="SELECT ..."
+           [row_height="Xpt"] [max_rows="N"]
+           [header_bg="RRGGBB"] [alt_bg="RRGGBB"] [border_color="RRGGBB"]
+           allow_query="true"/>
     <pagebreak/>
 
-  Inline tags inside <p> content (parsed by parse_inline):
-    <b>...</b>    bold run  -> derives style variant p_style__b
-    <i>...</i>    italic    -> derives style variant p_style__i
-    <br/>         emits a 2pt spacer flowable
+  Inline tags inside <p> / <li> content (parsed by parse_inline):
+    <b>...</b>          bold run  -> derives style variant p_style__b
+    <i>...</i>          italic    -> derives style variant p_style__i
+    <br/>               forced line-break within the paragraph
+    <color rgb="RRGGBB">...</color>
+                        custom ink colour (6-char hex, case-insensitive).
+                        Single-level nesting supported; inner <color> overrides
+                        until </color> restores the outer colour.
+    <font size="Xpt">...</font>
+                        custom font size (any unit accepted by rad_pdf_units).
+                        Single-level nesting supported.
 
-  Placeholder tokens substituted before parsing (bind path only):
-    #KEY#  ->  bind value (case-insensitive on key)
+  Placeholder tokens substituted before parsing:
+    #KEY#  ->  bind value (auto-escaped unless raw=TRUE in t_bind_entry)
     ##     ->  literal #
 
+  Conditional blocks (evaluated before bind substitution):
+    <if bind="KEY">...</if>
+      Rendered only when the bind value for KEY is non-NULL and non-empty.
+      Nested <if> blocks are not supported in v1.
+
   Implementation notes:
-  - Tag names must be lowercase.  Uppercase tags (e.g. <P>) are not handled in v1.
-  - The bind path converts the template to VARCHAR2; requires length <= 32767 chars.
-  - The no-bind path passes the CLOB directly; no size limit.
+  - Block and inline tag names are case-insensitive (<P>, <H1>, <B>, <Color>…
+    all work; the parser applies LOWER() before matching).
+  - Attribute names are case-insensitive (REGEXP_SUBSTR with 'i' flag).
+  - Exception: <if>…</if> conditional tags must be lowercase because the
+    CLOB-level DBMS_LOB.INSTR scanner is case-sensitive.
+  - Both the bind path and the no-bind path accept CLOBs of any size (no 32767
+    limit).  Bind substitution is done by CLOB-level scanning, not via VARCHAR2.
   - <table> requires both allow_query="true" in the tag AND
     p_options.allow_queries = TRUE in the render call (security double opt-in).
-  - Inline bold/italic runs become separate block-level flowables (v1 limitation).
+  - Inline bold/italic runs within a <p> / <li> are rendered inline on the same
+    line via the PARA_RUNS flowable (paragraph_runs constructor in rad_pdf_layout).
+  - Bind values are auto-escaped (& < > converted to entities) by default.
+    Set raw=TRUE on a t_bind_entry to bypass escaping for already-safe values.
 */
 
 -- ---------------------------------------------------------------------------
@@ -40,10 +64,12 @@ g_col_registry t_col_registry;
 -- Private: inline run record
 -- ---------------------------------------------------------------------------
 TYPE t_run IS RECORD (
-  text    VARCHAR2(32767) := NULL,
-  bold    BOOLEAN         := FALSE,
-  italic  BOOLEAN         := FALSE,
-  is_br   BOOLEAN         := FALSE
+  text      VARCHAR2(32767) := NULL,
+  bold      BOOLEAN         := FALSE,
+  italic    BOOLEAN         := FALSE,
+  is_br     BOOLEAN         := FALSE,
+  color     VARCHAR2(6)     := NULL,  -- NULL = inherit from style
+  font_size NUMBER          := NULL   -- NULL = inherit from style; in pt
 );
 TYPE t_run_list IS TABLE OF t_run INDEX BY PLS_INTEGER;
 
@@ -118,70 +144,73 @@ EXCEPTION
 END parse_unit_attr;
 
 -- ---------------------------------------------------------------------------
--- Private: apply bind substitutions.
--- The CLOB must be <= 32767 characters; raises c_err_template if larger.
--- Replaces ## with CHR(0) before binding, then restores -> literal #.
--- ---------------------------------------------------------------------------
-FUNCTION apply_binds(
-  p_clob  IN CLOB,
-  p_binds IN rad_pdf_types.t_bind_array
-) RETURN VARCHAR2 IS
-  l_len PLS_INTEGER;
-  l_str VARCHAR2(32767);
-  i     BINARY_INTEGER;
-BEGIN
-  l_len := NVL(DBMS_LOB.GETLENGTH(p_clob), 0);
-  IF l_len = 0 THEN
-    RETURN NULL;
-  END IF;
-  IF l_len > 32767 THEN
-    RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
-      'Template with bind values must be <= 32767 characters (current: '
-      || l_len || ')');
-  END IF;
-  l_str := DBMS_LOB.SUBSTR(p_clob, l_len, 1);
-  -- Protect escaped ## from bind replacement
-  l_str := REPLACE(l_str, '##', CHR(0));
-  -- Apply each bind (key matched case-insensitively)
-  i := p_binds.FIRST;
-  WHILE i IS NOT NULL LOOP
-    l_str := REPLACE(l_str,
-                '#' || UPPER(p_binds(i).key) || '#',
-                p_binds(i).value);
-    i := p_binds.NEXT(i);
-  END LOOP;
-  -- Restore ## -> literal #
-  RETURN REPLACE(l_str, CHR(0), '#');
-END apply_binds;
-
--- ---------------------------------------------------------------------------
--- Private: lazily derive a bold/italic style variant of p_base.
--- Creates p_base__b / p_base__i / p_base__bi in the style registry on first use.
--- Returns p_base unchanged when neither bold nor italic is requested.
+-- Private: lazily derive a style variant of p_base combining bold/italic,
+-- optional ink colour, and optional font size.
+--
+-- Name scheme (suffixes appended in order):
+--   Bold/italic : __b | __i | __bi
+--   Colour      : __c<rrggbb>     e.g. __cff0000
+--   Font size   : __s<N>          e.g. __s14  (rounded to integer pt)
+--
+-- The resulting style is created once in the rad_pdf_styles registry;
+-- subsequent calls with the same parameters return the cached name instantly.
+-- Returns p_base unchanged when all optional parameters are at their defaults.
 -- ---------------------------------------------------------------------------
 FUNCTION derive_style(
-  p_base   IN VARCHAR2,
-  p_bold   IN BOOLEAN,
-  p_italic IN BOOLEAN
+  p_base      IN VARCHAR2,
+  p_bold      IN BOOLEAN,
+  p_italic    IN BOOLEAN,
+  p_color     IN VARCHAR2 DEFAULT NULL,
+  p_font_size IN NUMBER   DEFAULT NULL
 ) RETURN VARCHAR2 IS
-  l_name VARCHAR2(110);
+  l_name VARCHAR2(150);
   l_sty  rad_pdf_types.t_font_style;
   l_fmt  rad_pdf_types.t_cell_format;
 BEGIN
-  IF NOT p_bold AND NOT p_italic THEN
+  -- Fast path: no overrides at all
+  IF NOT (NVL(p_bold, FALSE) OR NVL(p_italic, FALSE)
+          OR p_color IS NOT NULL OR p_font_size IS NOT NULL)
+  THEN
     RETURN p_base;
   END IF;
-  l_sty  := CASE WHEN p_bold AND p_italic THEN 'BI'
-                 WHEN p_bold              THEN 'B'
-                 ELSE                         'I'
-            END;
-  l_name := p_base || '__' || LOWER(l_sty);
+
+  -- Build name suffix for bold / italic
+  IF NVL(p_bold, FALSE) AND NVL(p_italic, FALSE) THEN
+    l_sty  := 'BI'; l_name := p_base || '__bi';
+  ELSIF NVL(p_bold, FALSE) THEN
+    l_sty  := 'B';  l_name := p_base || '__b';
+  ELSIF NVL(p_italic, FALSE) THEN
+    l_sty  := 'I';  l_name := p_base || '__i';
+  ELSE
+    l_sty  := NULL; l_name := p_base;
+  END IF;
+
+  -- Append colour and/or font-size suffixes
+  IF p_color IS NOT NULL THEN
+    l_name := l_name || '__c' || LOWER(p_color);
+  END IF;
+  IF p_font_size IS NOT NULL THEN
+    l_name := l_name || '__s' || TO_CHAR(ROUND(p_font_size));
+  END IF;
+
+  -- Register the style variant lazily
   IF NOT rad_pdf_styles.exists_style(l_name) THEN
     l_fmt := rad_pdf_styles.get(p_base);
+    -- Apply bold/italic if requested
+    IF l_sty IS NOT NULL THEN
+      l_fmt.font_style := l_sty;
+    END IF;
+    -- Apply overrides
+    IF p_color IS NOT NULL THEN
+      l_fmt.font_color := p_color;
+    END IF;
+    IF p_font_size IS NOT NULL THEN
+      l_fmt.font_size := p_font_size;
+    END IF;
     rad_pdf_styles.define(
       p_name       => l_name,
       p_font_name  => l_fmt.font_name,
-      p_font_style => l_sty,
+      p_font_style => l_fmt.font_style,
       p_font_size  => l_fmt.font_size,
       p_font_color => l_fmt.font_color,
       p_back_color => l_fmt.back_color
@@ -192,32 +221,43 @@ END derive_style;
 
 -- ---------------------------------------------------------------------------
 -- Private: parse inline tags inside a <p> block.
--- Handles <b>, </b>, <i>, </i>, <br/>, <br>.
+-- Handles <b>, </b>, <i>, </i>, <br/>, <br>,
+--         <color rgb="RRGGBB">, </color>,
+--         <font size="Xpt">, </font>.
 -- Unknown inline tags are silently ignored.
 -- Each text segment becomes a t_run entry; <br/> produces an is_br entry.
+-- Single-level nesting is supported for <color> and <font>: an inner tag
+-- overrides until its matching closing tag restores the outer value.
 -- ---------------------------------------------------------------------------
 FUNCTION parse_inline(p_text IN VARCHAR2) RETURN t_run_list IS
-  l_runs   t_run_list;
-  l_pos    PLS_INTEGER := 1;
-  l_len    PLS_INTEGER;
-  l_ts     PLS_INTEGER;
-  l_te     PLS_INTEGER;
-  l_tag    VARCHAR2(200);
-  l_seg    VARCHAR2(32767);
-  l_bold   BOOLEAN := FALSE;
-  l_italic BOOLEAN := FALSE;
-  l_idx    PLS_INTEGER := 0;
-  l_run    t_run;
+  l_runs          t_run_list;
+  l_pos           PLS_INTEGER := 1;
+  l_len           PLS_INTEGER;
+  l_ts            PLS_INTEGER;
+  l_te            PLS_INTEGER;
+  l_tag           VARCHAR2(200);
+  l_bold          BOOLEAN    := FALSE;
+  l_italic        BOOLEAN    := FALSE;
+  l_color         VARCHAR2(6):= NULL;   -- current ink colour  (NULL = inherit)
+  l_save_color    VARCHAR2(6):= NULL;   -- saved for 1-level </color> restore
+  l_font_size     NUMBER     := NULL;   -- current font size in pt (NULL = inherit)
+  l_save_font_sz  NUMBER     := NULL;   -- saved for 1-level </font> restore
+  l_rgb           VARCHAR2(6);
+  l_sz_str        VARCHAR2(30);
+  l_idx           PLS_INTEGER := 0;
+  l_run           t_run;
 
   PROCEDURE push_text(p_seg IN VARCHAR2) IS
   BEGIN
     IF p_seg IS NOT NULL THEN
-      l_idx := l_idx + 1;
-      l_run.text   := decode_entities(p_seg);
-      l_run.bold   := l_bold;
-      l_run.italic := l_italic;
-      l_run.is_br  := FALSE;
-      l_runs(l_idx) := l_run;
+      l_idx           := l_idx + 1;
+      l_run.text      := decode_entities(p_seg);
+      l_run.bold      := l_bold;
+      l_run.italic    := l_italic;
+      l_run.is_br     := FALSE;
+      l_run.color     := l_color;
+      l_run.font_size := l_font_size;
+      l_runs(l_idx)   := l_run;
     END IF;
   END push_text;
 
@@ -240,21 +280,55 @@ BEGIN
       push_text(SUBSTR(p_text, l_ts));
       EXIT;
     END IF;
-    l_tag := LOWER(TRIM(SUBSTR(p_text, l_ts, l_te - l_ts + 1)));
-    CASE
-      WHEN l_tag = '<b>'              THEN l_bold   := TRUE;
-      WHEN l_tag = '</b>'             THEN l_bold   := FALSE;
-      WHEN l_tag = '<i>'              THEN l_italic := TRUE;
-      WHEN l_tag = '</i>'             THEN l_italic := FALSE;
-      WHEN l_tag IN ('<br/>', '<br>') THEN
-        l_idx := l_idx + 1;
-        l_run.text   := NULL;
-        l_run.bold   := FALSE;
-        l_run.italic := FALSE;
-        l_run.is_br  := TRUE;
-        l_runs(l_idx) := l_run;
-      ELSE NULL;  -- unknown inline tag: skip silently
-    END CASE;
+    l_tag := LOWER(TRIM(SUBSTR(p_text, l_ts, LEAST(l_te - l_ts + 1, 200))));
+
+    IF    l_tag = '<b>'   THEN l_bold   := TRUE;
+    ELSIF l_tag = '</b>'  THEN l_bold   := FALSE;
+    ELSIF l_tag = '<i>'   THEN l_italic := TRUE;
+    ELSIF l_tag = '</i>'  THEN l_italic := FALSE;
+    ELSIF l_tag IN ('<br/>', '<br>') THEN
+      l_idx         := l_idx + 1;
+      l_run.text    := NULL;
+      l_run.bold    := FALSE;
+      l_run.italic  := FALSE;
+      l_run.is_br   := TRUE;
+      l_run.color   := NULL;
+      l_run.font_size := NULL;
+      l_runs(l_idx) := l_run;
+
+    -- <color rgb="RRGGBB"> : override ink colour (single-level stack)
+    ELSIF SUBSTR(l_tag, 1, 7) = '<color ' THEN
+      l_rgb := UPPER(TRIM(extract_attr(l_tag, 'rgb')));
+      IF l_rgb IS NOT NULL AND LENGTH(l_rgb) = 6
+         AND REGEXP_LIKE(l_rgb, '^[0-9A-F]{6}$')
+      THEN
+        l_save_color := l_color;
+        l_color      := l_rgb;
+      END IF;
+      -- Invalid rgb attribute: ignore tag, colour unchanged
+
+    ELSIF l_tag = '</color>' THEN
+      l_color := l_save_color;   -- restore saved colour (or NULL if none)
+
+    -- <font size="Xpt"> : override font size (single-level stack)
+    ELSIF SUBSTR(l_tag, 1, 6) = '<font ' THEN
+      l_sz_str := TRIM(extract_attr(l_tag, 'size'));
+      IF l_sz_str IS NOT NULL THEN
+        BEGIN
+          l_save_font_sz := l_font_size;
+          l_font_size    := rad_pdf_units.parse_with_unit(l_sz_str);
+        EXCEPTION WHEN OTHERS THEN
+          l_font_size := l_save_font_sz;  -- invalid value: ignore tag
+        END;
+      END IF;
+
+    ELSIF l_tag = '</font>' THEN
+      l_font_size := l_save_font_sz;  -- restore saved size (or NULL if none)
+
+    ELSE
+      NULL;  -- unknown inline tag: skip silently
+    END IF;
+
     l_pos := l_te + 1;
   END LOOP;
   RETURN l_runs;
@@ -262,30 +336,85 @@ END parse_inline;
 
 -- ---------------------------------------------------------------------------
 -- Private: dispatch the text content of a <p> block.
--- Each inline run (bold/italic/normal/br) becomes a separate flowable.
--- Bold/italic styles are derived lazily via derive_style.
+--
+-- When the paragraph contains no inline style changes the text is emitted
+-- as a plain PARAGRAPH flowable (single style, word-wrapped).
+--
+-- When the paragraph contains at least one styled run (<b>, <i>,
+-- <color>, <font>) the text is emitted as a PARA_RUNS flowable, rendering
+-- all runs on the same word-wrapped lines (true inline mixed styling).
+--
+-- Style variants are derived lazily via derive_style.
 -- ---------------------------------------------------------------------------
 PROCEDURE dispatch_paragraph(
   p_doc   IN rad_pdf_types.t_doc_handle,
   p_text  IN VARCHAR2,
   p_style IN VARCHAR2
 ) IS
-  l_runs t_run_list;
-  l_sty  VARCHAR2(110);
-  i      PLS_INTEGER;
+  l_runs    t_run_list;
+  l_inline  rad_pdf_types.t_inline_run_list;
+  l_run     rad_pdf_types.t_inline_run;
+  l_has_mix BOOLEAN := FALSE;
+  l_j       PLS_INTEGER := 0;
+  i         PLS_INTEGER;
 BEGIN
   l_runs := parse_inline(p_text);
+
+  -- Quick scan: does this paragraph contain any styled run?
   i := l_runs.FIRST;
   WHILE i IS NOT NULL LOOP
-    IF l_runs(i).is_br THEN
-      rad_pdf_layout.add(p_doc, rad_pdf_layout.spacer(2));
-    ELSIF l_runs(i).text IS NOT NULL THEN
-      l_sty := derive_style(p_style, l_runs(i).bold, l_runs(i).italic);
-      rad_pdf_layout.add(p_doc,
-        rad_pdf_layout.paragraph(l_runs(i).text, l_sty));
+    IF NOT l_runs(i).is_br
+       AND (l_runs(i).bold OR l_runs(i).italic
+            OR l_runs(i).color IS NOT NULL
+            OR l_runs(i).font_size IS NOT NULL)
+    THEN
+      l_has_mix := TRUE;
+      EXIT;
     END IF;
     i := l_runs.NEXT(i);
   END LOOP;
+
+  IF l_has_mix THEN
+    -- -----------------------------------------------------------------------
+    -- Mixed-style paragraph: pre-compute a named style for every run,
+    -- then register as a PARA_RUNS flowable.
+    -- -----------------------------------------------------------------------
+    i := l_runs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      l_j := l_j + 1;
+      l_run.is_br := l_runs(i).is_br;
+      IF l_runs(i).is_br THEN
+        l_run.text       := NULL;
+        l_run.style_name := p_style;
+      ELSE
+        l_run.text       := l_runs(i).text;
+        l_run.style_name := derive_style(p_style,
+                                         l_runs(i).bold,
+                                         l_runs(i).italic,
+                                         l_runs(i).color,
+                                         l_runs(i).font_size);
+      END IF;
+      l_inline(l_j) := l_run;
+      i := l_runs.NEXT(i);
+    END LOOP;
+    rad_pdf_layout.add(p_doc,
+      rad_pdf_layout.paragraph_runs(p_doc, l_inline, p_style));
+  ELSE
+    -- -----------------------------------------------------------------------
+    -- Plain paragraph (no inline style changes): emit each run as a simple
+    -- PARAGRAPH flowable.  <br/> produces a small spacer (legacy behaviour).
+    -- -----------------------------------------------------------------------
+    i := l_runs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF l_runs(i).is_br THEN
+        rad_pdf_layout.add(p_doc, rad_pdf_layout.spacer(2));
+      ELSIF l_runs(i).text IS NOT NULL THEN
+        rad_pdf_layout.add(p_doc,
+          rad_pdf_layout.paragraph(l_runs(i).text, p_style));
+      END IF;
+      i := l_runs.NEXT(i);
+    END LOOP;
+  END IF;
 END dispatch_paragraph;
 
 -- ---------------------------------------------------------------------------
@@ -311,6 +440,12 @@ PROCEDURE dispatch_self_close(
   l_tdef     rad_pdf_types.t_table_def;
   l_ref_id   PLS_INTEGER;
   l_flow     rad_pdf_types.t_flowable;
+  -- Table optional attributes
+  l_hdr_bg   VARCHAR2(10);
+  l_alt_bg   VARCHAR2(10);
+  l_brd_clr  VARCHAR2(10);
+  l_row_h    NUMBER;
+  l_max_rows VARCHAR2(20);
 BEGIN
   CASE p_name
 
@@ -374,6 +509,44 @@ BEGIN
       l_tdef.col_defs     := g_col_registry(UPPER(l_col_name));
       l_tdef.color_scheme := rad_pdf_styles.default_scheme;
       l_tdef.options      := rad_pdf_units.default_table_options;
+
+      -- Optional color overrides -----------------------------------------------
+      -- header_bg="RRGGBB"     overrides header background colour
+      -- alt_bg="RRGGBB"        overrides odd-row background (alternating stripe)
+      -- border_color="RRGGBB"  overrides all border colours
+      l_hdr_bg  := UPPER(extract_attr(p_tag, 'header_bg'));
+      l_alt_bg  := UPPER(extract_attr(p_tag, 'alt_bg'));
+      l_brd_clr := UPPER(extract_attr(p_tag, 'border_color'));
+      IF l_hdr_bg  IS NOT NULL THEN
+        l_tdef.color_scheme.header_paper  := l_hdr_bg;
+      END IF;
+      IF l_alt_bg  IS NOT NULL THEN
+        l_tdef.color_scheme.odd_paper     := l_alt_bg;
+      END IF;
+      IF l_brd_clr IS NOT NULL THEN
+        l_tdef.color_scheme.header_border := l_brd_clr;
+        l_tdef.color_scheme.even_border   := l_brd_clr;
+        l_tdef.color_scheme.odd_border    := l_brd_clr;
+      END IF;
+
+      -- Optional layout overrides ----------------------------------------------
+      -- row_height="Xpt"   fixed height for header and data rows
+      -- max_rows="N"       maximum rows per page before starting a new table
+      l_row_h    := parse_unit_attr(p_tag, 'row_height', NULL);
+      IF l_row_h IS NOT NULL THEN
+        l_tdef.options.h_row_height := l_row_h;
+        l_tdef.options.t_row_height := l_row_h;
+      END IF;
+      l_max_rows := extract_attr(p_tag, 'max_rows');
+      IF l_max_rows IS NOT NULL THEN
+        BEGIN
+          l_tdef.options.max_rows := TO_NUMBER(l_max_rows);
+        EXCEPTION WHEN OTHERS THEN
+          RAISE_APPLICATION_ERROR(c_err_attr_val,
+            '<table> invalid max_rows value: "' || l_max_rows || '"');
+        END;
+      END IF;
+
       l_ref_id            := rad_pdf_layout.register_table(p_doc, l_tdef);
       l_flow.flow_type    := rad_pdf_types.c_flow_table;
       l_flow.table_ref_id := l_ref_id;
@@ -399,8 +572,15 @@ PROCEDURE dispatch_open_close(
   p_content IN VARCHAR2,
   p_options IN rad_pdf_types.t_template_options
 ) IS
-  l_style VARCHAR2(100);
-  l_level PLS_INTEGER;
+  l_style   VARCHAR2(100);
+  l_level   PLS_INTEGER;
+  -- ul / ol list parsing
+  l_con     VARCHAR2(32767);
+  l_li_s    PLS_INTEGER;
+  l_li_e    PLS_INTEGER;
+  l_li_txt  VARCHAR2(32767);
+  l_nr      PLS_INTEGER;
+  l_prefix  VARCHAR2(20);
 BEGIN
   IF p_name = 'p' THEN
     -- Optional style attribute on the <p> tag; fall back to default_style.
@@ -413,6 +593,34 @@ BEGIN
     rad_pdf_layout.add(p_doc,
       rad_pdf_layout.heading(decode_entities(p_content), l_level));
 
+  ELSIF p_name IN ('ul', 'ol') THEN
+    -- -----------------------------------------------------------------------
+    -- <ul>/<ol>: parse <li>...</li> items and emit each as a paragraph.
+    -- <li> content may contain inline tags (<b>, <i>, <br/>).
+    -- Bullet character: '*  ' for <ul>, 'N.  ' for <ol>.
+    -- Optional style="..." on the <ul>/<ol> tag sets the item text style.
+    -- -----------------------------------------------------------------------
+    l_style := NVL(extract_attr(p_tag, 'style'),
+               NVL(p_options.default_style, 'body'));
+    l_con   := NVL(p_content, '');
+    l_nr    := 0;
+    l_li_s  := INSTR(l_con, '<li>');
+    WHILE l_li_s > 0 LOOP
+      l_li_e  := INSTR(l_con, '</li>', l_li_s + 4);
+      IF l_li_e = 0 THEN EXIT; END IF;
+      l_li_txt := SUBSTR(l_con, l_li_s + 4, l_li_e - (l_li_s + 4));
+      l_nr     := l_nr + 1;
+      IF p_name = 'ol' THEN
+        l_prefix := TO_CHAR(l_nr) || '.  ';
+      ELSE
+        l_prefix := '*  ';
+      END IF;
+      -- Prefix is plain text; item content may contain inline <b>/<i> tags.
+      -- dispatch_paragraph handles both cases (PARA_RUNS or plain PARAGRAPH).
+      dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
+      l_li_s := INSTR(l_con, '<li>', l_li_e + 5);
+    END LOOP;
+
   ELSE
     IF NVL(p_options.strict_tags, TRUE) THEN
       RAISE_APPLICATION_ERROR(c_err_unknown_tag,
@@ -420,6 +628,285 @@ BEGIN
     END IF;
   END IF;
 END dispatch_open_close;
+
+-- ---------------------------------------------------------------------------
+-- Private: quote-aware tag-end search.
+-- Returns the 1-based CLOB position of the '>' that closes the tag starting
+-- at p_start, skipping any '>' characters that appear inside single- or
+-- double-quoted attribute values.
+--
+-- Without this, a query attribute such as
+--   query="SELECT * FROM emp WHERE sal > 1000"
+-- causes the naive DBMS_LOB.INSTR(clob,'>') to stop at the '>' inside the
+-- SQL expression, truncating the tag and losing the query attribute entirely.
+--
+-- Algorithm: read the CLOB in 512-byte chunks from p_start; scan each chunk
+-- character-by-character tracking quote state.  Returns 0 when no unquoted
+-- '>' is found (caller raises ORA-20810).
+-- ---------------------------------------------------------------------------
+FUNCTION find_tag_end(
+  p_clob  IN CLOB,
+  p_start IN PLS_INTEGER,
+  p_len   IN PLS_INTEGER
+) RETURN PLS_INTEGER IS
+  c_chunk  CONSTANT PLS_INTEGER := 512;
+  l_pos    PLS_INTEGER := p_start;
+  l_buf    VARCHAR2(512);
+  l_buflen PLS_INTEGER;
+  l_c      VARCHAR2(1);
+  l_inq    VARCHAR2(1) := NULL;   -- quote char we are inside, or NULL
+  l_i      PLS_INTEGER;
+BEGIN
+  WHILE l_pos <= p_len LOOP
+    l_buflen := LEAST(c_chunk, p_len - l_pos + 1);
+    l_buf    := DBMS_LOB.SUBSTR(p_clob, l_buflen, l_pos);
+    l_i := 1;
+    WHILE l_i <= l_buflen LOOP
+      l_c := SUBSTR(l_buf, l_i, 1);
+      IF l_inq IS NULL THEN
+        IF l_c = '>'                     THEN RETURN l_pos + l_i - 1; END IF;
+        IF l_c = '"' OR l_c = CHR(39)   THEN l_inq := l_c; END IF;
+      ELSIF l_c = l_inq THEN
+        l_inq := NULL;
+      END IF;
+      l_i := l_i + 1;
+    END LOOP;
+    l_pos := l_pos + l_buflen;
+  END LOOP;
+  RETURN 0;   -- unquoted '>' not found
+END find_tag_end;
+
+-- ---------------------------------------------------------------------------
+-- Private: CLOB-based bind substitution.  Replaces #KEY# tokens throughout
+-- p_src using the supplied bind array and appends the result to p_dest.
+-- Handles CLOBs of any size (no 32767-character limit).
+--
+-- Token rules:
+--   ##       ->  literal '#'
+--   #KEY#    ->  bind value (auto-escaped unless raw=TRUE on the bind entry)
+--   #OTHER#  ->  written verbatim when no matching bind key exists
+--
+-- Raises c_err_template when a token present in the source maps to a NULL
+-- bind value (guards against silent token removal by Oracle REPLACE).
+-- ---------------------------------------------------------------------------
+PROCEDURE apply_binds_clob(
+  p_src   IN CLOB,
+  p_dest  IN OUT NOCOPY CLOB,
+  p_binds IN rad_pdf_types.t_bind_array
+) IS
+  TYPE t_lookup IS TABLE OF BINARY_INTEGER INDEX BY VARCHAR2(204);
+  l_lookup  t_lookup;
+  l_src_len PLS_INTEGER;
+  l_pos     PLS_INTEGER;
+  l_hash1   PLS_INTEGER;
+  l_hash2   PLS_INTEGER;
+  l_key     VARCHAR2(200);
+  l_token   VARCHAR2(204);
+  l_val     VARCHAR2(32767);
+  l_seg_len PLS_INTEGER;
+  i         BINARY_INTEGER;
+
+  -- Append p_src[p_from..p_to] to p_dest using DBMS_LOB.COPY.
+  -- COPY handles CLOBs of any length; no VARCHAR2 32767 limit.
+  PROCEDURE copy_src_slice(p_from IN PLS_INTEGER, p_to IN PLS_INTEGER) IS
+  BEGIN
+    IF p_to >= p_from THEN
+      DBMS_LOB.COPY(p_dest, p_src, p_to - p_from + 1,
+                    NVL(DBMS_LOB.GETLENGTH(p_dest), 0) + 1, p_from);
+    END IF;
+  END copy_src_slice;
+
+BEGIN
+  -- Build lookup: '#UPPER(KEY)#' -> index into p_binds
+  i := p_binds.FIRST;
+  WHILE i IS NOT NULL LOOP
+    l_lookup('#' || UPPER(p_binds(i).key) || '#') := i;
+    i := p_binds.NEXT(i);
+  END LOOP;
+
+  l_src_len := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
+  IF l_src_len = 0 THEN RETURN; END IF;
+
+  l_pos := 1;
+  LOOP
+    -- Locate the next '#' in the source
+    l_hash1 := DBMS_LOB.INSTR(p_src, '#', l_pos);
+    IF l_hash1 = 0 OR l_hash1 > l_src_len THEN
+      -- No more '#': copy remainder and exit
+      IF l_pos <= l_src_len THEN
+        copy_src_slice(l_pos, l_src_len);
+      END IF;
+      EXIT;
+    END IF;
+
+    -- Copy the segment before this '#'
+    IF l_hash1 > l_pos THEN
+      copy_src_slice(l_pos, l_hash1 - 1);
+    END IF;
+
+    -- '##' escape sequence -> single '#'
+    IF l_hash1 < l_src_len
+       AND DBMS_LOB.SUBSTR(p_src, 1, l_hash1 + 1) = '#'
+    THEN
+      DBMS_LOB.WRITEAPPEND(p_dest, 1, '#');
+      l_pos := l_hash1 + 2;
+      CONTINUE;
+    END IF;
+
+    -- Find the closing '#' of the token
+    l_hash2 := DBMS_LOB.INSTR(p_src, '#', l_hash1 + 1);
+    IF l_hash2 = 0 THEN
+      -- No closing '#': write the lone '#' literally and advance
+      DBMS_LOB.WRITEAPPEND(p_dest, 1, '#');
+      l_pos := l_hash1 + 1;
+    ELSE
+      l_seg_len := l_hash2 - l_hash1 - 1;
+      IF l_seg_len = 0 THEN
+        -- Defensive: adjacent '##' not caught by earlier check (unreachable)
+        DBMS_LOB.WRITEAPPEND(p_dest, 1, '#');
+        l_pos := l_hash2 + 1;
+      ELSIF l_seg_len > 200 THEN
+        -- Too long to be a valid bind key; treat '#' as a literal character
+        DBMS_LOB.WRITEAPPEND(p_dest, 1, '#');
+        l_pos := l_hash1 + 1;
+      ELSE
+        l_key   := DBMS_LOB.SUBSTR(p_src, l_seg_len, l_hash1 + 1);
+        l_token := '#' || UPPER(l_key) || '#';
+        IF l_lookup.EXISTS(l_token) THEN
+          i := l_lookup(l_token);
+          IF p_binds(i).value IS NULL THEN
+            RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+              'Bind key "' || UPPER(p_binds(i).key)
+              || '" is NULL. Use NVL to supply a safe default'
+              || ' (e.g. NVL(value, 0) or NVL(value, '' '')).');
+          END IF;
+          IF NVL(p_binds(i).raw, FALSE) THEN
+            l_val := p_binds(i).value;
+          ELSE
+            l_val := escape_value(p_binds(i).value);
+          END IF;
+          IF l_val IS NOT NULL THEN
+            DBMS_LOB.WRITEAPPEND(p_dest, LENGTH(l_val), l_val);
+          END IF;
+        ELSE
+          -- Unknown token: write verbatim (no matching bind key)
+          l_val := '#' || l_key || '#';
+          DBMS_LOB.WRITEAPPEND(p_dest, LENGTH(l_val), l_val);
+        END IF;
+        l_pos := l_hash2 + 1;
+      END IF;
+    END IF;
+  END LOOP;
+END apply_binds_clob;
+
+-- ---------------------------------------------------------------------------
+-- Private: evaluate <if bind="KEY">...</if> conditional blocks.
+-- Copies p_src to p_dest, including block content only when the bind key
+-- resolves to a non-NULL value in p_binds.  The <if>…</if> wrapper tags
+-- are always removed; bind token substitution runs in the subsequent
+-- apply_binds_clob pass.
+--
+-- Rules:
+--   - Condition TRUE  (key exists, value non-NULL): content is copied as-is.
+--   - Condition FALSE (key absent or value NULL):   the entire block is skipped.
+--   - Nested <if> blocks are not supported (first </if> closes the block).
+--   - Raises c_err_template when bind="KEY" is missing or </if> is absent.
+-- ---------------------------------------------------------------------------
+PROCEDURE apply_conditionals(
+  p_src   IN CLOB,
+  p_dest  IN OUT NOCOPY CLOB,
+  p_binds IN rad_pdf_types.t_bind_array
+) IS
+  TYPE t_cond_lookup IS TABLE OF BOOLEAN INDEX BY VARCHAR2(200);
+  l_cond_lkp  t_cond_lookup;
+  l_src_len   PLS_INTEGER;
+  l_pos       PLS_INTEGER;
+  l_if_start  PLS_INTEGER;
+  l_tag_end   PLS_INTEGER;
+  l_tag_raw   VARCHAR2(32767);
+  l_bind_key  VARCHAR2(200);
+  l_close_pos PLS_INTEGER;
+  l_cnt_start PLS_INTEGER;
+  l_cnt_len   PLS_INTEGER;
+  c_close_tag CONSTANT VARCHAR2(6) := '</if>';
+  c_open_pfx  CONSTANT VARCHAR2(4) := '<if ';
+  i           BINARY_INTEGER;
+
+  PROCEDURE copy_src_slice(p_from IN PLS_INTEGER, p_to IN PLS_INTEGER) IS
+  BEGIN
+    IF p_to >= p_from THEN
+      DBMS_LOB.COPY(p_dest, p_src, p_to - p_from + 1,
+                    NVL(DBMS_LOB.GETLENGTH(p_dest), 0) + 1, p_from);
+    END IF;
+  END copy_src_slice;
+
+BEGIN
+  -- Build lookup: UPPER(key) present only when the value is non-NULL
+  i := p_binds.FIRST;
+  WHILE i IS NOT NULL LOOP
+    IF p_binds(i).value IS NOT NULL THEN
+      l_cond_lkp(UPPER(p_binds(i).key)) := TRUE;
+    END IF;
+    i := p_binds.NEXT(i);
+  END LOOP;
+
+  l_src_len := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
+  IF l_src_len = 0 THEN RETURN; END IF;
+
+  l_pos := 1;
+  LOOP
+    -- Locate the next '<if ' prefix
+    l_if_start := DBMS_LOB.INSTR(p_src, c_open_pfx, l_pos);
+    IF l_if_start = 0 OR l_if_start > l_src_len THEN
+      -- No more <if> blocks: copy remainder
+      IF l_pos <= l_src_len THEN
+        copy_src_slice(l_pos, l_src_len);
+      END IF;
+      EXIT;
+    END IF;
+
+    -- Copy content before '<if '
+    IF l_if_start > l_pos THEN
+      copy_src_slice(l_pos, l_if_start - 1);
+    END IF;
+
+    -- Find the closing '>' of the <if ...> tag (quote-aware)
+    l_tag_end := find_tag_end(p_src, l_if_start, l_src_len);
+    IF l_tag_end = 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+        'Unclosed <if> tag at position ' || l_if_start);
+    END IF;
+
+    -- Extract tag text for attribute parsing (up to 32767 chars)
+    l_tag_raw  := DBMS_LOB.SUBSTR(p_src,
+                    LEAST(l_tag_end - l_if_start + 1, 32767), l_if_start);
+    l_bind_key := UPPER(extract_attr(l_tag_raw, 'bind'));
+    IF l_bind_key IS NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+        '<if> tag missing required "bind" attribute at position ' || l_if_start);
+    END IF;
+
+    -- Locate the matching </if>
+    l_cnt_start := l_tag_end + 1;
+    l_close_pos := DBMS_LOB.INSTR(p_src, c_close_tag, l_cnt_start);
+    IF l_close_pos = 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+        'No matching </if> for <if bind="' || l_bind_key
+        || '"> at position ' || l_if_start);
+    END IF;
+
+    -- Condition TRUE: copy the block content (between '>' and '</if>')
+    IF l_cond_lkp.EXISTS(l_bind_key) THEN
+      l_cnt_len := l_close_pos - l_cnt_start;
+      IF l_cnt_len > 0 THEN
+        copy_src_slice(l_cnt_start, l_close_pos - 1);
+      END IF;
+    END IF;
+    -- Condition FALSE: skip the entire <if>...</if> block
+
+    l_pos := l_close_pos + LENGTH(c_close_tag);
+  END LOOP;
+END apply_conditionals;
 
 -- ---------------------------------------------------------------------------
 -- Private: main CLOB render loop.
@@ -462,8 +949,10 @@ BEGIN
     l_tag_start := DBMS_LOB.INSTR(p_clob, '<', l_pos);
     IF l_tag_start = 0 OR l_tag_start > l_len THEN EXIT; END IF;
 
-    -- Locate matching '>'
-    l_tag_end := DBMS_LOB.INSTR(p_clob, '>', l_tag_start);
+    -- Locate the '>' that closes this tag, skipping any '>' inside
+    -- quoted attribute values (quote-aware; fixes SQL comparisons in
+    -- <table query="... WHERE col > val ..."/>).
+    l_tag_end := find_tag_end(p_clob, l_tag_start, l_len);
     IF l_tag_end = 0 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
         'Unclosed tag starting at character position ' || l_tag_start);
@@ -572,31 +1061,38 @@ END escape_value;
 -- Public: render overloads
 -- ===========================================================================
 
--- CLOB + binds
--- Template is converted to VARCHAR2 (requires <= 32767 chars), binds are applied,
--- then the result is passed to do_render via a temporary CLOB.
+-- CLOB + binds — full CLOB pipeline, no size limit on the template.
+-- Phase 1 (when <if> blocks are present): evaluate conditional blocks.
+-- Phase 2: substitute bind tokens via CLOB-level scanning.
+-- Phase 3: parse and render the resulting CLOB.
 PROCEDURE render(
   p_doc     IN rad_pdf_types.t_doc_handle,
   p_clob    IN CLOB,
   p_binds   IN rad_pdf_types.t_bind_array,
   p_options IN rad_pdf_types.t_template_options DEFAULT NULL
 ) IS
-  l_str  VARCHAR2(32767);
-  l_clob CLOB;
+  l_bound CLOB;
+  l_cond  CLOB;
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
-  l_str := apply_binds(p_clob, p_binds);
-  DBMS_LOB.CREATETEMPORARY(l_clob, TRUE);
-  IF l_str IS NOT NULL THEN
-    DBMS_LOB.WRITEAPPEND(l_clob, LENGTH(l_str), l_str);
+  DBMS_LOB.CREATETEMPORARY(l_bound, TRUE);
+  IF DBMS_LOB.INSTR(p_clob, '<if ', 1) > 0 THEN
+    -- Phase 1: resolve <if bind="KEY"> conditional blocks
+    DBMS_LOB.CREATETEMPORARY(l_cond, TRUE);
+    apply_conditionals(p_clob, l_cond, p_binds);
+    -- Phase 2: bind substitution on the post-conditional CLOB
+    apply_binds_clob(l_cond, l_bound, p_binds);
+    DBMS_LOB.FREETEMPORARY(l_cond);
+  ELSE
+    -- No conditionals: bind substitution directly on the source CLOB
+    apply_binds_clob(p_clob, l_bound, p_binds);
   END IF;
-  do_render(p_doc, l_clob, p_options);
-  DBMS_LOB.FREETEMPORARY(l_clob);
+  do_render(p_doc, l_bound, p_options);
+  DBMS_LOB.FREETEMPORARY(l_bound);
 EXCEPTION
   WHEN OTHERS THEN
-    IF DBMS_LOB.ISTEMPORARY(l_clob) = 1 THEN
-      DBMS_LOB.FREETEMPORARY(l_clob);
-    END IF;
+    IF DBMS_LOB.ISTEMPORARY(l_bound) = 1 THEN DBMS_LOB.FREETEMPORARY(l_bound); END IF;
+    IF DBMS_LOB.ISTEMPORARY(l_cond)  = 1 THEN DBMS_LOB.FREETEMPORARY(l_cond);  END IF;
     RAISE;
 END render;
 

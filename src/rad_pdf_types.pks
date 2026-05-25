@@ -205,6 +205,17 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   c_flow_spacer    CONSTANT t_flowable_type := 'SPACER';
   c_flow_hline     CONSTANT t_flowable_type := 'HLINE';
   c_flow_pagebreak CONSTANT t_flowable_type := 'PAGEBREAK';
+  c_flow_para_runs CONSTANT t_flowable_type := 'PARA_RUNS';  -- multi-style inline runs
+
+  -- Inline run: one styled segment inside a mixed-style paragraph.
+  -- style_name is the pre-computed style (e.g. 'body', 'body__b', 'body__bi').
+  -- is_br = TRUE marks a forced line break (<br/>).
+  TYPE t_inline_run IS RECORD (
+    text       VARCHAR2(32767) := NULL,
+    style_name VARCHAR2(110)   := NULL,
+    is_br      BOOLEAN         := FALSE
+  );
+  TYPE t_inline_run_list IS TABLE OF t_inline_run INDEX BY PLS_INTEGER;
 
   -- t_flowable: rad_pdf_layout._close_doc is responsible for DBMS_LOB.FREETEMPORARY
   -- on each non-NULL text CLOB when destroying the document's flowable list.
@@ -218,6 +229,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     img_height       NUMBER,
     spacer_h         NUMBER,         -- SPACER
     table_ref_id     PLS_INTEGER,    -- TABLE: handle into rad_pdf_table's cache
+    para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
     page_break_before BOOLEAN := FALSE,  -- set by measure pass
     measured_h        NUMBER  := 0        -- set by measure pass
   );
@@ -278,9 +290,16 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   -- Bind entry: one #KEY# -> value substitution pair.
   -- Key is stored and matched case-insensitively (UPPER applied on both sides).
   -- Value is VARCHAR2(4000); for longer values pre-substitute in the CLOB.
+  --
+  -- raw = FALSE (default): rad_pdf_template.render auto-escapes the value
+  --   (& → &amp;  < → &lt;  > → &gt;) before substitution — safe for any
+  --   user-supplied text without the caller needing to call escape_value().
+  -- raw = TRUE: value is substituted verbatim (already escaped, or deliberately
+  --   contains template tags that should not be re-escaped).
   TYPE t_bind_entry IS RECORD (
     key   VARCHAR2(200),
-    value VARCHAR2(4000)
+    value VARCHAR2(4000),
+    raw   BOOLEAN := FALSE
   );
   TYPE t_bind_array IS TABLE OF t_bind_entry INDEX BY BINARY_INTEGER;
 
