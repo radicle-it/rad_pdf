@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ## [Unreleased]
 
+### Added
+- `rad_pdf_template` package (Phase 9): lightweight XML-like template engine
+  - Parses CLOB/VARCHAR2 templates with block tags (`<p>`, `<h1>`-`<h6>`,
+    `<spacer>`, `<hr>`, `<table>`, `<img>`, `<pagebreak>`) and inline tags
+    (`<b>`, `<i>`, `<br/>` inside `<p>`)
+  - `#KEY#` placeholder substitution via `t_bind_array`; `##` escapes to `#`
+  - Column set registry (`register_columns` / `drop_columns` / `clear_columns`)
+    for referencing pre-defined `t_columns` from `<table>` tags
+  - Security double opt-in for `<table>` query execution:
+    `allow_query="true"` in tag AND `allow_queries = TRUE` in `t_template_options`
+  - `escape_value` utility function for safe bind value encoding
+  - Lazy bold/italic style derivation (creates `<style>__b`, `__i`, `__bi`
+    variants on first use)
+  - Four `render` overloads: CLOB+binds, VARCHAR2+binds, CLOB no-bind,
+    VARCHAR2 no-bind
+  - `rad_pdf.render_template` facade shortcuts (4 overloads) delegating to
+    `rad_pdf_template.render`
+  - `src/install_phase9.sql` and updated `src/install.sql`
+  - `tests/phase10_template.sql` with 16 acceptance tests
+  - `docs/sample11.sql`: non-APEX template engine example
+  - `docs/apex/apex_sample07.sql`: APEX template engine example
+
 ## [1.1.0] - 2026-05-24
 
 ### Added

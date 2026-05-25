@@ -118,6 +118,34 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                     p_info IN PLS_INTEGER) RETURN NUMBER;
 
 -- ---------------------------------------------------------------------------
+-- Template engine shortcut — delegates to rad_pdf_template.render
+-- ---------------------------------------------------------------------------
+
+  -- Render a CLOB or VARCHAR2 template with optional bind substitutions.
+  -- All four overloads mirror rad_pdf_template.render exactly.
+  PROCEDURE render_template(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_clob    IN CLOB,
+    p_binds   IN rad_pdf_types.t_bind_array,
+    p_options IN rad_pdf_types.t_template_options DEFAULT NULL);
+
+  PROCEDURE render_template(
+    p_doc      IN rad_pdf_types.t_doc_handle,
+    p_template IN VARCHAR2,
+    p_binds    IN rad_pdf_types.t_bind_array,
+    p_options  IN rad_pdf_types.t_template_options DEFAULT NULL);
+
+  PROCEDURE render_template(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_clob    IN CLOB,
+    p_options IN rad_pdf_types.t_template_options DEFAULT NULL);
+
+  PROCEDURE render_template(
+    p_doc      IN rad_pdf_types.t_doc_handle,
+    p_template IN VARCHAR2,
+    p_options  IN rad_pdf_types.t_template_options DEFAULT NULL);
+
+-- ---------------------------------------------------------------------------
 -- Page geometry
 -- ---------------------------------------------------------------------------
 

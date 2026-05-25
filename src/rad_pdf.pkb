@@ -315,5 +315,42 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     rad_pdf_canvas.set_margins(p_doc, l_mar);
   END set_margins;
 
+-- ---------------------------------------------------------------------------
+-- Template engine shortcuts (delegate to rad_pdf_template)
+-- ---------------------------------------------------------------------------
+  PROCEDURE render_template(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_clob    IN CLOB,
+    p_binds   IN rad_pdf_types.t_bind_array,
+    p_options IN rad_pdf_types.t_template_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_template.render(p_doc, p_clob, p_binds, p_options);
+  END render_template;
+
+  PROCEDURE render_template(
+    p_doc      IN rad_pdf_types.t_doc_handle,
+    p_template IN VARCHAR2,
+    p_binds    IN rad_pdf_types.t_bind_array,
+    p_options  IN rad_pdf_types.t_template_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_template.render(p_doc, p_template, p_binds, p_options);
+  END render_template;
+
+  PROCEDURE render_template(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_clob    IN CLOB,
+    p_options IN rad_pdf_types.t_template_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_template.render(p_doc, p_clob, p_options);
+  END render_template;
+
+  PROCEDURE render_template(
+    p_doc      IN rad_pdf_types.t_doc_handle,
+    p_template IN VARCHAR2,
+    p_options  IN rad_pdf_types.t_template_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_template.render(p_doc, p_template, p_options);
+  END render_template;
+
 END rad_pdf;
 /
