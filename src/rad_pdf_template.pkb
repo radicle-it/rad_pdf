@@ -769,7 +769,12 @@ FUNCTION find_tag_end(
 ) RETURN PLS_INTEGER IS
   c_chunk  CONSTANT PLS_INTEGER := 512;
   l_pos    PLS_INTEGER := p_start;
-  l_buf    VARCHAR2(512);
+  -- Buffer must hold c_chunk CHARACTERS in the database character set.
+  -- AL32UTF8 uses up to 4 bytes per character, so 512 chars * 4 = 2048 bytes.
+  -- Declaring VARCHAR2(512) in a BYTE-semantics database (NLS_LENGTH_SEMANTICS=BYTE)
+  -- would overflow when the chunk contains multi-byte characters (e.g. em-dash U+2014
+  -- = 3 bytes), causing ORA-06502.  2048 bytes is safe for any UTF-8 content.
+  l_buf    VARCHAR2(2048);
   l_buflen PLS_INTEGER;
   l_c      VARCHAR2(1);
   l_inq    VARCHAR2(1) := NULL;   -- quote char we are inside, or NULL
