@@ -317,15 +317,15 @@ BEGIN
     l_doc := rad_pdf.new_document;
 
     -- Heading containing em-dash: original crash trigger
-    rad_pdf.heading(l_doc, 'Società di Consulenza — Bilancio 2026', 1);
+    rad_pdf.heading(l_doc, 'Internationalisation Test — Accented Characters', 1);
 
-    -- Body text: accented Italian, Euro sign (U+20AC), en-dash
+    -- Body text: accented Latin chars, Euro sign (U+20AC), en-dash
     rad_pdf.write(l_doc,
-      'Totale ricavi: € 1.500.000,00 — Anno fiscale 2025/2026.');
+      'Revenue: € 1,500,000.00 — Fiscal year 2025/2026.');
     rad_pdf.write(l_doc,
-      'Responsabile: Ségolène Müller (Ürban Développement).');
+      'Contact: Ségolène Müller (Ürban Développement).');
     rad_pdf.write(l_doc,
-      'Note sui caratteri: àèìòù ÀÈÌÒÙ — ñ ü ö ä â ê î û œ æ ß.');
+      'Character set: àèìòù ÀÈÌÒÙ — ñ ü ö ä â ê î û œ æ ß.');
 
     l_pdf := rad_pdf.finalize(l_doc);
     ok('multibyte: BLOB > 500',
@@ -359,18 +359,18 @@ BEGIN
     FOR i IN 1..120 LOOP
       l_long_txt := l_long_txt ||
         LPAD(TO_CHAR(i), 3) ||
-        ': RAD_PDF gestisce correttamente i paragrafi lunghi che eccedono '   ||
-        'l''altezza utile della pagina senza loop infiniti o crash. ';
+        ': RAD_PDF correctly handles paragraphs whose height exceeds the '    ||
+        'usable page area without entering an infinite loop or raising ORA-. ';
     END LOOP;
 
     l_doc := rad_pdf.new_document;
-    rad_pdf.heading(l_doc, 'Test Overflow Paragrafo', 1);
+    rad_pdf.heading(l_doc, 'Overflow Paragraph Test', 1);
     rad_pdf.add    (l_doc, rad_pdf_layout.paragraph(l_long_txt, 'body'));
 
     -- This heading must be rendered on a subsequent page to prove
     -- the layout engine did not stop at the overflow flowable.
-    rad_pdf.heading(l_doc, 'Sezione Successiva', 2);
-    rad_pdf.write  (l_doc, 'Il testo dopo il paragrafo overflow è presente.');
+    rad_pdf.heading(l_doc, 'Section After Overflow', 2);
+    rad_pdf.write  (l_doc, 'Text after the overflow paragraph is present.');
 
     l_pdf := rad_pdf.finalize(l_doc);
     ok('overflow-para: finalize succeeds (BLOB not null)',
