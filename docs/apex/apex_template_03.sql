@@ -102,7 +102,7 @@ BEGIN
     '<p>Location: <b>#LOC#</b>   Department no.: <b>#DEPTNO#</b></p>'     ||
     '<spacer height="10pt"/>'                                              ||
     '<hr color="003366"/>'                                                 ||
-    '<spacer height="8pt"/>'                                               ||
+    '<spacer height="14pt"/>'                                              ||
 
     -- This paragraph header uses <b> and <i> — it goes through PARA_RUNS
     -- so the bold/italic text appears inline with the plain text.

@@ -128,7 +128,7 @@ BEGIN
     '<p style="caption">Department #DEPTNO#</p>'                         ||
     '<spacer height="8pt"/>'                                              ||
     '<hr color="336699"/>'                                                ||
-    '<spacer height="10pt"/>'                                             ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
     -- Unordered list — bullet prefix for each item
@@ -142,7 +142,7 @@ BEGIN
 
     '<spacer height="12pt"/>'                                             ||
     '<hr color="CCCCCC" width="0.5"/>'                                    ||
-    '<spacer height="10pt"/>'                                             ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
     -- Ordered list — automatically numbered 1., 2., 3., …

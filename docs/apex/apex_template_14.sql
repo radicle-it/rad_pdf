@@ -182,7 +182,7 @@ BEGIN
       || 'Total employees: <b>#COUNT#</b></p>'                           ||
     '<spacer height="6pt"/>'                                              ||
     '<hr color="003366" width="1.5"/>'                                    ||
-    '<spacer height="10pt"/>'                                             ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- ----- Salary statistics ------------------------------------------------
     '<h2>Salary Statistics</h2>'                                          ||
@@ -202,7 +202,7 @@ BEGIN
 
     '<spacer height="10pt"/>'                                             ||
     '<hr color="CCCCCC" width="0.5"/>'                                    ||
-    '<spacer height="8pt"/>'                                              ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- ----- Salary distribution (colour-coded) --------------------------------
     '<h2>Salary Distribution</h2>'                                        ||
@@ -216,7 +216,7 @@ BEGIN
 
     '<spacer height="10pt"/>'                                             ||
     '<hr color="CCCCCC" width="0.5"/>'                                    ||
-    '<spacer height="8pt"/>'                                              ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- ----- Managers list (unordered) -----------------------------------------
     '<h2>People Managers</h2>'                                            ||
@@ -226,7 +226,7 @@ BEGIN
     '<if bind="NOTES">'
       || '<spacer height="10pt"/>'
       || '<hr color="CCCCCC" width="0.5"/>'
-      || '<spacer height="8pt"/>'
+      || '<spacer height="14pt"/>'
       || '<h2>Notes</h2>'
       || '<p>#NOTES#</p>'
       || '</if>'                                                          ||

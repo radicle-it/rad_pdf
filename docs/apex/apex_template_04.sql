@@ -107,7 +107,7 @@ BEGIN
 
     '<spacer height="8pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||
-    '<spacer height="8pt"/>'                                              ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- Legend: font-size changes inside a heading (works after the fix)
     '<h2>Colour key</h2>'                                                  ||

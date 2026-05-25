@@ -116,7 +116,7 @@ BEGIN
 
     '<spacer height="8pt"/>'                                              ||
     '<hr color="CCCCCC" width="0.5"/>'                                    ||
-    '<spacer height="8pt"/>'                                              ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
     -- Compensation block: another single <p> with labelled lines.

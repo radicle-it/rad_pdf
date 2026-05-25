@@ -166,7 +166,7 @@ BEGIN
     '<p>Location: <b>#DEPT_LOC#</b>   Dept: <b>#DEPTNO#</b></p>' ||
     '<spacer height="8pt"/>'                                  ||
     '<hr color="336699"/>'                                    ||
-    '<spacer height="8pt"/>'                                  ||
+    '<spacer height="14pt"/>'                                 ||
     '<h2>Employees</h2>'                                      ||
     '<table columns="EMP_ROSTER"'                             ||
     ' query="SELECT empno, ename, INITCAP(job),'             ||

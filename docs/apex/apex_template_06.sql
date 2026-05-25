@@ -114,7 +114,7 @@ BEGIN
 
     '<spacer height="10pt"/>'                                             ||
     '<hr color="336699"/>'                                                ||
-    '<spacer height="8pt"/>'                                              ||
+    '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
     -- MANAGER SECTION: shown only when the employee has a manager.

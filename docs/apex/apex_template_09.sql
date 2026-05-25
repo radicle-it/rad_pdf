@@ -121,7 +121,7 @@ BEGIN
     '<p style="caption">Generated: #GEN_DATE#</p>'                       ||
     '<spacer height="8pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||
-    '<spacer height="10pt"/>'                                             ||
+    '<spacer height="14pt"/>'                                             ||
     '<h2>Departments</h2>'                                                ||
     '<p>'
       || 'Selected department is shown in '
@@ -142,7 +142,7 @@ BEGIN
     '<p>Location: <b>#LOC#</b>   Employees: <b>#COUNT#</b></p>'         ||
     '<spacer height="8pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||
-    '<spacer height="10pt"/>'                                             ||
+    '<spacer height="14pt"/>'                                             ||
     '<h2>Employee List</h2>'                                              ||
     '<p>#DETAIL#</p>',
     l_binds);

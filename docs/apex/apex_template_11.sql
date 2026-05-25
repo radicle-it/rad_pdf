@@ -34,7 +34,7 @@ DECLARE
       || 'Employees: <b>#COUNT#</b></p>'                  ||
     '<spacer height="6pt"/>'                              ||
     '<hr color="003366"/>'                                ||
-    '<spacer height="8pt"/>';
+    '<spacer height="14pt"/>';
 
   -- Re-usable employee list template
   c_emp_list CONSTANT VARCHAR2(500) :=
