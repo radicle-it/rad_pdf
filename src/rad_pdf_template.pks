@@ -28,9 +28,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_template AUTHID CURRENT_USER IS
     <br/>                        forced line break within the paragraph
     <color rgb="RRGGBB">...</color>
                                  custom ink colour (6-char hex, case-insensitive)
-                                 Single-level nesting supported.
+                                 Unlimited nesting depth (LIFO stack).
     <font size="Xpt">...</font>  custom font size (any unit accepted by
-                                 rad_pdf_units).  Single-level nesting supported.
+                                 rad_pdf_units).  Unlimited nesting depth.
     Inline tag names are case-insensitive (<B>, <Color>, <FONT> all work).
 
   Conditional blocks (evaluated BEFORE bind substitution):

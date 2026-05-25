@@ -1149,6 +1149,110 @@ BEGIN
 END;
 /
 
+-- ===========================================================================
+-- Test 34: unlimited nesting depth for <color> and <font> (stack fix)
+-- Before the fix: a single l_save_color variable — closing the outer </color>
+-- restored the wrong value.  After the fix: LIFO stacks handle any depth.
+--
+-- Template layout (colour):
+--   <color FF0000> Red
+--     <color 00FF00> Green
+--       <color 0000FF> Blue </color>   -> back to Green
+--     </color>                         -> back to Red
+--   </color>                           -> back to inherit (black)
+--
+-- Template layout (font size):
+--   <font 14pt> large
+--     <font 10pt> normal-inside-large </font>  -> back to 14pt
+--   </font>                                    -> back to inherit
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 34: unlimited nesting depth for <color> and <font>');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Nested inline tag test</h1>'                                         ||
+    '<p>'
+    || '<color rgb="FF0000">Red '
+    ||   '<color rgb="00FF00">Green '
+    ||     '<color rgb="0000FF">Blue</color>'
+    ||   ' Back-to-green</color>'
+    || ' Back-to-red</color>'
+    || ' Black-again'
+    || '</p>'                                                                  ||
+    '<p>'
+    || 'Normal '
+    || '<font size="14pt">Large '
+    ||   '<font size="10pt">normal-inside-large</font>'
+    || ' large-again</font>'
+    || ' normal-again.'
+    || '</p>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 35: long <ul> content (> 32767 chars) with uppercase <LI> tags
+-- Before the fix: DBMS_LOB.INSTR(p_content, '<li>') silently missed <LI>
+-- items, producing an empty list.  After the fix: Phase 0 normalises
+-- <LI> -> <li> before the CLOB reaches the long-list parser.
+-- The no-binds render() overload is used so Phase 0 normalisation on that
+-- code path is also exercised.
+-- ===========================================================================
+DECLARE
+  l_doc  rad_pdf_types.t_doc_handle;
+  l_pdf  BLOB;
+  l_tmpl CLOB;
+  l_item VARCHAR2(200);
+  l_i    PLS_INTEGER := 1;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 35: long <ul> (>32767 chars) with uppercase <LI> tags');
+  DBMS_LOB.CREATETEMPORARY(l_tmpl, TRUE);
+  DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH('<ul>'), '<ul>');
+  -- Build items using uppercase <LI> / </LI>; ~80 chars each -> >32767 after ~420 items
+  WHILE NVL(DBMS_LOB.GETLENGTH(l_tmpl), 0) < 33800 LOOP
+    l_item := '<LI>Item ' || TO_CHAR(l_i, 'FM0000')
+           || ' - a moderately long description to inflate the CLOB size.</LI>';
+    DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH(l_item), l_item);
+    l_i := l_i + 1;
+  END LOOP;
+  DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH('</ul>'), '</ul>');
+
+  -- Use the no-binds overload: exercises Phase 0 normalisation on that path
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc, l_tmpl);
+  DBMS_LOB.FREETEMPORARY(l_tmpl);
+  l_pdf := rad_pdf.finalize(l_doc);
+  -- A blank document is only ~682 bytes.  A 420-item list must be much larger.
+  -- This assertion catches the regression where uppercase <LI> normalisation
+  -- produces an implicit temporary LOB that do_render silently treats as empty.
+  IF DBMS_LOB.GETLENGTH(l_pdf) < 5000 THEN
+    RAISE_APPLICATION_ERROR(-20999,
+      'PDF too small (' || DBMS_LOB.GETLENGTH(l_pdf) ||
+      ' bytes) — list items were not rendered (blank document = ~682 bytes)');
+  END IF;
+  DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+EXCEPTION WHEN OTHERS THEN
+  IF l_tmpl IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_tmpl) = 1 THEN
+    DBMS_LOB.FREETEMPORARY(l_tmpl);
+  END IF;
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
+  RAISE;
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 10 template engine tests complete.

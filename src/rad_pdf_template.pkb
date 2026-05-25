@@ -23,11 +23,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_template IS
     <br/>               forced line-break within the paragraph
     <color rgb="RRGGBB">...</color>
                         custom ink colour (6-char hex, case-insensitive).
-                        Single-level nesting supported; inner <color> overrides
-                        until </color> restores the outer colour.
+                        Unlimited nesting depth: each opening tag pushes the
+                        current colour; each </color> pops and restores it.
     <font size="Xpt">...</font>
                         custom font size (any unit accepted by rad_pdf_units).
-                        Single-level nesting supported.
+                        Unlimited nesting depth (LIFO stack).
 
   Placeholder tokens substituted before parsing:
     #KEY#  ->  bind value (auto-escaped unless raw=TRUE in t_bind_entry)
@@ -226,8 +226,9 @@ END derive_style;
 --         <font size="Xpt">, </font>.
 -- Unknown inline tags are silently ignored.
 -- Each text segment becomes a t_run entry; <br/> produces an is_br entry.
--- Single-level nesting is supported for <color> and <font>: an inner tag
--- overrides until its matching closing tag restores the outer value.
+-- Unlimited nesting depth is supported for <color> and <font> via LIFO
+-- stacks: each opening tag pushes the current value; the matching closing
+-- tag pops and restores the previous value.
 -- ---------------------------------------------------------------------------
 FUNCTION parse_inline(p_text IN VARCHAR2) RETURN t_run_list IS
   l_runs          t_run_list;
@@ -239,9 +240,14 @@ FUNCTION parse_inline(p_text IN VARCHAR2) RETURN t_run_list IS
   l_bold          BOOLEAN    := FALSE;
   l_italic        BOOLEAN    := FALSE;
   l_color         VARCHAR2(6):= NULL;   -- current ink colour  (NULL = inherit)
-  l_save_color    VARCHAR2(6):= NULL;   -- saved for 1-level </color> restore
   l_font_size     NUMBER     := NULL;   -- current font size in pt (NULL = inherit)
-  l_save_font_sz  NUMBER     := NULL;   -- saved for 1-level </font> restore
+  -- Unlimited-depth LIFO stacks for <color> and <font>
+  TYPE t_vc6_stack IS TABLE OF VARCHAR2(6) INDEX BY PLS_INTEGER;
+  TYPE t_num_stack IS TABLE OF NUMBER       INDEX BY PLS_INTEGER;
+  l_color_stk   t_vc6_stack;
+  l_font_sz_stk t_num_stack;
+  l_clr_depth   PLS_INTEGER := 0;
+  l_fnt_depth   PLS_INTEGER := 0;
   l_rgb           VARCHAR2(6);
   l_sz_str        VARCHAR2(30);
   l_idx           PLS_INTEGER := 0;
@@ -296,34 +302,48 @@ BEGIN
       l_run.font_size := NULL;
       l_runs(l_idx) := l_run;
 
-    -- <color rgb="RRGGBB"> : override ink colour (single-level stack)
+    -- <color rgb="RRGGBB"> : override ink colour (LIFO stack, unlimited depth)
     ELSIF SUBSTR(l_tag, 1, 7) = '<color ' THEN
       l_rgb := UPPER(TRIM(extract_attr(l_tag, 'rgb')));
       IF l_rgb IS NOT NULL AND LENGTH(l_rgb) = 6
          AND REGEXP_LIKE(l_rgb, '^[0-9A-F]{6}$')
       THEN
-        l_save_color := l_color;
-        l_color      := l_rgb;
+        l_clr_depth              := l_clr_depth + 1;
+        l_color_stk(l_clr_depth) := l_color;   -- push current colour
+        l_color                  := l_rgb;
       END IF;
-      -- Invalid rgb attribute: ignore tag, colour unchanged
+      -- Invalid rgb attribute: ignore tag, colour and stack unchanged
 
     ELSIF l_tag = '</color>' THEN
-      l_color := l_save_color;   -- restore saved colour (or NULL if none)
+      IF l_clr_depth > 0 THEN
+        l_color     := l_color_stk(l_clr_depth);   -- pop
+        l_clr_depth := l_clr_depth - 1;
+      ELSE
+        l_color := NULL;   -- underflow: reset to inherit
+      END IF;
 
-    -- <font size="Xpt"> : override font size (single-level stack)
+    -- <font size="Xpt"> : override font size (LIFO stack, unlimited depth)
     ELSIF SUBSTR(l_tag, 1, 6) = '<font ' THEN
       l_sz_str := TRIM(extract_attr(l_tag, 'size'));
       IF l_sz_str IS NOT NULL THEN
         BEGIN
-          l_save_font_sz := l_font_size;
-          l_font_size    := rad_pdf_units.parse_with_unit(l_sz_str);
+          l_fnt_depth                := l_fnt_depth + 1;
+          l_font_sz_stk(l_fnt_depth) := l_font_size;   -- push current size
+          l_font_size                := rad_pdf_units.parse_with_unit(l_sz_str);
         EXCEPTION WHEN OTHERS THEN
-          l_font_size := l_save_font_sz;  -- invalid value: ignore tag
+          -- Invalid size: undo the push and leave font_size unchanged
+          l_font_size := l_font_sz_stk(l_fnt_depth);
+          l_fnt_depth := l_fnt_depth - 1;
         END;
       END IF;
 
     ELSIF l_tag = '</font>' THEN
-      l_font_size := l_save_font_sz;  -- restore saved size (or NULL if none)
+      IF l_fnt_depth > 0 THEN
+        l_font_size := l_font_sz_stk(l_fnt_depth);   -- pop
+        l_fnt_depth := l_fnt_depth - 1;
+      ELSE
+        l_font_size := NULL;   -- underflow: reset to inherit
+      END IF;
 
     ELSE
       NULL;  -- unknown inline tag: skip silently
@@ -571,6 +591,29 @@ BEGIN
 END dispatch_self_close;
 
 -- ---------------------------------------------------------------------------
+-- Private: render a single list item.
+-- Prepends the bullet prefix (*  for <ul>, N.  for <ol>) then dispatches
+-- the result as a paragraph via dispatch_paragraph.  Isolated here so the
+-- prefix logic is not duplicated across the short (VARCHAR2) and long (CLOB)
+-- list-parsing paths in dispatch_open_close.
+-- ---------------------------------------------------------------------------
+PROCEDURE emit_list_item(
+  p_doc    IN     rad_pdf_types.t_doc_handle,
+  p_name   IN     VARCHAR2,       -- 'ul' or 'ol'
+  p_text   IN     VARCHAR2,       -- item text (may contain inline tags, ≤32767)
+  p_style  IN     VARCHAR2,
+  p_nr     IN OUT NOCOPY PLS_INTEGER
+) IS
+  l_prefix VARCHAR2(20);
+BEGIN
+  p_nr     := p_nr + 1;
+  l_prefix := CASE WHEN p_name = 'ol'
+                   THEN TO_CHAR(p_nr) || '.  '
+                   ELSE '*  ' END;
+  dispatch_paragraph(p_doc, l_prefix || p_text, p_style);
+END emit_list_item;
+
+-- ---------------------------------------------------------------------------
 -- Private: dispatch an open/close block tag pair.
 -- p_tag     = opening tag raw string (may contain attributes).
 -- p_content = CLOB slice of the content between the opening and closing tags.
@@ -587,8 +630,9 @@ END dispatch_self_close;
 --
 -- <ul>/<ol> : short lists (content <= 32767) use LOWER for case-insensitive
 --             <li> search while preserving original case for extraction.
---             Long lists (content > 32767) use DBMS_LOB.INSTR — <li> tags
---             must be lowercase in that case.
+--             Long lists (content > 32767) use DBMS_LOB.INSTR.  <LI> / </LI>
+--             are normalised to lowercase by Phase 0 of the render pipeline
+--             before the CLOB reaches this procedure.
 -- ---------------------------------------------------------------------------
 PROCEDURE dispatch_open_close(
   p_doc     IN rad_pdf_types.t_doc_handle,
@@ -608,7 +652,6 @@ PROCEDURE dispatch_open_close(
   l_li_txt  VARCHAR2(32767);
   l_cnt_li  PLS_INTEGER;
   l_nr      PLS_INTEGER;
-  l_prefix  VARCHAR2(20);
 BEGIN
   l_cnt_len := NVL(DBMS_LOB.GETLENGTH(p_content), 0);
 
@@ -676,15 +719,11 @@ BEGIN
           l_li_e := INSTR(l_con_lc, '</li>', l_li_s + 4);
           IF l_li_e = 0 THEN EXIT; END IF;
           l_li_txt := SUBSTR(l_content_vc, l_li_s + 4, l_li_e - (l_li_s + 4));
-          l_nr     := l_nr + 1;
-          l_prefix := CASE WHEN p_name = 'ol'
-                           THEN TO_CHAR(l_nr) || '.  '
-                           ELSE '*  ' END;
-          dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
+          emit_list_item(p_doc, p_name, l_li_txt, l_style, l_nr);
           l_li_s := INSTR(l_con_lc, '<li>', l_li_e + 5);
         END LOOP;
       ELSE
-        -- Long list: CLOB-based search (tags must be lowercase).
+        -- Long list: CLOB-based search (<LI> normalised to <li> by Phase 0).
         l_li_s := DBMS_LOB.INSTR(p_content, '<li>');
         WHILE l_li_s > 0 LOOP
           l_li_e := DBMS_LOB.INSTR(p_content, '</li>', l_li_s + 4);
@@ -694,11 +733,7 @@ BEGIN
                            THEN DBMS_LOB.SUBSTR(p_content,
                                   LEAST(l_cnt_li, 32767), l_li_s + 4)
                            ELSE NULL END;
-          l_nr     := l_nr + 1;
-          l_prefix := CASE WHEN p_name = 'ol'
-                           THEN TO_CHAR(l_nr) || '.  '
-                           ELSE '*  ' END;
-          dispatch_paragraph(p_doc, l_prefix || l_li_txt, l_style);
+          emit_list_item(p_doc, p_name, l_li_txt, l_style, l_nr);
           l_li_s := DBMS_LOB.INSTR(p_content, '<li>', l_li_e + 5);
         END LOOP;
       END IF;
@@ -1225,14 +1260,33 @@ PROCEDURE render(
   l_bound CLOB;
   l_cond  CLOB;
   l_src   CLOB;  -- normalised source (alias to p_clob when no normalisation needed)
+  l_tmp   CLOB;  -- scratch: holds implicit LOB from SELECT REPLACE before materialisation
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
 
-  -- Phase 0: normalise <IF ...> / </IF> tags so the CLOB scanner sees lowercase.
+  -- Phase 0: normalise uppercase block-tag names that CLOB scanners match
+  -- case-sensitively: <IF …> / </IF> for conditionals; <LI> / </LI> for lists.
   IF DBMS_LOB.INSTR(p_clob, '<IF ', 1) > 0
      OR DBMS_LOB.INSTR(p_clob, '</IF>', 1) > 0
+     OR DBMS_LOB.INSTR(p_clob, '<LI>',  1) > 0
+     OR DBMS_LOB.INSTR(p_clob, '</LI>', 1) > 0
   THEN
-    l_src := REPLACE(REPLACE(p_clob, '<IF ', '<if '), '</IF>', '</if>');
+    -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
+    -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
+    -- Materialise into an explicit temp CLOB: implicit LOBs returned by
+    -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
+    SELECT REPLACE(
+             REPLACE(
+               REPLACE(
+                 REPLACE(p_clob, '<IF ', '<if '),
+               '</IF>', '</if>'),
+             '<LI>', '<li>'),
+           '</LI>', '</li>')
+      INTO l_tmp FROM DUAL;
+    DBMS_LOB.CREATETEMPORARY(l_src, TRUE);
+    IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
+      DBMS_LOB.COPY(l_src, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
+    END IF;
   ELSE
     l_src := p_clob;  -- no copy; l_src is just an alias
   END IF;
@@ -1274,14 +1328,44 @@ BEGIN
 END render;
 
 -- CLOB, no binds  (no size limit; CLOB passed directly to do_render)
+-- Phase 0: normalise <LI> / </LI> for the CLOB-level list scanner, matching
+-- the same normalisation applied by the binds overload.
 PROCEDURE render(
   p_doc     IN rad_pdf_types.t_doc_handle,
   p_clob    IN CLOB,
   p_options IN rad_pdf_types.t_template_options DEFAULT NULL
 ) IS
+  l_src CLOB;
+  l_tmp CLOB;  -- scratch: holds implicit LOB from SELECT REPLACE before materialisation
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
-  do_render(p_doc, p_clob, p_options);
+  -- Phase 0: normalise <LI> / </LI> so DBMS_LOB.INSTR always finds '<li>'.
+  IF DBMS_LOB.INSTR(p_clob, '<LI>',  1) > 0
+     OR DBMS_LOB.INSTR(p_clob, '</LI>', 1) > 0
+  THEN
+    -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
+    -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
+    -- Materialise into an explicit temp CLOB: implicit LOBs returned by
+    -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
+    SELECT REPLACE(REPLACE(p_clob, '<LI>', '<li>'), '</LI>', '</li>')
+      INTO l_tmp FROM DUAL;
+    DBMS_LOB.CREATETEMPORARY(l_src, TRUE);
+    IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
+      DBMS_LOB.COPY(l_src, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
+    END IF;
+  ELSE
+    l_src := p_clob;
+  END IF;
+  do_render(p_doc, l_src, p_options);
+  IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
+    DBMS_LOB.FREETEMPORARY(l_src);
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
+      DBMS_LOB.FREETEMPORARY(l_src);
+    END IF;
+    RAISE;
 END render;
 
 -- VARCHAR2, no binds  (delegates to the CLOB no-bind overload)
