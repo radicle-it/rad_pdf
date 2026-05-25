@@ -125,7 +125,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                                      NVL(p_fmt.align_h, 'L'), 'pt');
       ELSE
         l_tw := rad_pdf_canvas.text_width(p_doc, p_text);
-        l_ty := p_y + NVL(p_fmt.margin_bot, 1);
+        -- Vertically centre the text in the row.
+        -- The constant 0.25 ≈ (cap_height_ratio − descender_ratio) / 2
+        -- = (0.718 − 0.207) / 2 for Helvetica, which makes the visual
+        -- midpoint between cap-ascenders and descenders coincide with the
+        -- cell midpoint.  This keeps descenders inside the cell even when
+        -- row_height overrides produce taller-than-minimum rows.
+        -- Honour an explicit margin_bot (non-NULL) as a legacy bottom offset.
+        IF p_fmt.margin_bot IS NOT NULL THEN
+          l_ty := p_y + p_fmt.margin_bot;
+        ELSE
+          l_ty := p_y + p_h / 2 - NVL(p_fmt.font_size, 9) * 0.25;
+        END IF;
         CASE p_fmt.align_h
           WHEN 'R' THEN l_tx := p_x + p_w - l_tw - NVL(p_fmt.margin_rgt,  1);
           WHEN 'C' THEN l_tx := p_x + (p_w - l_tw) / 2;
