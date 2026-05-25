@@ -10,23 +10,23 @@ PROMPT  Working directory src/
 PROMPT ================================================================
 PROMPT
 
-@@install_phase1.sql
+@@install/install_phase1.sql
 PROMPT
-@@install_phase2.sql
+@@install/install_phase2.sql
 PROMPT
-@@install_phase3.sql
+@@install/install_phase3.sql
 PROMPT
-@@install_phase4.sql
+@@install/install_phase4.sql
 PROMPT
-@@install_phase5.sql
+@@install/install_phase5.sql
 PROMPT
-@@install_phase6.sql
+@@install/install_phase6.sql
 PROMPT
-@@install_phase7.sql
+@@install/install_phase7.sql
 PROMPT
-@@install_phase8.sql
+@@install/install_phase8.sql
 PROMPT
-@@install_phase9.sql
+@@install/install_phase9.sql
 PROMPT
 
 PROMPT ================================================================

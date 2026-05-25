@@ -6,11 +6,11 @@
 PROMPT === Phase 4 rad_pdf_fonts ===
 
 PROMPT --- rad_pdf_fonts spec
-@@rad_pdf_fonts.pks
+@@../rad_pdf_fonts.pks
 SHOW ERRORS PACKAGE rad_pdf_fonts
 
 PROMPT --- rad_pdf_fonts body
-@@rad_pdf_fonts.pkb
+@@../rad_pdf_fonts.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_fonts
 
 PROMPT === Phase 4 complete ===

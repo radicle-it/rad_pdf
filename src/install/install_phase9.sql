@@ -5,11 +5,11 @@
 PROMPT === Phase 9 rad_pdf_template ===
 
 PROMPT --- rad_pdf_template spec
-@@rad_pdf_template.pks
+@@../rad_pdf_template.pks
 SHOW ERRORS PACKAGE rad_pdf_template
 
 PROMPT --- rad_pdf_template body
-@@rad_pdf_template.pkb
+@@../rad_pdf_template.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_template
 
 PROMPT === Phase 9 install complete ===
