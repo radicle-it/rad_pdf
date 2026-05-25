@@ -33,19 +33,17 @@ PROMPT ================================================================
 PROMPT  Install complete.
 PROMPT
 PROMPT  Run acceptance tests (from repo root)
-PROMPT    @tests/phase1_foundation.sql
-PROMPT    @tests/phase2_ctx_decoders.sql
-PROMPT    @tests/phase3_serial.sql
-PROMPT    @tests/phase4_fonts.sql
-PROMPT    @tests/phase5_images.sql
-PROMPT    @tests/phase6_canvas.sql
-PROMPT    @tests/phase7_layout.sql
-PROMPT    @tests/phase8_pdf.sql
-PROMPT    @tests/phase9_integration.sql
-PROMPT    @tests/phase10_template.sql
+PROMPT    @tests/phase9_integration.sql    canvas API + core packages
+PROMPT    @tests/phase10_template.sql      template engine
 PROMPT
-PROMPT  Public API entry point rad_pdf package (rad_pdf.pks / rad_pdf.pkb)
-PROMPT  Template engine (rad_pdf_template.pks / rad_pdf_template.pkb)
-PROMPT  See docs/sample01.sql .. sample10.sql for usage examples.
-PROMPT  See docs/apex/ for APEX-specific examples.
+PROMPT  Canvas API:     docs/sample01.sql .. sample10.sql
+PROMPT  Template engine (standalone):
+PROMPT                  docs/template_sample01.sql .. template_sample05.sql
+PROMPT  APEX examples:  docs/apex/apex_sample00.sql .. apex_sample07.sql
+PROMPT                  docs/apex/apex_template_01.sql .. apex_template_14.sql
+PROMPT
+PROMPT  Reference docs:
+PROMPT    docs/README.md            full user guide + API reference
+PROMPT    docs/TEMPLATE_GUIDE.md    template engine tag catalogue and patterns
+PROMPT    docs/apex/README.md       APEX integration guide
 PROMPT ================================================================
