@@ -23,9 +23,11 @@
 --     Do this in an Application Process that runs On New Session.
 --
 --   BIND VALUES IN QUERIES:
---     #TOKEN# in the query attribute is replaced by the bind value BEFORE the
---     SQL is executed.  Always validate numeric values via TO_NUMBER before
---     placing them in a bind to prevent SQL injection.
+--     #TOKEN# in a <table query="..."> attribute is automatically safe-quoted
+--     by the engine: the raw bind value is wrapped in SQL single quotes with
+--     any embedded quotes doubled.  SQL injection via #TOKEN# is not possible.
+--     For strict numeric validation (to surface a user-facing error rather than
+--     Oracle's implicit coercion error), use TO_CHAR(TO_NUMBER(:P1_DEPTNO)).
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO
@@ -54,9 +56,11 @@ BEGIN
   -- -------------------------------------------------------------------------
   -- 2. Binds
   --
-  --    #DEPTNO# appears inside the <table query="…"> attribute.
-  --    It is replaced verbatim in the SQL string before execution, so it
-  --    must be a clean numeric value — validated by TO_NUMBER above.
+  --    #DEPTNO# appears inside the <table query="..."> attribute.
+  --    The engine automatically safe-quotes it (wraps in SQL string literal
+  --    with embedded quotes doubled) so SQL injection is not possible.
+  --    TO_CHAR(TO_NUMBER(...)) is used here for strict numeric validation —
+  --    it surfaces an error if :P1_DEPTNO is not a valid number.
   -- -------------------------------------------------------------------------
   l_binds(1).key := 'DNAME';   l_binds(1).value := l_dname;
   l_binds(2).key := 'LOC';     l_binds(2).value := INITCAP(l_loc);

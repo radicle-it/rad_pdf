@@ -276,20 +276,41 @@ l_binds(3).value := NVL(TO_CHAR(:P1_SAL, '999,990.00'), '—');
 
 Or use `<if bind="SAL">` to suppress the entire section when the value is absent.
 
-### Inlining numeric values safely in `<table query>`
+### `#TOKEN#` inside `<table query>` — automatic safe quoting
+
+When a `#TOKEN#` placeholder appears inside a `<table query="...">` attribute,
+`render()` automatically protects it against SQL injection **before** bind
+substitution runs (Phase 0b → `shield_query_attrs`):
+
+1. The token is replaced with a CHR(1)/CHR(2) sentinel pair in the CLOB.
+2. The raw bind value is stored in an internal session map.
+3. When the table tag is dispatched, the sentinel is resolved to a
+   properly single-quoted SQL string literal:
+   `'` + value (with embedded `'` doubled to `''`) + `'`.
+
+**No manual validation is needed** — any value, including strings with
+single quotes or SQL metacharacters, is safe.  Oracle performs its normal
+implicit type coercion on the resulting literal (e.g. `'10'` → NUMBER 10).
 
 ```sql
--- #DEPTNO# is replaced verbatim in the SQL before execution.
--- Validate it as numeric before placing it in a bind to prevent injection.
+-- Safe: the engine wraps the value in a SQL string literal automatically.
 l_binds(2).key   := 'DEPTNO';
-l_binds(2).value := TO_CHAR(TO_NUMBER(:P1_DEPTNO));  -- TO_NUMBER validates
+l_binds(2).value := :P1_DEPTNO;  -- any string; injection is blocked
 
 -- Template:
 -- <table columns="EMP_ROSTER"
 --        query="SELECT empno, ename, job, TO_CHAR(hiredate,'DD-Mon-YYYY'), sal
 --                 FROM emp WHERE deptno = #DEPTNO# ORDER BY ename"
 --        allow_query="true"/>
+--
+-- Rendered query (DEPTNO = '10'):
+--   ... WHERE deptno = '10' ORDER BY ename   <- valid; Oracle coerces '10' to 10
 ```
+
+> **Note**: if you need strict type validation (e.g. to surface a user
+> error rather than an ORA-01722 from Oracle's implicit coercion),
+> validate with `TO_NUMBER` before assigning the bind value:
+> `l_binds(2).value := TO_CHAR(TO_NUMBER(:P1_DEPTNO));`
 
 ### Multiple render() calls for a multi-section document
 
