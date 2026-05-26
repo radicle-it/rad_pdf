@@ -1,4 +1,4 @@
--- apex_template_10.sql  —  Inline markup inside headings <h1>–<h6>
+-- apex_template_10.sql  -  Inline markup inside headings <h1>–<h6>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -18,7 +18,7 @@
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -58,20 +58,20 @@ BEGIN
   l_binds(5).key := 'TOP_EARNER';
   l_binds(5).value := NVL(INITCAP(l_top_earner), 'N/A');
   l_binds(6).key := 'TOP_SAL';
-  l_binds(6).value := NVL(TO_CHAR(l_top_sal, 'FM999,990.00'), '—');
+  l_binds(6).value := NVL(TO_CHAR(l_top_sal, 'FM999,990.00'), '-');
 
   -- -------------------------------------------------------------------------
-  -- Template — each heading level demonstrates a different inline feature
+  -- Template - each heading level demonstrates a different inline feature
   -- -------------------------------------------------------------------------
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document;
 
   rad_pdf_template.render(l_doc,
 
-    -- Plain heading (no inline tags) — uses rad_pdf_layout.heading() path
+    -- Plain heading (no inline tags) - uses rad_pdf_layout.heading() path
     '<h1>Department Report</h1>'                                          ||
 
-    -- Heading with a coloured word — the rest stays at h2 style weight/size
+    -- Heading with a coloured word - the rest stays at h2 style weight/size
     '<h2>Department <color rgb="003366">#DNAME#</color></h2>'            ||
 
     -- Heading with bold + colour combined
@@ -84,18 +84,18 @@ BEGIN
     -- h4 with italic word
     '<h4>Total employees: <i>#COUNT#</i></h4>'                          ||
 
-    -- h5 with a font-size override on one word — useful for a superscript-
+    -- h5 with a font-size override on one word - useful for a superscript-
     -- style annotation or to visually de-emphasise part of the heading
     '<h5>Top earner: #TOP_EARNER# '
       || '<font size="8pt"><color rgb="CC0000">(#TOP_SAL#)</color></font>'
       || '</h5>'                                                          ||
 
-    -- h6 — all inline features combined in one heading
+    -- h6 - all inline features combined in one heading
     '<h6>'
       || '<b>Bold</b> + '
       || '<i>italic</i> + '
       || '<color rgb="990000">red</color> + '
-      || '<font size="12pt">larger</font> — '
+      || '<font size="12pt">larger</font> - '
       || 'all inside h6'
       || '</h6>'                                                          ||
 

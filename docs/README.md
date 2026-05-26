@@ -179,7 +179,7 @@ underlying layout engine; choose based on your use case.
 | **How** | Call individual procedures (`heading`, `write`, `query2table`, …) | Pass an XML-like CLOB string with `#BIND#` tokens to `rad_pdf_template.render` |
 | **Best for** | Complex or unique layouts; canvas drawing (images at exact coordinates, polygons, rotated text); reports built entirely in PL/SQL | Consistent structure with varying content; templates stored in a DB table; rapid report development without per-element procedure calls |
 | **Flexibility** | Full pixel-level control | Covers the most common document elements; falls back to Canvas API for unusual layouts |
-| **Mixing** | Can call Canvas API before or between `render()` calls | Yes — both approaches share the same document handle |
+| **Mixing** | Can call Canvas API before or between `render()` calls | Yes - both approaches share the same document handle |
 
 **Quick template engine example:**
 
@@ -764,7 +764,7 @@ BEGIN
   l_binds(2).key := 'YEAR';     l_binds(2).value := '2025';
 
   rad_pdf_template.render(l_doc,
-    '<h1>#CUSTOMER# — Annual Report #YEAR#</h1>'    ||
+    '<h1>#CUSTOMER# - Annual Report #YEAR#</h1>'    ||
     '<p>Revenue grew <b>18%</b> year-over-year.</p>',
     l_binds);
 
@@ -851,7 +851,7 @@ l_pdf := rad_pdf.finalize(l_doc);
 
 ### Full reference
 
-**[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)** — complete tag catalogue, all attributes, error codes,
+**[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md)** - complete tag catalogue, all attributes, error codes,
 security notes, and patterns for APEX and non-APEX use.
 
 ---
@@ -916,7 +916,7 @@ security notes, and patterns for APEX and non-APEX use.
 | Constant | Code | When raised |
 |---|---|---|
 | `c_err_template` | -20810 | Unclosed tag, unclosed `<if>`, malformed template |
-| — | -20811 | Unknown block tag (when `strict_tags = TRUE`) |
+| - | -20811 | Unknown block tag (when `strict_tags = TRUE`) |
 | `c_err_table_attr` | -20813 | `<table>` missing required attribute (`columns` or `query`) |
 | `c_err_table_cols` | -20814 | `<table>` column set not registered |
 | `c_err_table_qry` | -20815 | `<table>` query execution blocked (missing tag or options flag) |
@@ -966,8 +966,8 @@ For APEX-specific template examples see [apex/README.md](apex/README.md).
 
 | File | Description |
 |---|---|
-| [template_sample01.sql](template_sample01.sql) | Basic structure: h1–h6, p, spacer, hr, pagebreak — no binds |
-| [template_sample02.sql](template_sample02.sql) | Bind substitution, inline markup, conditional blocks — EMP data |
+| [template_sample01.sql](template_sample01.sql) | Basic structure: h1–h6, p, spacer, hr, pagebreak - no binds |
+| [template_sample02.sql](template_sample02.sql) | Bind substitution, inline markup, conditional blocks - EMP data |
 | [template_sample03.sql](template_sample03.sql) | Lists (`<ul>`, `<ol>`), inline colour and font size |
 | [template_sample04.sql](template_sample04.sql) | Data table: `register_columns` + `<table>` tag with query |
 | [template_sample05.sql](template_sample05.sql) | Multi-section document: one `render()` call per department |
@@ -991,7 +991,7 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample06.sql](apex/apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
 | [apex/apex_sample07.sql](apex/apex_sample07.sql) | Template engine quick-start: bind substitution, tags, data table |
 
-**Template engine (progressive curriculum — start at 01, work through to 14):**
+**Template engine (progressive curriculum - start at 01, work through to 14):**
 
 | File | Feature introduced |
 |---|---|
@@ -1005,8 +1005,8 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_template_08.sql](apex/apex_template_08.sql) | Data table: `<table columns="…" query="…">` |
 | [apex/apex_template_09.sql](apex/apex_template_09.sql) | Page break: two-page report |
 | [apex/apex_template_10.sql](apex/apex_template_10.sql) | Inline markup inside h1–h6 headings |
-| [apex/apex_template_11.sql](apex/apex_template_11.sql) | Multiple `render()` calls — one per department |
+| [apex/apex_template_11.sql](apex/apex_template_11.sql) | Multiple `render()` calls - one per department |
 | [apex/apex_template_12.sql](apex/apex_template_12.sql) | Custom default font via `t_template_options` |
 | [apex/apex_template_13.sql](apex/apex_template_13.sql) | DB-driven templates loaded from a table |
-| [apex/apex_template_14.sql](apex/apex_template_14.sql) | Complete department report — all features combined |
+| [apex/apex_template_14.sql](apex/apex_template_14.sql) | Complete department report - all features combined |
 

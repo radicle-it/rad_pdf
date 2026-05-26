@@ -1,10 +1,10 @@
--- apex_template_07.sql  —  Lists: <ul>, <ol>, <li>
+-- apex_template_07.sql  -  Lists: <ul>, <ol>, <li>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
 --   Building ordered and unordered lists from database data:
---     <ul>...</ul>   unordered list — bullet prefix "*  "
---     <ol>...</ol>   ordered list   — numbered prefix "1.  ", "2.  ", …
+--     <ul>...</ul>   unordered list - bullet prefix "*  "
+--     <ol>...</ol>   ordered list   - numbered prefix "1.  ", "2.  ", …
 --     <li>...</li>   list item; content may contain inline tags
 --
 --   Key points:
@@ -15,7 +15,7 @@
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 --
 -- EMP / DEPT USAGE
 --   Unordered list: employees in the department (name + job).
@@ -63,13 +63,13 @@ BEGIN
       -- Manager: bold name
       l_ul_items := l_ul_items
         || '<li><b>' || INITCAP(r.ename) || '</b>'
-        || ' — <i>' || INITCAP(r.job) || '</i>'
+        || ' - <i>' || INITCAP(r.job) || '</i>'
         || ' <color rgb="006600"><b>(manager)</b></color>'
         || '</li>';
     ELSE
       l_ul_items := l_ul_items
         || '<li>' || INITCAP(r.ename)
-        || ' — <i>' || INITCAP(r.job) || '</i>'
+        || ' - <i>' || INITCAP(r.job) || '</i>'
         || '</li>';
     END IF;
   END LOOP;
@@ -79,7 +79,7 @@ BEGIN
   END IF;
 
   -- -------------------------------------------------------------------------
-  -- Build ordered list items (top earners — same department, by salary desc).
+  -- Build ordered list items (top earners - same department, by salary desc).
   -- Salaries >= 3000 are highlighted red.
   -- -------------------------------------------------------------------------
   l_ol_items := '';
@@ -87,12 +87,12 @@ BEGIN
     IF r.sal >= 3000 THEN
       l_ol_items := l_ol_items
         || '<li><b>' || INITCAP(r.ename) || '</b>'
-        || ' — <color rgb="CC0000"><b>' || TO_CHAR(r.sal, 'FM999,990.00') || '</b></color>'
+        || ' - <color rgb="CC0000"><b>' || TO_CHAR(r.sal, 'FM999,990.00') || '</b></color>'
         || '</li>';
     ELSE
       l_ol_items := l_ol_items
         || '<li>' || INITCAP(r.ename)
-        || ' — ' || TO_CHAR(r.sal, 'FM999,990.00')
+        || ' - ' || TO_CHAR(r.sal, 'FM999,990.00')
         || '</li>';
     END IF;
   END LOOP;
@@ -118,20 +118,20 @@ BEGIN
   -- Template
   --
   -- Note: <ul> and <ol> are self-closing in the sense that their only
-  -- meaningful content is <li> items — any text outside <li> tags is ignored.
+  -- meaningful content is <li> items - any text outside <li> tags is ignored.
   -- -------------------------------------------------------------------------
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document;
 
   rad_pdf_template.render(l_doc,
-    '<h1>Department #DNAME# — Lists Demo</h1>'                            ||
+    '<h1>Department #DNAME# - Lists Demo</h1>'                            ||
     '<p style="caption">Department #DEPTNO#</p>'                         ||
     '<spacer height="8pt"/>'                                              ||
     '<hr color="336699"/>'                                                ||
     '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
-    -- Unordered list — bullet prefix for each item
+    -- Unordered list - bullet prefix for each item
     -- -----------------------------------------------------------------------
     '<h2>All Employees</h2>'                                              ||
     '<p style="caption">'
@@ -145,7 +145,7 @@ BEGIN
     '<spacer height="14pt"/>'                                             ||
 
     -- -----------------------------------------------------------------------
-    -- Ordered list — automatically numbered 1., 2., 3., …
+    -- Ordered list - automatically numbered 1., 2., 3., …
     -- -----------------------------------------------------------------------
     '<h2>Salary Ranking</h2>'                                             ||
     '<p style="caption">'

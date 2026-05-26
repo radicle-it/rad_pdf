@@ -1,4 +1,4 @@
--- apex_template_06.sql  —  Conditional blocks: <if bind="KEY">...</if>
+-- apex_template_06.sql  -  Conditional blocks: <if bind="KEY">...</if>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -13,7 +13,7 @@
 --   is NULL.
 --
 --   Conditionals are evaluated BEFORE bind substitution, so tokens inside a
---   suppressed block are never processed — they can be NULL without error.
+--   suppressed block are never processed - they can be NULL without error.
 --
 --   Use cases in this example:
 --     1. Show/hide salary section based on a checkbox (P1_SHOW_SALARY = 'Y')
@@ -23,9 +23,9 @@
 -- APEX SETUP
 --   Page items:
 --     P1_EMPNO        (number field)
---     P1_SHOW_SALARY  (checkbox — value 'Y' when checked, NULL when unchecked)
---     P1_NOTES        (text area — optional free-text comment)
---   Process: Execute Server-side Code — On Load - Before Header
+--     P1_SHOW_SALARY  (checkbox - value 'Y' when checked, NULL when unchecked)
+--     P1_NOTES        (text area - optional free-text comment)
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -61,13 +61,13 @@ BEGIN
   --
   --   Key design decision: for conditional sections, you have two options:
   --
-  --   Option A — add the bind only when the condition is true
+  --   Option A - add the bind only when the condition is true
   --     Pros: clean; the block disappears along with its tokens.
   --     Cons: slightly more PL/SQL IF logic.
   --
-  --   Option B — always add the bind; use NULL to suppress
+  --   Option B - always add the bind; use NULL to suppress
   --     Pros: simpler array building (no IF).
-  --     Cons: the bind value itself is NULL — you MUST place the token inside
+  --     Cons: the bind value itself is NULL - you MUST place the token inside
   --           an <if bind="KEY"> block so it is never seen by apply_binds.
   --           DO NOT reference a NULL-value token outside an <if> block.
   --
@@ -80,7 +80,7 @@ BEGIN
   l_binds(3).key   := 'DNAME';     l_binds(3).value := l_dname;
   l_binds(4).key   := 'HIREDATE';  l_binds(4).value := TO_CHAR(l_hiredate, 'DD Month YYYY');
 
-  -- SALARY section: Option A — add bind only when P1_SHOW_SALARY = 'Y'
+  -- SALARY section: Option A - add bind only when P1_SHOW_SALARY = 'Y'
   -- The <if bind="SALARY"> block is suppressed when SALARY is absent.
   IF :P1_SHOW_SALARY = 'Y' THEN
     l_binds(5).key   := 'SALARY';
@@ -89,12 +89,12 @@ BEGIN
   -- Note: if P1_SHOW_SALARY != 'Y', no entry for SALARY exists in l_binds,
   -- so the <if bind="SALARY"> block is automatically dropped.
 
-  -- NOTES section: Option B — always present, NULL when empty
+  -- NOTES section: Option B - always present, NULL when empty
   -- The :P1_NOTES item is NULL when the user left the text area blank.
   -- The <if bind="NOTES"> block suppresses #NOTES# when it is NULL,
   -- avoiding the NULL-bind error.
   l_binds(6).key   := 'NOTES';
-  l_binds(6).value := :P1_NOTES;   -- may be NULL — safe inside <if bind="NOTES">
+  l_binds(6).value := :P1_NOTES;   -- may be NULL - safe inside <if bind="NOTES">
 
   -- MANAGER section: only present when the employee has a manager
   IF l_mgr_name IS NOT NULL THEN
@@ -139,7 +139,7 @@ BEGIN
 
     -- -----------------------------------------------------------------------
     -- NOTES SECTION: shown only when P1_NOTES is non-NULL.
-    -- The #NOTES# token is INSIDE the <if> block — it is never processed
+    -- The #NOTES# token is INSIDE the <if> block - it is never processed
     -- when NOTES is NULL, so no ORA-20810 is raised.
     -- -----------------------------------------------------------------------
     '<if bind="NOTES">'

@@ -1,4 +1,4 @@
--- apex_template_08.sql  —  Data table: <table columns="…" query="…">
+-- apex_template_08.sql  -  Data table: <table columns="…" query="…">
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -32,7 +32,7 @@
 -- APEX SETUP
 --   Page item: P1_DEPTNO
 --   Application Process (On New Session): register column sets (see bottom).
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -59,7 +59,7 @@ BEGIN
   --    #DEPTNO# appears inside the <table query="..."> attribute.
   --    The engine automatically safe-quotes it (wraps in SQL string literal
   --    with embedded quotes doubled) so SQL injection is not possible.
-  --    TO_CHAR(TO_NUMBER(...)) is used here for strict numeric validation —
+  --    TO_CHAR(TO_NUMBER(...)) is used here for strict numeric validation -
   --    it surfaces an error if :P1_DEPTNO is not a valid number.
   -- -------------------------------------------------------------------------
   l_binds(1).key := 'DNAME';   l_binds(1).value := l_dname;
@@ -89,7 +89,7 @@ BEGIN
   l_doc := rad_pdf.new_document;
 
   rad_pdf_template.render(l_doc,
-    '<h1>Employee Roster — #DNAME#</h1>'                                  ||
+    '<h1>Employee Roster - #DNAME#</h1>'                                  ||
     '<p>Location: <b>#LOC#</b>   Total employees: <b>#COUNT#</b></p>'    ||
 
     '<spacer height="6pt"/>'                                              ||
@@ -101,7 +101,7 @@ BEGIN
     --   columns     = name registered with register_columns()
     --   query       = SQL SELECT; must return exactly as many columns as the
     --                 column set has entries (in the same order).
-    --                 #DEPTNO# is a bind token — replaced before execution.
+    --                 #DEPTNO# is a bind token - replaced before execution.
     --   allow_query = must be "true" (tag-level opt-in)
     --   row_height  = fixed height for every data row in pt (optional)
     --   header_bg   = background colour of the header row
@@ -148,7 +148,7 @@ EXCEPTION
 END;
 
 -- ===========================================================================
--- APPLICATION PROCESS (On New Session) — register the EMP_ROSTER column set.
+-- APPLICATION PROCESS (On New Session) - register the EMP_ROSTER column set.
 -- Paste this separately into an Application Process in APEX App Builder:
 --   Shared Components → Application Processes → Create
 --   Name:  RAD_PDF Session Init

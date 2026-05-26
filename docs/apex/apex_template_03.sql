@@ -1,4 +1,4 @@
--- apex_template_03.sql  —  Inline formatting: <b>, <i>, <br/>
+-- apex_template_03.sql  -  Inline formatting: <b>, <i>, <br/>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -9,11 +9,11 @@
 --
 --   When a paragraph contains ANY inline tag, the layout engine renders all
 --   runs on the same word-wrapped line (PARA_RUNS flowable).  This is the
---   correct behaviour — text does not "jump" to separate lines.
+--   correct behaviour - text does not "jump" to separate lines.
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO (department number)
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 --
 -- EMP / DEPT USAGE
 --   Lists all employees in the selected department with formatted salary.
@@ -83,7 +83,7 @@ BEGIN
 
   l_binds(4).key   := 'ROSTER';
   -- The roster already contains template tags (<b>, <i>, <br/>).
-  -- raw=TRUE tells render() NOT to escape the value — otherwise < and >
+  -- raw=TRUE tells render() NOT to escape the value - otherwise < and >
   -- would be converted to &lt; and &gt; and the tags would appear as text.
   l_binds(4).value := l_roster;
   l_binds(4).raw   := TRUE;
@@ -104,7 +104,7 @@ BEGIN
     '<hr color="003366"/>'                                                 ||
     '<spacer height="14pt"/>'                                              ||
 
-    -- This paragraph header uses <b> and <i> — it goes through PARA_RUNS
+    -- This paragraph header uses <b> and <i> - it goes through PARA_RUNS
     -- so the bold/italic text appears inline with the plain text.
     '<h2>Employee Roster</h2>'                                             ||
     '<p>#ROSTER#</p>'                                                      ||

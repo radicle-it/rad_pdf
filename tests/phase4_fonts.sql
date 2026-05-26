@@ -1,4 +1,4 @@
--- phase4_fonts.sql — acceptance tests for Phase 4 (rad_pdf_fonts)
+-- phase4_fonts.sql - acceptance tests for Phase 4 (rad_pdf_fonts)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE

@@ -6,7 +6,7 @@
 --   • Bind array (t_bind_array / t_bind_entry): key / value pairs substituted
 --     into #KEY# tokens in the template string at render time.
 --   • Auto-escaping: bind values containing & < > are entity-encoded by
---     default (raw=FALSE).  Never call escape_value() manually — the engine
+--     default (raw=FALSE).  Never call escape_value() manually - the engine
 --     does it for you.  Set raw=TRUE only for values that already contain
 --     trusted inline markup (e.g. a pre-built run of <b>/<color> tags).
 --   • Inline markup inside <p>, <h1>–<h6>:
@@ -25,7 +25,7 @@
 --   or replace the SELECT with any equivalent query.
 --
 -- HOW TO RUN
---   Same as template_sample01.sql — see its header for save/download options.
+--   Same as template_sample01.sql - see its header for save/download options.
 --
 -- PREREQUISITES
 --   RAD_PDF packages installed in the current schema (src/install.sql).
@@ -97,11 +97,11 @@ BEGIN
   rad_pdf_template.render(l_doc,
 
     -- Inline markup inside a heading: #ENAME# is replaced by the bind value.
-    '<h1>Employee Profile — <b>#ENAME#</b></h1>'                               ||
+    '<h1>Employee Profile - <b>#ENAME#</b></h1>'                               ||
 
     -- Paragraph with inline bold and <br/> line breaks.
     '<p>'
-      || '<b>Department:</b> #DNAME# — #LOC#<br/>'
+      || '<b>Department:</b> #DNAME# - #LOC#<br/>'
       || '<b>Job title:</b>  #JOB#<br/>'
       || '<b>Hired:</b>      #HDATE#<br/>'
       || '<b>Salary:</b>     #SAL#'
@@ -129,13 +129,13 @@ BEGIN
 
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 EXCEPTION
   WHEN NO_DATA_FOUND THEN
     DBMS_OUTPUT.PUT_LINE(
-      'Employee KING not found — are EMP/DEPT demo tables loaded?');
+      'Employee KING not found - are EMP/DEPT demo tables loaded?');
   WHEN OTHERS THEN
     BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
     IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;

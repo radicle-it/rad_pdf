@@ -3,7 +3,7 @@
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • rad_pdf_template.register_columns — registers a named t_columns set so
+--   • rad_pdf_template.register_columns - registers a named t_columns set so
 --     the <table> tag can reference it by name.  Register once per session
 --     (e.g. in an application init procedure or a database login trigger).
 --   • <table> tag attributes:
@@ -101,7 +101,7 @@ BEGIN
 
   rad_pdf_template.render(l_doc,
 
-    '<h1>#DNAME# — Employee Roster</h1>'                                        ||
+    '<h1>#DNAME# - Employee Roster</h1>'                                        ||
     '<p>Location: <b>#LOC#</b>   |   Department: <b>#DEPTNO#</b></p>'          ||
     '<spacer height="6pt"/>'                                                    ||
     '<hr color="003366" width="1.5"/>'                                          ||
@@ -131,7 +131,7 @@ BEGIN
 
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 EXCEPTION

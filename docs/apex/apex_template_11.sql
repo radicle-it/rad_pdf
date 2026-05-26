@@ -1,9 +1,9 @@
--- apex_template_11.sql  —  Multi-section document via multiple render() calls
+-- apex_template_11.sql  -  Multi-section document via multiple render() calls
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
 --   Calling render() multiple times on the same document handle.
---   Each call APPENDS its flowables to the document — no new document needed.
+--   Each call APPENDS its flowables to the document - no new document needed.
 --   This pattern lets you:
 --     - Keep header, body, and footer as separate template strings.
 --     - Reuse a header/footer template across different body templates.
@@ -12,13 +12,13 @@
 --
 --   In this example the document has three sections built by separate render()
 --   calls:
---     SECTION 1  — cover page (no binds)
---     SECTION 2  — department pages (one per department, looped)
---     SECTION 3  — closing signature block
+--     SECTION 1  - cover page (no binds)
+--     SECTION 2  - department pages (one per department, looped)
+--     SECTION 3  - closing signature block
 --
 -- APEX SETUP
---   No page items needed — the report covers all departments.
---   Process: Execute Server-side Code — On Load - Before Header
+--   No page items needed - the report covers all departments.
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -66,7 +66,7 @@ BEGIN
   l_doc := rad_pdf.new_document;
 
   -- =========================================================================
-  -- SECTION 1: Cover page — no binds, no data
+  -- SECTION 1: Cover page - no binds, no data
   -- =========================================================================
   rad_pdf_template.render(l_doc,
     '<h1>Human Resources Report</h1>'                                     ||
@@ -77,7 +77,7 @@ BEGIN
     '<p>Generated: <b>' || TO_CHAR(SYSDATE, 'DD Month YYYY') || '</b></p>');
 
   -- =========================================================================
-  -- SECTION 2: One page per department — render() called in a loop.
+  -- SECTION 2: One page per department - render() called in a loop.
   --   <pagebreak/> is injected between departments (not before the first).
   -- =========================================================================
   FOR d IN c_depts LOOP
@@ -100,7 +100,7 @@ BEGIN
     IF l_emp_lines IS NULL THEN l_emp_lines := '<i>No employees.</i>'; END IF;
 
     -- Populate the bind array for this department
-    -- (overwrite all entries — l_binds persists across loop iterations)
+    -- (overwrite all entries - l_binds persists across loop iterations)
     l_binds(1).key := 'DNAME';      l_binds(1).value := d.dname;
     l_binds(2).key := 'LOC';        l_binds(2).value := INITCAP(d.loc);
     l_binds(3).key := 'COUNT';      l_binds(3).value := TO_CHAR(d.cnt);
@@ -116,7 +116,7 @@ BEGIN
   END LOOP;
 
   -- =========================================================================
-  -- SECTION 3: Closing block — no binds again
+  -- SECTION 3: Closing block - no binds again
   -- =========================================================================
   rad_pdf_template.render(l_doc,
     '<pagebreak/>'                                                        ||

@@ -1,4 +1,4 @@
--- phase3_serial.sql — acceptance tests for Phase 3 (rad_pdf_serial)
+-- phase3_serial.sql - acceptance tests for Phase 3 (rad_pdf_serial)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE

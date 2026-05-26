@@ -1,4 +1,4 @@
-# RAD_PDF Template Engine — APEX Developer Guide
+# RAD_PDF Template Engine - APEX Developer Guide
 
 The template engine (`rad_pdf_template`) lets you describe the content and layout
 of a PDF document as a CLOB of lightweight XML-like tags and `#PLACEHOLDER#` tokens.
@@ -27,7 +27,7 @@ finished PDF back in a single `render()` call.
 | Requirement | Notes |
 |---|---|
 | RAD_PDF installed | All 9 phases (`@src/install.sql`) |
-| `rad_pdf_styles.load_defaults` | Call once per session — put it in an **Application Process** that runs *On New Session* |
+| `rad_pdf_styles.load_defaults` | Call once per session - put it in an **Application Process** that runs *On New Session* |
 | EMP / DEPT tables | Oracle sample schema; must be accessible to the parsing schema |
 | `register_columns` (for `<table>`) | Call once per session in the same On New Session process |
 
@@ -66,19 +66,19 @@ Every `render()` call with binds goes through four phases in this order:
 ```
 Input CLOB
    │
-   ▼ Phase 0 — Case normalisation
+   ▼ Phase 0 - Case normalisation
    │  <IF …> / </IF>  →  <if …> / </if>   (REPLACE on CLOB)
    │
-   ▼ Phase 1 — Conditional evaluation
+   ▼ Phase 1 - Conditional evaluation
    │  <if bind="KEY">…</if>  →  content kept or removed
    │  Evaluated BEFORE bind substitution, so suppressed blocks
    │  never cause NULL-bind errors.
    │
-   ▼ Phase 2 — Bind substitution
+   ▼ Phase 2 - Bind substitution
    │  #KEY#  →  escaped bind value
    │  ##     →  literal #
    │
-   ▼ Phase 3 — Parse and render
+   ▼ Phase 3 - Parse and render
       CLOB scanner produces flowables (headings, paragraphs, tables …)
       passed to the layout engine.
 ```
@@ -92,12 +92,12 @@ Input CLOB
 | Tag | Attributes | Notes |
 |---|---|---|
 | `<p>…</p>` | `style="name"` (optional) | Paragraph; defaults to `body` style |
-| `<h1>…</h1>` … `<h6>…</h6>` | — | Headings; support inline markup |
+| `<h1>…</h1>` … `<h6>…</h6>` | - | Headings; support inline markup |
 | `<ul>…</ul>` | `style="name"` | Unordered list; items in `<li>…</li>` |
 | `<ol>…</ol>` | `style="name"` | Ordered (numbered) list |
 | `<spacer/>` | `height="Xpt"` | Vertical gap (default 12 pt) |
 | `<hr/>` | `color="RRGGBB"` `width="N"` | Horizontal rule |
-| `<pagebreak/>` | — | Force a new page |
+| `<pagebreak/>` | - | Force a new page |
 | `<img/>` | `id="N"` `width="Xmm"` `height="Ymm"` | Inline image (preloaded with `rad_pdf_images`) |
 | `<table/>` | `columns="NAME"` `query="SQL"` `allow_query="true"` `row_height` `max_rows` `header_bg` `alt_bg` `border_color` | Data table from a SQL query |
 
@@ -164,7 +164,7 @@ rad_pdf_template.render(l_doc,
 ```
 
 `<if>` and `</if>` are case-insensitive (Phase 0 normalises them).
-**Nested `<if>` blocks are not supported** — the first `</if>` closes the block.
+**Nested `<if>` blocks are not supported** - the first `</if>` closes the block.
 
 ---
 
@@ -225,12 +225,12 @@ always safe.  Pass `NULL` (no record) to use all defaults.
 | Code | Constant | Raised when |
 |---|---|---|
 | `-20810` | `c_err_template` | Unclosed tag; `<if>` missing `bind` attribute; `</if>` not found; `<p>` > 32767 chars with inline markup |
-| `-20811` | — | Unknown block tag (only when `strict_tags = TRUE`) |
-| `-20813` | — | `<table>` missing `columns` or `query` attribute |
-| `-20814` | — | `<table>` column set not registered via `register_columns` |
-| `-20815` | — | `<table>` query blocked — error message names which opt-in is missing (tag or options) |
-| `-20816` | — | `<img>` missing `id` attribute |
-| `-20817` | — | Non-numeric value in a numeric attribute (`height`, `width`, `max_rows`) |
+| `-20811` | - | Unknown block tag (only when `strict_tags = TRUE`) |
+| `-20813` | - | `<table>` missing `columns` or `query` attribute |
+| `-20814` | - | `<table>` column set not registered via `register_columns` |
+| `-20815` | - | `<table>` query blocked - error message names which opt-in is missing (tag or options) |
+| `-20816` | - | `<img>` missing `id` attribute |
+| `-20817` | - | Non-numeric value in a numeric attribute (`height`, `width`, `max_rows`) |
 
 ---
 
@@ -249,7 +249,7 @@ DBMS_LOB.FREETEMPORARY(l_pdf);
 APEX_APPLICATION.STOP_APEX_ENGINE;
 ```
 
-Place the page process at **On Load — Before Header** so it runs before APEX
+Place the page process at **On Load - Before Header** so it runs before APEX
 has emitted any HTML.
 
 ### Exception handler pattern
@@ -263,7 +263,7 @@ EXCEPTION
     RAISE;
 ```
 
-Always re-raise `E_STOP_APEX_ENGINE` — it is the mechanism APEX uses internally
+Always re-raise `E_STOP_APEX_ENGINE` - it is the mechanism APEX uses internally
 after `stop_apex_engine` and must propagate unchanged.
 
 ### NULL-safe bind values
@@ -271,12 +271,12 @@ after `stop_apex_engine` and must propagate unchanged.
 ```sql
 -- Use NVL so a missing APEX item does not trigger the NULL-bind error
 l_binds(3).key   := 'SAL_FORMATTED';
-l_binds(3).value := NVL(TO_CHAR(:P1_SAL, '999,990.00'), '—');
+l_binds(3).value := NVL(TO_CHAR(:P1_SAL, '999,990.00'), '-');
 ```
 
 Or use `<if bind="SAL">` to suppress the entire section when the value is absent.
 
-### `#TOKEN#` inside `<table query>` — automatic safe quoting
+### `#TOKEN#` inside `<table query>` - automatic safe quoting
 
 When a `#TOKEN#` placeholder appears inside a `<table query="...">` attribute,
 `render()` automatically protects it against SQL injection **before** bind
@@ -288,7 +288,7 @@ substitution runs (Phase 0b → `shield_query_attrs`):
    properly single-quoted SQL string literal:
    `'` + value (with embedded `'` doubled to `''`) + `'`.
 
-**No manual validation is needed** — any value, including strings with
+**No manual validation is needed** - any value, including strings with
 single quotes or SQL metacharacters, is safe.  Oracle performs its normal
 implicit type coercion on the resulting literal (e.g. `'10'` → NUMBER 10).
 
@@ -315,7 +315,7 @@ l_binds(2).value := :P1_DEPTNO;  -- any string; injection is blocked
 ### Multiple render() calls for a multi-section document
 
 ```sql
--- Each render() appends to the same document — no new document needed.
+-- Each render() appends to the same document - no new document needed.
 rad_pdf_template.render(l_doc, l_header_tmpl, l_header_binds);
 rad_pdf_template.render(l_doc, '<pagebreak/>');          -- no binds needed
 rad_pdf_template.render(l_doc, l_body_tmpl,   l_body_binds,   l_opts);

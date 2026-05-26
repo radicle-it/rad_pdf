@@ -1,4 +1,4 @@
--- apex_template_01.sql  —  Document structure
+-- apex_template_01.sql  -  Document structure
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -7,10 +7,10 @@
 --     <p>          body paragraph
 --     <spacer>     vertical gap
 --     <hr>         horizontal rule
---   No binds, no data queries — just static structure.
+--   No binds, no data queries - just static structure.
 --
 -- APEX SETUP
---   Page process — Execute Server-side Code
+--   Page process - Execute Server-side Code
 --   Point: On Load - Before Header
 --   No page items required.
 --
@@ -44,14 +44,14 @@ BEGIN
   -- -------------------------------------------------------------------------
   -- render() accepts a VARCHAR2 (up to 32767 chars) or a CLOB.
   -- The template is a flat string of XML-like tags.
-  -- Content between block tags (anything that is not a tag) is ignored —
+  -- Content between block tags (anything that is not a tag) is ignored -
   -- use it freely for whitespace and newlines to keep the template readable.
   -- -------------------------------------------------------------------------
   rad_pdf_template.render(l_doc,
-    -- Six heading levels — h1 is the largest, h6 the smallest
-    '<h1>Heading Level 1 — Report Title</h1>'          ||
-    '<h2>Heading Level 2 — Section</h2>'               ||
-    '<h3>Heading Level 3 — Sub-section</h3>'           ||
+    -- Six heading levels - h1 is the largest, h6 the smallest
+    '<h1>Heading Level 1 - Report Title</h1>'          ||
+    '<h2>Heading Level 2 - Section</h2>'               ||
+    '<h3>Heading Level 3 - Sub-section</h3>'           ||
     '<h4>Heading Level 4</h4>'                         ||
     '<h5>Heading Level 5</h5>'                         ||
     '<h6>Heading Level 6 (smallest)</h6>'              ||
@@ -60,7 +60,7 @@ BEGIN
     -- Default height is 12 pt; any CSS-style unit is accepted.
     '<spacer height="20pt"/>'                          ||
 
-    -- A horizontal rule — default colour 000000, default width 0.5 pt.
+    -- A horizontal rule - default colour 000000, default width 0.5 pt.
     -- color is a 6-char hex RGB value (no leading #).
     '<hr color="336699" width="1"/>'                   ||
 

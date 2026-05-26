@@ -1,4 +1,4 @@
--- phase7_layout.sql — acceptance tests for Phase 7 (rad_pdf_layout + rad_pdf_table)
+-- phase7_layout.sql - acceptance tests for Phase 7 (rad_pdf_layout + rad_pdf_table)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE

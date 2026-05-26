@@ -3,8 +3,8 @@
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
---   • Unordered list: <ul><li>...</li></ul>  — one bullet point per <li>
---   • Ordered list:   <ol><li>...</li></ol>  — numbered: 1.  2.  3. ...
+--   • Unordered list: <ul><li>...</li></ul>  - one bullet point per <li>
+--   • Ordered list:   <ol><li>...</li></ol>  - numbered: 1.  2.  3. ...
 --   • Inline markup is supported inside <li> content (same as <p>):
 --       <b>, <i>, <br/>, <color>, <font>
 --   • Inline colour:
@@ -108,7 +108,7 @@ BEGIN
     '<h1>Inline Formatting and Lists</h1>'                                      ||
 
     -- ---- Inline colour and font size ----------------------------------------
-    '<h2>Salary Distribution — Research Dept (dept 20)</h2>'                   ||
+    '<h2>Salary Distribution - Research Dept (dept 20)</h2>'                   ||
     '<p style="caption">'
       || '<color rgb="006600"><b>Green bold</b></color> = salary ≥ 3,000   '   ||
       'Plain = 2,000–2,999   '                                                  ||
@@ -144,7 +144,7 @@ BEGIN
 
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 EXCEPTION

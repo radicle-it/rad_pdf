@@ -1,4 +1,4 @@
--- phase5_images.sql — acceptance tests for Phase 5 (rad_pdf_images)
+-- phase5_images.sql - acceptance tests for Phase 5 (rad_pdf_images)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE

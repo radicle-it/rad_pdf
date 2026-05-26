@@ -1,4 +1,4 @@
--- apex_template_13.sql  —  DB-driven templates
+-- apex_template_13.sql  -  DB-driven templates
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -10,7 +10,7 @@
 --     1. A PDF_TEMPLATES table stores one CLOB per named template.
 --     2. The page process SELECT ... INTO to load the CLOB.
 --     3. render() is called with the live CLOB and a fresh bind array.
---     4. Updating a template is a plain UPDATE — no code change.
+--     4. Updating a template is a plain UPDATE - no code change.
 --
 --   Prerequisites (run once as DBA/schema owner):
 --
@@ -25,9 +25,9 @@
 --
 -- APEX SETUP
 --   Page items:
---     P1_DEPTNO       (number field — department to render)
---     P1_TEMPLATE_NAME (text field or select list — name in pdf_templates)
---   Process: Execute Server-side Code — On Load - Before Header
+--     P1_DEPTNO       (number field - department to render)
+--     P1_TEMPLATE_NAME (text field or select list - name in pdf_templates)
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -76,7 +76,7 @@ BEGIN
   -- -------------------------------------------------------------------------
   -- 3. Build binds.
   --    The bind keys must match the #TOKEN# names in the stored template.
-  --    Adding extra keys is harmless — unknown tokens are left verbatim.
+  --    Adding extra keys is harmless - unknown tokens are left verbatim.
   -- -------------------------------------------------------------------------
   l_binds(1).key := 'DEPT_NAME';  l_binds(1).value := l_dname;
   l_binds(2).key := 'DEPT_LOC';   l_binds(2).value := INITCAP(l_loc);
@@ -95,7 +95,7 @@ BEGIN
   l_opts.allow_queries := TRUE;
 
   -- -------------------------------------------------------------------------
-  -- 4. Render with the loaded CLOB — exactly the same as passing a literal
+  -- 4. Render with the loaded CLOB - exactly the same as passing a literal
   --    template string, but the content comes from the database.
   -- -------------------------------------------------------------------------
   rad_pdf_styles.load_defaults;
@@ -145,7 +145,7 @@ DECLARE
   END;
 BEGIN
 
-  -- Template 1: "dept_summary" — header only, no table
+  -- Template 1: "dept_summary" - header only, no table
   upsert('dept_summary', 'Department summary (no table)',
     '<h1>Department Summary</h1>'                              ||
     '<spacer height="6pt"/>'                                   ||
@@ -160,9 +160,9 @@ BEGIN
       || '</if>'                                               ||
     '<p style="caption">Generated: #GEN_DATE#</p>');
 
-  -- Template 2: "dept_roster" — with employee table (allow_query required)
+  -- Template 2: "dept_roster" - with employee table (allow_query required)
   upsert('dept_roster', 'Department roster with employee table',
-    '<h1>#DEPT_NAME# — Employee Roster</h1>'                 ||
+    '<h1>#DEPT_NAME# - Employee Roster</h1>'                 ||
     '<p>Location: <b>#DEPT_LOC#</b>   Dept: <b>#DEPTNO#</b></p>' ||
     '<spacer height="8pt"/>'                                  ||
     '<hr color="336699"/>'                                    ||

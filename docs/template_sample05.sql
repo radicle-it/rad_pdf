@@ -9,9 +9,9 @@
 --   giant template string.
 --
 --   Document structure:
---     Page 1   — cover page (no data, no binds)
---     Pages 2+ — one section per department: summary stats + employee table
---     Last page — end-of-report note
+--     Page 1   - cover page (no data, no binds)
+--     Pages 2+ - one section per department: summary stats + employee table
+--     Last page - end-of-report note
 --
 --   Key techniques:
 --   • Register the column set once; all render() calls share it.
@@ -160,7 +160,7 @@ BEGIN
   -- --------------------------------------------------------------------------
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;
   DBMS_LOB.FREETEMPORARY(l_pdf);
 EXCEPTION

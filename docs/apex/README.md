@@ -227,14 +227,14 @@ Available `c_info_*` constants (all return values in points unless noted):
 ## Template engine
 
 The template engine (`rad_pdf_template`) lets you describe a PDF document as an
-XML-like CLOB string — no per-primitive canvas calls required.  It is the
+XML-like CLOB string - no per-primitive canvas calls required.  It is the
 recommended approach for new reports.
 
 **Full reference and patterns:** [TEMPLATE_GUIDE.md](../TEMPLATE_GUIDE.md)
 
 ### Template engine examples (progressive, EMP/DEPT)
 
-The examples below build incrementally — each file introduces one new feature.
+The examples below build incrementally - each file introduces one new feature.
 Start from `apex_template_01.sql` and work through to `apex_template_14.sql`.
 
 | File | Feature introduced | APEX page items |
@@ -247,9 +247,9 @@ Start from `apex_template_01.sql` and work through to `apex_template_14.sql`.
 | [apex_template_06.sql](apex_template_06.sql) | Conditional blocks `<if bind="…">` | `P1_EMPNO`, `P1_SHOW_SALARY`, `P1_NOTES` |
 | [apex_template_07.sql](apex_template_07.sql) | Lists: `<ul>`, `<ol>`, `<li>` with inline markup | `P1_DEPTNO` |
 | [apex_template_08.sql](apex_template_08.sql) | Data table with `<table columns="…" query="…">` | `P1_DEPTNO` |
-| [apex_template_09.sql](apex_template_09.sql) | Page break — two-page report | `P1_DEPTNO` |
+| [apex_template_09.sql](apex_template_09.sql) | Page break - two-page report | `P1_DEPTNO` |
 | [apex_template_10.sql](apex_template_10.sql) | Inline markup inside headings h1–h6 | `P1_DEPTNO` |
-| [apex_template_11.sql](apex_template_11.sql) | Multiple `render()` calls — one per department | none |
+| [apex_template_11.sql](apex_template_11.sql) | Multiple `render()` calls - one per department | none |
 | [apex_template_12.sql](apex_template_12.sql) | Custom default font via `t_template_options` | `P1_DEPTNO`, `P1_FONT_SIZE`, `P1_FONT_STYLE` |
 | [apex_template_13.sql](apex_template_13.sql) | DB-driven templates loaded from a table | `P1_DEPTNO`, `P1_TEMPLATE_NAME` |
-| [apex_template_14.sql](apex_template_14.sql) | Complete department report — all features combined | `P1_DEPTNO`, `P1_NOTES`, `P1_SHOW_COMMS` |
+| [apex_template_14.sql](apex_template_14.sql) | Complete department report - all features combined | `P1_DEPTNO`, `P1_NOTES`, `P1_SHOW_COMMS` |

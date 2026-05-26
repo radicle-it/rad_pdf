@@ -1,4 +1,4 @@
--- apex_template_14.sql  —  Complete department report (all features combined)
+-- apex_template_14.sql  -  Complete department report (all features combined)
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -14,16 +14,16 @@
 --     - Custom default font size from t_template_options
 --
 --   The document has two pages:
---     Page 1 — Department summary (key stats, top earner, salary distribution)
---     Page 2 — Full employee roster as a formatted table
+--     Page 1 - Department summary (key stats, top earner, salary distribution)
+--     Page 2 - Full employee roster as a formatted table
 --
 -- APEX SETUP
 --   Page items:
---     P1_DEPTNO     (select list — department number)
---     P1_NOTES      (text area — optional notes; NULL suppresses the section)
---     P1_SHOW_COMMS (checkbox — 'Y' to include commission column, else NULL)
+--     P1_DEPTNO     (select list - department number)
+--     P1_NOTES      (text area - optional notes; NULL suppresses the section)
+--     P1_SHOW_COMMS (checkbox - 'Y' to include commission column, else NULL)
 --   Application Process (On New Session): register EMP_ROSTER column set.
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -110,7 +110,7 @@ BEGIN
   FOR r IN c_managers(TO_NUMBER(:P1_DEPTNO)) LOOP
     l_mgr_list := l_mgr_list
       || '<li><b>' || INITCAP(r.ename) || '</b>'
-      || ' — <i>' || INITCAP(r.job) || '</i>'
+      || ' - <i>' || INITCAP(r.job) || '</i>'
       || '</li>';
   END LOOP;
 
@@ -123,16 +123,16 @@ BEGIN
   l_binds(4).key  := 'COUNT';     l_binds(4).value := TO_CHAR(l_count);
 
   l_binds(5).key  := 'SUM_SAL';
-  l_binds(5).value := NVL(TO_CHAR(l_sum_sal,'FM999,990.00'), '—');
+  l_binds(5).value := NVL(TO_CHAR(l_sum_sal,'FM999,990.00'), '-');
 
   l_binds(6).key  := 'MAX_SAL';
-  l_binds(6).value := NVL(TO_CHAR(l_max_sal,'FM999,990.00'), '—');
+  l_binds(6).value := NVL(TO_CHAR(l_max_sal,'FM999,990.00'), '-');
 
   l_binds(7).key  := 'MIN_SAL';
-  l_binds(7).value := NVL(TO_CHAR(l_min_sal,'FM999,990.00'), '—');
+  l_binds(7).value := NVL(TO_CHAR(l_min_sal,'FM999,990.00'), '-');
 
   l_binds(8).key  := 'AVG_SAL';
-  l_binds(8).value := NVL(TO_CHAR(l_avg_sal,'FM999,990.00'), '—');
+  l_binds(8).value := NVL(TO_CHAR(l_avg_sal,'FM999,990.00'), '-');
 
   -- Top earner: conditional bind (absent when no employees)
   IF l_top_name IS NOT NULL THEN
@@ -154,7 +154,7 @@ BEGIN
 
   -- Optional notes (NULL → <if bind="NOTES"> block is suppressed)
   l_binds(13).key  := 'NOTES';
-  l_binds(13).value := :P1_NOTES;   -- may be NULL — safe inside <if>
+  l_binds(13).value := :P1_NOTES;   -- may be NULL - safe inside <if>
 
   l_binds(14).key  := 'GEN_DATE';
   l_binds(14).value := TO_CHAR(SYSDATE, 'DD Month YYYY HH24:MI');
@@ -166,7 +166,7 @@ BEGIN
   l_opts.default_font_size := 10;   -- set explicitly for this report
 
   -- -------------------------------------------------------------------------
-  -- 4. Render — PAGE 1: department summary
+  -- 4. Render - PAGE 1: department summary
   -- -------------------------------------------------------------------------
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document;
@@ -174,7 +174,7 @@ BEGIN
   rad_pdf_template.render(l_doc,
 
     -- ----- Header -----------------------------------------------------------
-    '<h1>Department Report — '
+    '<h1>Department Report - '
       || '<color rgb="003366">#DEPT_NAME#</color>'
       || '</h1>'                                                           ||
     '<p>Location: <b>#DEPT_LOC#</b>   |   '
@@ -193,11 +193,11 @@ BEGIN
       || '<b>Average salary:</b> #AVG_SAL#'
       || '</p>'                                                           ||
 
-    -- Top earner — conditional: block absent when dept has no employees
+    -- Top earner - conditional: block absent when dept has no employees
     '<if bind="TOP_NAME">'
       || '<p>Top earner: '
       || '<b><color rgb="006600">#TOP_NAME#</color></b>'
-      || ' — #TOP_SAL#</p>'
+      || ' - #TOP_SAL#</p>'
       || '</if>'                                                          ||
 
     '<spacer height="10pt"/>'                                             ||
@@ -235,7 +235,7 @@ BEGIN
     '<pagebreak/>'                                                        ||
 
     -- ----- PAGE 2: Full employee table ---------------------------------------
-    '<h1>#DEPT_NAME# — Employee Roster</h1>'                             ||
+    '<h1>#DEPT_NAME# - Employee Roster</h1>'                             ||
     '<p style="caption">Location: #DEPT_LOC#   |   Dept: #DEPTNO#</p>' ||
     '<spacer height="6pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||

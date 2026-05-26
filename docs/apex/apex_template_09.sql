@@ -1,4 +1,4 @@
--- apex_template_09.sql  —  Page break: <pagebreak/>
+-- apex_template_09.sql  -  Page break: <pagebreak/>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -11,12 +11,12 @@
 --     - Separate a table of contents from the body content.
 --
 --   In this example:
---     Page 1 — company-wide summary (all departments, headcount per dept).
---     Page 2 — detail for the selected department with an employee list.
+--     Page 1 - company-wide summary (all departments, headcount per dept).
+--     Page 2 - detail for the selected department with an employee list.
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -65,12 +65,12 @@ BEGIN
       -- Highlight the selected department
       l_summary := l_summary
         || '<b><color rgb="003366">'
-        || d.deptno || '  ' || d.dname || ' — ' || INITCAP(d.loc)
+        || d.deptno || '  ' || d.dname || ' - ' || INITCAP(d.loc)
         || '   (' || d.cnt || ' employee' || CASE WHEN d.cnt != 1 THEN 's' END || ')'
         || '</color></b>';
     ELSE
       l_summary := l_summary
-        || d.deptno || '  ' || d.dname || ' — ' || INITCAP(d.loc)
+        || d.deptno || '  ' || d.dname || ' - ' || INITCAP(d.loc)
         || '   (' || d.cnt || ' employee' || CASE WHEN d.cnt != 1 THEN 's' END || ')';
     END IF;
   END LOOP;
@@ -84,7 +84,7 @@ BEGIN
     l_detail := l_detail
       || '<b>' || INITCAP(r.ename) || '</b>'
       || '  <i>' || r.job || '</i>'
-      || '  — Salary: ' || r.sal_fmt
+      || '  - Salary: ' || r.sal_fmt
       || '  Hired: '    || r.hire_fmt;
   END LOOP;
   IF l_detail IS NULL THEN l_detail := '<i>No employees.</i>'; END IF;
@@ -115,7 +115,7 @@ BEGIN
   rad_pdf_template.render(l_doc,
 
     -- =======================================================================
-    -- PAGE 1 — Company overview
+    -- PAGE 1 - Company overview
     -- =======================================================================
     '<h1>Company Overview</h1>'                                           ||
     '<p style="caption">Generated: #GEN_DATE#</p>'                       ||
@@ -136,9 +136,9 @@ BEGIN
     '<pagebreak/>'                                                        ||
 
     -- =======================================================================
-    -- PAGE 2 — Department detail
+    -- PAGE 2 - Department detail
     -- =======================================================================
-    '<h1>#DNAME# — Detail</h1>'                                          ||
+    '<h1>#DNAME# - Detail</h1>'                                          ||
     '<p>Location: <b>#LOC#</b>   Employees: <b>#COUNT#</b></p>'         ||
     '<spacer height="8pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||

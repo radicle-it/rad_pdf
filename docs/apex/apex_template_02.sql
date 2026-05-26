@@ -1,4 +1,4 @@
--- apex_template_02.sql  —  Bind substitution
+-- apex_template_02.sql  -  Bind substitution
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -11,7 +11,7 @@
 --
 -- APEX SETUP
 --   Page item: P1_EMPNO (Number Field or Select List of employee numbers)
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 --
 -- EMP / DEPT USAGE
 --   Looks up one employee row by P1_EMPNO; joins to DEPT for the name.
@@ -36,7 +36,7 @@ DECLARE
 BEGIN
   -- -------------------------------------------------------------------------
   -- 1. Resolve live data from EMP / DEPT.
-  --    TO_NUMBER(:P1_EMPNO) validates the page item — an invalid or NULL value
+  --    TO_NUMBER(:P1_EMPNO) validates the page item - an invalid or NULL value
   --    raises an exception caught below, so no malformed SQL is possible.
   -- -------------------------------------------------------------------------
   SELECT e.empno, e.ename, e.job, e.sal, e.hiredate, e.comm,
@@ -69,7 +69,7 @@ BEGIN
   --    safe default for columns that can be NULL.
   -- -------------------------------------------------------------------------
   l_binds(1).key   := 'ENAME';
-  l_binds(1).value := l_ename;                              -- VARCHAR2 — safe
+  l_binds(1).value := l_ename;                              -- VARCHAR2 - safe
 
   l_binds(2).key   := 'EMPNO';
   l_binds(2).value := TO_CHAR(l_empno);
@@ -149,7 +149,7 @@ BEGIN
 EXCEPTION
   WHEN APEX_APPLICATION.E_STOP_APEX_ENGINE THEN RAISE;
   WHEN NO_DATA_FOUND THEN
-    -- Employee not found — redirect or show a message instead of crashing
+    -- Employee not found - redirect or show a message instead of crashing
     APEX_ERROR.ADD_ERROR(
       p_message          => 'Employee ' || :P1_EMPNO || ' not found.',
       p_display_location => apex_error.c_inline_in_notification);

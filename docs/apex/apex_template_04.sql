@@ -1,4 +1,4 @@
--- apex_template_04.sql  —  Inline colour and font size
+-- apex_template_04.sql  -  Inline colour and font size
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -14,7 +14,7 @@
 --
 -- APEX SETUP
 --   Page item: P1_DEPTNO
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 --
 -- EMP / DEPT USAGE
 --   Shows employees sorted by salary; high earners (sal >= 3000) are
@@ -55,21 +55,21 @@ BEGIN
       -- High earner: bold red
       l_salary_lines := l_salary_lines
         || '<b><color rgb="CC0000">'
-        || r.ename || ' — ' || TO_CHAR(r.sal, 'FM999,990.00')
+        || r.ename || ' - ' || TO_CHAR(r.sal, 'FM999,990.00')
         || '</color></b>';
 
     ELSIF r.sal >= 2000 THEN
       -- Mid earner: bold blue
       l_salary_lines := l_salary_lines
         || '<b><color rgb="003399">'
-        || r.ename || ' — ' || TO_CHAR(r.sal, 'FM999,990.00')
+        || r.ename || ' - ' || TO_CHAR(r.sal, 'FM999,990.00')
         || '</color></b>';
 
     ELSE
       -- Low earner: italic grey, smaller font
       l_salary_lines := l_salary_lines
         || '<font size="9pt"><color rgb="888888"><i>'
-        || r.ename || ' — ' || TO_CHAR(r.sal, 'FM999,990.00')
+        || r.ename || ' - ' || TO_CHAR(r.sal, 'FM999,990.00')
         || '</i></color></font>';
     END IF;
   END LOOP;
@@ -100,7 +100,7 @@ BEGIN
 
   rad_pdf_template.render(l_doc,
     -- Heading with a coloured word directly in the template
-    '<h1>Salary Report — '
+    '<h1>Salary Report - '
       || '<color rgb="003366">#DNAME#</color>'
       || '</h1>'                                                            ||
     '<p style="caption">Department #DEPTNO#</p>'                          ||

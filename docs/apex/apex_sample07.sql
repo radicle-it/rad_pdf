@@ -146,7 +146,7 @@ BEGIN
   --    suppressed entirely (no heading, no paragraph); there is no need for
   --    a NVL fallback.
   --    DEPTNO is inlined into the <table> query as a template token (#DEPTNO#)
-  --    — rad_pdf_template replaces it with the literal value before executing
+  --    - rad_pdf_template replaces it with the literal value before executing
   --    the SQL, so no Oracle SQL bind variable (:name) is left unbound.
   --    The value is validated as numeric by the TO_NUMBER call in step 1.
   --

@@ -9,7 +9,7 @@
 --   1. A PDF_TEMPLATES table stores one CLOB row per named template.
 --   2. The rendering procedure SELECT … INTO to load the CLOB, then calls
 --      rad_pdf_template.render with a bind array built at runtime.
---   3. Updating a template is a plain UPDATE statement — no code change.
+--   3. Updating a template is a plain UPDATE statement - no code change.
 --
 -- Uses the classic Oracle EMP / DEPT tables (Oracle sample schema).
 --
@@ -96,7 +96,7 @@ BEGIN
 
   -- ── Template 2: dept_full ───────────────────────────────────────────────
   DBMS_LOB.CREATETEMPORARY(l_body, TRUE);
-  w('<h1>#DEPT_NAME# — Employee Roster</h1>');
+  w('<h1>#DEPT_NAME# - Employee Roster</h1>');
   w('<spacer height="6pt"/>');
   w('<p>Location: <b>#DEPT_LOC#</b> &amp; department number: <b>#DEPTNO#</b></p>');
   w('<spacer height="10pt"/>');
@@ -293,7 +293,7 @@ END;
 /
 
 -- ===========================================================================
--- Step 6: Hot-update a template at runtime — no code change required.
+-- Step 6: Hot-update a template at runtime - no code change required.
 -- Change the "dept_header" template to add a divider line below the title.
 -- The next render picks up the updated CLOB automatically.
 -- ===========================================================================

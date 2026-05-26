@@ -1,4 +1,4 @@
--- phase10_template.sql — Acceptance tests for rad_pdf_template (Phase 9).
+-- phase10_template.sql - Acceptance tests for rad_pdf_template (Phase 9).
 --
 -- Run from repo root in SQL*Plus after installing all phases:
 --   @tests/phase10_template.sql
@@ -443,7 +443,7 @@ END;
 /
 
 -- ===========================================================================
--- Test 16: entity encoding — bind values are auto-escaped (no escape_value call)
+-- Test 16: entity encoding - bind values are auto-escaped (no escape_value call)
 -- ===========================================================================
 DECLARE
   l_doc   rad_pdf_types.t_doc_handle;
@@ -586,7 +586,7 @@ BEGIN
   -- Verify: PDF is non-empty (rendering did not raise an error).
   rad_pdf_template.render(l_doc,
     '<p>The report by <b>Mario Rossi</b> has been approved.</p>'          ||
-    '<p>Status: <i>Pending</i> — Priority: <b><i>High</i></b></p>'        ||
+    '<p>Status: <i>Pending</i> - Priority: <b><i>High</i></b></p>'        ||
     '<p>Normal paragraph with no inline tags.</p>');
 
   l_pdf := rad_pdf.finalize(l_doc);
@@ -615,7 +615,7 @@ BEGIN
   l_binds(1).value := 'Tom & Jerry < Spike > everyone';
   -- raw=FALSE is the default; no need to set it explicitly
 
-  -- raw=TRUE: value used verbatim — useful for pre-escaped or intentionally
+  -- raw=TRUE: value used verbatim - useful for pre-escaped or intentionally
   -- structured values (e.g. a numeric string that contains no special chars).
   l_binds(2).key   := 'SAFE_NUM';
   l_binds(2).value := '42';
@@ -660,7 +660,7 @@ BEGIN
     '<p>Ordered:</p>'                                                      ||
     '<ol>'                                                                 ||
       '<li>Step one</li>'                                                  ||
-      '<li>Step two — <i>important</i></li>'                              ||
+      '<li>Step two - <i>important</i></li>'                              ||
       '<li>Step three</li>'                                                ||
     '</ol>');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -930,7 +930,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 28: <LI> case-insensitive inside <ul>/<ol>');
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document;
-  -- Mix uppercase <LI> and lowercase <li> — both must be found
+  -- Mix uppercase <LI> and lowercase <li> - both must be found
   rad_pdf_template.render(l_doc,
     '<h1>List Test</h1>'                                           ||
     '<ul>'                                                         ||
@@ -1154,7 +1154,7 @@ END;
 
 -- ===========================================================================
 -- Test 34: unlimited nesting depth for <color> and <font> (stack fix)
--- Before the fix: a single l_save_color variable — closing the outer </color>
+-- Before the fix: a single l_save_color variable - closing the outer </color>
 -- restored the wrong value.  After the fix: LIFO stacks handle any depth.
 --
 -- Template layout (colour):
@@ -1242,7 +1242,7 @@ BEGIN
   IF DBMS_LOB.GETLENGTH(l_pdf) < 5000 THEN
     RAISE_APPLICATION_ERROR(-20999,
       'PDF too small (' || DBMS_LOB.GETLENGTH(l_pdf) ||
-      ' bytes) — list items were not rendered (blank document = ~682 bytes)');
+      ' bytes) - list items were not rendered (blank document = ~682 bytes)');
   END IF;
   DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
   DBMS_LOB.FREETEMPORARY(l_pdf);

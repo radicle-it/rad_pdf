@@ -4,7 +4,7 @@
 --
 -- WHAT THIS SHOWS
 --   The minimum needed to use the template engine:
---     • rad_pdf_template.render(l_doc, template_string)  — no binds needed
+--     • rad_pdf_template.render(l_doc, template_string)  - no binds needed
 --     • Block tags: <h1>–<h6>, <p>, <spacer/>, <hr/>, <pagebreak/>
 --
 --   The template engine is an alternative to the Canvas API.  Instead of
@@ -13,10 +13,10 @@
 --   parses it and calls the layout engine for you.
 --
 --   When to use the template engine vs the Canvas API:
---     Template engine  — document structure comes from a CLOB string, a table
+--     Template engine  - document structure comes from a CLOB string, a table
 --                        column, or is built dynamically from query results;
 --                        content varies but structure is consistent.
---     Canvas API       — you need pixel-level control over position, or the
+--     Canvas API       - you need pixel-level control over position, or the
 --                        document has complex interleaved drawing (images at
 --                        exact coordinates, polygons, rotated text, etc.).
 --
@@ -102,7 +102,7 @@ BEGIN
 
   l_pdf := rad_pdf.finalize(l_doc);
 
-  DBMS_OUTPUT.PUT_LINE('PDF generated — size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
+  DBMS_OUTPUT.PUT_LINE('PDF generated - size: ' || DBMS_LOB.GETLENGTH(l_pdf) || ' bytes');
   -- :rad_pdf := l_pdf;   -- SQL Developer: right-click → Save As to download
 
   -- Option B: save to a directory instead of returning the BLOB.

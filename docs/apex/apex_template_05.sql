@@ -1,4 +1,4 @@
--- apex_template_05.sql  —  Forced line breaks with <br/>
+-- apex_template_05.sql  -  Forced line breaks with <br/>
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -14,7 +14,7 @@
 --
 -- APEX SETUP
 --   Page item: P1_EMPNO
---   Process: Execute Server-side Code — On Load - Before Header
+--   Process: Execute Server-side Code - On Load - Before Header
 --
 -- EMP / DEPT USAGE
 --   Shows an employee's "profile card" with each field on its own line,
@@ -66,7 +66,7 @@ BEGIN
   l_binds(3).value := TO_CHAR(l_sal, 'FM999,990.00');
 
   l_binds(4).key := 'COMM';
-  l_binds(4).value := NVL(TO_CHAR(l_comm, 'FM999,990.00'), '—');
+  l_binds(4).value := NVL(TO_CHAR(l_comm, 'FM999,990.00'), '-');
 
   l_binds(5).key := 'HIREDATE';
   l_binds(5).value := TO_CHAR(l_hiredate, 'DD Month YYYY');
@@ -84,7 +84,7 @@ BEGIN
   -- 3. Template
   --
   -- Each <br/> forces a new line WITHIN the same paragraph.
-  -- Compare with using separate <p> tags — separate paragraphs add extra
+  -- Compare with using separate <p> tags - separate paragraphs add extra
   -- vertical spacing between each item; <br/> keeps them tightly grouped.
   --
   -- Key rule: mixing <br/> (or any inline tag) in the same <p> routes the
@@ -130,7 +130,7 @@ BEGIN
     '<spacer height="14pt"/>'                                             ||
     '<p style="caption">'
       || 'Tip: &lt;br/&gt; keeps lines in the same paragraph '
-      || '— use separate &lt;p&gt; tags when you need paragraph spacing.'
+      || '- use separate &lt;p&gt; tags when you need paragraph spacing.'
       || '</p>',
     l_binds);
 

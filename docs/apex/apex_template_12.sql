@@ -1,4 +1,4 @@
--- apex_template_12.sql  —  Custom default font via t_template_options
+-- apex_template_12.sql  -  Custom default font via t_template_options
 -- ===========================================================================
 --
 -- WHAT THIS SHOWS
@@ -27,8 +27,8 @@
 --   Page items:
 --     P1_DEPTNO
 --     P1_FONT_SIZE  (optional: number field 8–16, default 10)
---     P1_FONT_STYLE (optional: select list — 'N', 'B', 'I', 'BI')
---   Process: Execute Server-side Code — On Load - Before Header
+--     P1_FONT_STYLE (optional: select list - 'N', 'B', 'I', 'BI')
+--   Process: Execute Server-side Code - On Load - Before Header
 -- ===========================================================================
 
 DECLARE
@@ -103,7 +103,7 @@ BEGIN
   rad_pdf_template.render(l_doc,
     -- Heading unaffected by default_font_* options
     '<h1>Department #DNAME#</h1>'                                         ||
-    '<h2>Font options demo — size #FONT_SIZE#pt, style #FONT_STY#</h2>'  ||
+    '<h2>Font options demo - size #FONT_SIZE#pt, style #FONT_STY#</h2>'  ||
 
     '<spacer height="6pt"/>'                                              ||
     '<hr color="003366"/>'                                                ||
@@ -118,7 +118,7 @@ BEGIN
 
     '<spacer height="10pt"/>'                                             ||
 
-    -- This paragraph explicitly uses the "caption" style — unaffected by l_opts
+    -- This paragraph explicitly uses the "caption" style - unaffected by l_opts
     '<p style="caption">'
       || 'This line always uses the caption style (Helvetica I 8pt) '
       || 'regardless of t_template_options settings.'
