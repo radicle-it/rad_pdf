@@ -9,6 +9,9 @@
 
 SET SERVEROUTPUT ON SIZE UNLIMITED
 SET VERIFY OFF
+-- Prevent & in string literals (e.g. escape_value test strings) from being
+-- treated as substitution variable prefixes by SQL*Plus / SQLcl.
+SET DEFINE OFF
 
 PROMPT ================================================================
 PROMPT  Phase 10 - Template Engine Acceptance Tests
@@ -1250,6 +1253,83 @@ EXCEPTION WHEN OTHERS THEN
   BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
   IF l_pdf IS NOT NULL THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
   RAISE;
+END;
+/
+
+-- ---------------------------------------------------------------------------
+-- Test 36: SQL injection via <table query="..."> is blocked by safe quoting.
+--   shield_query_attrs replaces #TOKEN# in query attributes with sentinels
+--   before Phase 2 (apply_binds_clob) runs.  handle_table_tag then resolves
+--   each sentinel by wrapping the raw value in single quotes, doubling any
+--   embedded quotes (SQL safe-quote: ' -> '').
+--
+--   We use DNAME (VARCHAR2) rather than DEPTNO (NUMBER) so the comparison
+--   'QL_INJ_TEST''--' does not trigger ORA-01722 (implicit number coercion).
+--   With naive concatenation the payload 'QL_INJ_TEST''--' would produce:
+--     WHERE dname = QL_INJ_TEST'-- ...   <- ORA-01756 (unclosed string literal)
+--   With safe quoting it produces:
+--     WHERE dname = 'QL_INJ_TEST''--'    <- valid SQL; returns zero rows.
+-- ---------------------------------------------------------------------------
+DECLARE
+  l_doc     rad_pdf_types.t_doc_handle;
+  l_pdf     BLOB;
+  l_binds   rad_pdf_types.t_bind_array;
+  l_opts    rad_pdf_types.t_template_options;
+  l_cols    rad_pdf_types.t_columns;
+  l_col     rad_pdf_types.t_column_def;
+  -- Payload: embedded single-quote breaks naive string concatenation.
+  -- Leading prefix avoids any accidental match against real DNAME values.
+  c_payload CONSTANT VARCHAR2(100) := 'QL_INJ_TEST' || CHR(39) || '--';
+  l_ok      BOOLEAN := FALSE;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 36: SQL injection via <table query> is blocked');
+
+  -- Register a minimal column set for DNAME (VARCHAR2 column)
+  l_cols := rad_pdf_types.t_columns();
+  l_cols.EXTEND(1);
+  l_col.label := 'DEPT NAME'; l_col.width := 80;
+  l_col.data_fmt.font_name := 'Helvetica'; l_col.data_fmt.font_size := 9;
+  l_col.header_fmt         := l_col.data_fmt;
+  l_cols(1)                := l_col;
+  rad_pdf_template.register_columns('INJ_TEST', l_cols);
+
+  -- Bind value contains SQL injection payload (raw single-quote)
+  l_binds(1).key   := 'FILTER_VAL';
+  l_binds(1).value := c_payload;
+
+  l_opts.allow_queries := TRUE;
+
+  l_doc := rad_pdf.new_document;
+  BEGIN
+    -- FILTER_VAL is shielded before bind substitution: the payload is
+    -- injected as a SQL string literal, not as raw SQL text.
+    -- The WHERE clause becomes:
+    --   WHERE dname = 'QL_INJ_TEST''--'
+    -- which is valid SQL and returns zero rows (no such department).
+    rad_pdf_styles.load_defaults;
+    rad_pdf_template.render(l_doc,
+      '<table columns="INJ_TEST"'
+      || ' query="SELECT dname FROM dept WHERE dname = '
+      || '#' || 'FILTER_VAL' || '#'
+      || ' ORDER BY dname" allow_query="true"/>',
+      l_binds, l_opts);
+    l_pdf := rad_pdf.finalize(l_doc);
+    l_ok := l_pdf IS NOT NULL AND DBMS_LOB.GETLENGTH(l_pdf) > 0;
+    DBMS_LOB.FREETEMPORARY(l_pdf);
+  EXCEPTION
+    WHEN OTHERS THEN
+      BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+      DBMS_OUTPUT.PUT_LINE('  FAIL  (unexpected exception: ' || SQLERRM || ')');
+      RETURN;
+  END;
+
+  rad_pdf_template.drop_columns('INJ_TEST');
+
+  IF l_ok THEN
+    DBMS_OUTPUT.PUT_LINE('  PASS  (SQL injection payload safely quoted; query executed without error)');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('  FAIL  (unexpected empty PDF)');
+  END IF;
 END;
 /
 

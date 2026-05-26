@@ -61,6 +61,17 @@ TYPE t_col_registry IS TABLE OF rad_pdf_types.t_columns INDEX BY VARCHAR2(200);
 g_col_registry t_col_registry;
 
 -- ---------------------------------------------------------------------------
+-- Private: query bind map — populated by shield_query_attrs before Phase 2,
+-- consumed by handle_table_tag to bind values via DBMS_SQL.BIND_VARIABLE.
+-- Key   = UPPER(token name), e.g. 'DEPTNO'
+-- Value = raw bind value (not XML-escaped; SQL binding handles quoting)
+-- Sentinel chars: CHR(1) opens, CHR(2) closes the placeholder in the query.
+-- ---------------------------------------------------------------------------
+TYPE t_qbind_map IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(200);
+g_qbind_map    t_qbind_map;
+g_qbind_active BOOLEAN := FALSE;   -- TRUE during a render(CLOB,binds) call
+
+-- ---------------------------------------------------------------------------
 -- Private: inline run record
 -- ---------------------------------------------------------------------------
 TYPE t_run IS RECORD (
@@ -543,6 +554,36 @@ BEGIN
     RAISE_APPLICATION_ERROR(c_err_table_attr,
       '<table> missing required "query" attribute');
   END IF;
+
+  -- If shield_query_attrs placed CHR(1)..CHR(2) sentinels in the query,
+  -- resolve them now by substituting safely-quoted literal values.
+  -- The bind value is wrapped in single quotes with embedded quotes doubled,
+  -- so it is injected as a SQL string literal, not as arbitrary SQL text.
+  IF g_qbind_active AND INSTR(l_qry, CHR(1)) > 0 THEN
+    DECLARE
+      l_qpos   PLS_INTEGER := 1;
+      l_s1_pos PLS_INTEGER;
+      l_s2_pos PLS_INTEGER;
+      l_tok    VARCHAR2(200);
+      l_val    VARCHAR2(4000);
+      l_safe   VARCHAR2(32767) := '';
+    BEGIN
+      LOOP
+        l_s1_pos := INSTR(l_qry, CHR(1), l_qpos);
+        EXIT WHEN l_s1_pos = 0;
+        l_s2_pos := INSTR(l_qry, CHR(2), l_s1_pos + 1);
+        EXIT WHEN l_s2_pos = 0;
+        l_safe := l_safe || SUBSTR(l_qry, l_qpos, l_s1_pos - l_qpos);
+        l_tok  := SUBSTR(l_qry, l_s1_pos + 1, l_s2_pos - l_s1_pos - 1);
+        l_val  := g_qbind_map(l_tok);
+        -- Safely quote: wrap in ' and double any embedded '
+        l_safe := l_safe || '''' || REPLACE(l_val, '''', '''''') || '''';
+        l_qpos := l_s2_pos + 1;
+      END LOOP;
+      l_safe := l_safe || SUBSTR(l_qry, l_qpos);
+      l_qry  := l_safe;
+    END;
+  END IF;
   IF NOT g_col_registry.EXISTS(UPPER(l_col_name)) THEN
     RAISE_APPLICATION_ERROR(c_err_table_cols,
       '<table> column set not registered: "' || l_col_name || '"');
@@ -877,6 +918,215 @@ BEGIN
   END LOOP;
   RETURN 0;   -- unquoted '>' not found
 END find_tag_end;
+
+-- ---------------------------------------------------------------------------
+-- Private: shield #TOKEN# placeholders inside <table query="..."/> attributes
+-- from Phase 2 (apply_binds_clob) by replacing them with
+--   CHR(1) || UPPER(token_name) || CHR(2)
+-- and storing the bind value in g_qbind_map.  handle_table_tag later
+-- resolves these sentinels via safely-quoted string literals, so the values
+-- never end up concatenated into a SQL string.
+--
+-- Returns p_src unchanged (same LOB locator) when no shielding is needed,
+-- or a new temporary CLOB when at least one sentinel was written.
+-- Also sets g_qbind_active := TRUE when any sentinel was placed.
+-- ---------------------------------------------------------------------------
+FUNCTION shield_query_attrs(
+  p_src   IN CLOB,
+  p_binds IN rad_pdf_types.t_bind_array
+) RETURN CLOB IS
+  -- Sentinel delimiters (never appear in SQL or template text)
+  c_s1 CONSTANT VARCHAR2(1) := CHR(1);
+  c_s2 CONSTANT VARCHAR2(1) := CHR(2);
+
+  TYPE t_lookup IS TABLE OF BINARY_INTEGER INDEX BY VARCHAR2(204);
+  l_lookup  t_lookup;
+
+  l_src_len  PLS_INTEGER;
+  l_pos      PLS_INTEGER := 1;
+  l_tbl_pos  PLS_INTEGER;
+  l_tag_end  PLS_INTEGER;
+  l_tag_raw  VARCHAR2(32767);
+  l_qry      VARCHAR2(32767);
+  l_qry_new  VARCHAR2(32767);
+  l_any      BOOLEAN := FALSE;
+  l_dst      CLOB;
+  i          BINARY_INTEGER;
+
+  -- Scan query VARCHAR2 for #TOKEN# and replace matched tokens with sentinels.
+  FUNCTION process_query(p_q IN VARCHAR2) RETURN VARCHAR2 IS
+    l_out  VARCHAR2(32767) := '';
+    l_qpos PLS_INTEGER := 1;
+    l_qlen PLS_INTEGER := LENGTH(p_q);
+    l_h1   PLS_INTEGER;
+    l_h2   PLS_INTEGER;
+    l_slen PLS_INTEGER;
+    l_key  VARCHAR2(200);
+    l_tok  VARCHAR2(204);
+  BEGIN
+    IF l_qlen = 0 OR INSTR(p_q, '#') = 0 THEN RETURN p_q; END IF;
+    LOOP
+      l_h1 := INSTR(p_q, '#', l_qpos);
+      IF l_h1 = 0 THEN
+        l_out := l_out || SUBSTR(p_q, l_qpos);
+        EXIT;
+      END IF;
+      l_out := l_out || SUBSTR(p_q, l_qpos, l_h1 - l_qpos);
+      -- '##' escape -> single '#', not a token
+      IF l_h1 < l_qlen AND SUBSTR(p_q, l_h1 + 1, 1) = '#' THEN
+        l_out  := l_out || '#';
+        l_qpos := l_h1 + 2;
+        CONTINUE;
+      END IF;
+      l_h2 := INSTR(p_q, '#', l_h1 + 1);
+      IF l_h2 = 0 THEN
+        l_out := l_out || SUBSTR(p_q, l_h1);
+        EXIT;
+      END IF;
+      l_slen := l_h2 - l_h1 - 1;
+      IF l_slen = 0 OR l_slen > 200 THEN
+        l_out  := l_out || '#';
+        l_qpos := l_h1 + 1;
+        CONTINUE;
+      END IF;
+      l_key := SUBSTR(p_q, l_h1 + 1, l_slen);
+      l_tok := '#' || UPPER(l_key) || '#';
+      IF l_lookup.EXISTS(l_tok) THEN
+        -- Matched bind: store value in g_qbind_map, emit sentinel
+        g_qbind_map(UPPER(l_key)) := p_binds(l_lookup(l_tok)).value;
+        l_out  := l_out || c_s1 || UPPER(l_key) || c_s2;
+        l_any  := TRUE;
+      ELSE
+        -- No matching bind: write verbatim (will stay as #TOKEN# in Phase 2)
+        l_out  := l_out || '#' || l_key || '#';
+      END IF;
+      l_qpos := l_h2 + 1;
+    END LOOP;
+    RETURN l_out;
+  END process_query;
+
+  -- Copy p_src[p_from..p_to] to l_dst
+  PROCEDURE copy_slice(p_from IN PLS_INTEGER, p_to IN PLS_INTEGER) IS
+  BEGIN
+    IF p_to >= p_from THEN
+      DBMS_LOB.COPY(l_dst, p_src, p_to - p_from + 1,
+                    NVL(DBMS_LOB.GETLENGTH(l_dst), 0) + 1, p_from);
+    END IF;
+  END copy_slice;
+
+  PROCEDURE append_str(p_str IN VARCHAR2) IS
+  BEGIN
+    IF p_str IS NOT NULL THEN
+      DBMS_LOB.WRITEAPPEND(l_dst, LENGTH(p_str), p_str);
+    END IF;
+  END append_str;
+
+BEGIN
+  -- Build bind lookup
+  i := p_binds.FIRST;
+  WHILE i IS NOT NULL LOOP
+    l_lookup('#' || UPPER(p_binds(i).key) || '#') := i;
+    i := p_binds.NEXT(i);
+  END LOOP;
+
+  -- Reset session state
+  g_qbind_map.DELETE;
+  g_qbind_active := FALSE;
+
+  l_src_len := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
+  IF l_src_len = 0 THEN RETURN p_src; END IF;
+
+  -- Quick check: any <table at all?
+  IF DBMS_LOB.INSTR(p_src, '<table', 1) = 0
+     AND DBMS_LOB.INSTR(p_src, '<TABLE', 1) = 0
+  THEN
+    RETURN p_src;
+  END IF;
+
+  DBMS_LOB.CREATETEMPORARY(l_dst, TRUE);
+
+  LOOP
+    -- Find next <table (try lowercase first, then uppercase)
+    DECLARE
+      l_p1 PLS_INTEGER := DBMS_LOB.INSTR(p_src, '<table', l_pos);
+      l_p2 PLS_INTEGER := DBMS_LOB.INSTR(p_src, '<TABLE', l_pos);
+    BEGIN
+      IF    l_p1 > 0 AND l_p2 > 0 THEN l_tbl_pos := LEAST(l_p1, l_p2);
+      ELSIF l_p1 > 0               THEN l_tbl_pos := l_p1;
+      ELSIF l_p2 > 0               THEN l_tbl_pos := l_p2;
+      ELSE  l_tbl_pos := 0;
+      END IF;
+    END;
+
+    IF l_tbl_pos = 0 THEN
+      -- No more <table> tags: flush remainder and exit
+      copy_slice(l_pos, l_src_len);
+      EXIT;
+    END IF;
+
+    -- Find '>' that closes this tag (quote-aware)
+    l_tag_end := find_tag_end(p_src, l_tbl_pos, l_src_len);
+    IF l_tag_end = 0 THEN
+      -- Unclosed tag: flush remainder verbatim (do_render will raise the error)
+      copy_slice(l_pos, l_src_len);
+      EXIT;
+    END IF;
+
+    -- Extract tag text (<=32767 chars; query attrs are well within this)
+    l_tag_raw := DBMS_LOB.SUBSTR(p_src,
+                   LEAST(l_tag_end - l_tbl_pos + 1, 32767), l_tbl_pos);
+
+    -- Try to extract and shield the query attribute
+    l_qry     := extract_attr(l_tag_raw, 'query');
+    l_qry_new := process_query(l_qry);
+
+    IF l_qry IS NULL OR l_qry_new = l_qry THEN
+      -- No query attr or nothing to shield: copy tag verbatim
+      copy_slice(l_pos, l_tag_end);
+    ELSE
+      -- Rebuild tag with shielded query value.
+      -- Replace only the first occurrence of the exact quoted value.
+      DECLARE
+        l_old VARCHAR2(32767);
+        l_new VARCHAR2(32767);
+        l_rep_pos PLS_INTEGER;
+      BEGIN
+        -- Determine which quote style wraps the value (double or single)
+        IF INSTR(l_tag_raw, '"' || l_qry || '"') > 0 THEN
+          l_old := '"' || l_qry     || '"';
+          l_new := '"' || l_qry_new || '"';
+        ELSE
+          l_old := CHR(39) || l_qry     || CHR(39);
+          l_new := CHR(39) || l_qry_new || CHR(39);
+        END IF;
+        l_rep_pos := INSTR(l_tag_raw, l_old);
+        IF l_rep_pos > 0 THEN
+          -- Copy: source[l_pos..l_tbl_pos-1] + tag_prefix + new_qry_val + tag_suffix
+          copy_slice(l_pos, l_tbl_pos - 1);
+          append_str(SUBSTR(l_tag_raw, 1, l_rep_pos - 1));  -- before old attr
+          append_str(l_new);
+          append_str(SUBSTR(l_tag_raw, l_rep_pos + LENGTH(l_old)));  -- after old attr
+        ELSE
+          -- Safety fallback: copy tag verbatim
+          copy_slice(l_pos, l_tag_end);
+        END IF;
+      END;
+    END IF;
+
+    l_pos := l_tag_end + 1;
+  END LOOP;
+
+  IF NOT l_any THEN
+    -- No sentinels were actually written: free temp CLOB and return original
+    IF l_dst IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_dst) = 1 THEN
+      DBMS_LOB.FREETEMPORARY(l_dst);
+    END IF;
+    RETURN p_src;
+  END IF;
+
+  g_qbind_active := TRUE;
+  RETURN l_dst;
+END shield_query_attrs;
 
 -- ---------------------------------------------------------------------------
 -- Private: CLOB-based bind substitution.  Replaces #KEY# tokens throughout
@@ -1341,37 +1591,57 @@ PROCEDURE render(
   p_binds   IN rad_pdf_types.t_bind_array,
   p_options IN rad_pdf_types.t_template_options DEFAULT NULL
 ) IS
-  l_bound CLOB;
-  l_cond  CLOB;
-  l_src   CLOB;  -- normalised source (alias to p_clob when no normalisation needed)
+  l_bound    CLOB;
+  l_cond     CLOB;
+  l_src      CLOB;      -- normalised source
+  l_shielded CLOB;      -- after shield_query_attrs (= l_src when no shielding)
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
 
   -- Phase 0: normalise uppercase block-tag names (<IF>/<LI> → lowercase).
   l_src := normalize_clob(p_clob, p_normalise_if => TRUE);
 
+  -- Phase 0b: protect #TOKEN# inside <table query="..."> from Phase 2 text
+  -- substitution.  Tokens in query attributes are replaced with
+  -- CHR(1)..CHR(2) sentinels; their values are stored in g_qbind_map and
+  -- injected as safely-quoted SQL literals in handle_table_tag.
+  l_shielded := shield_query_attrs(l_src, p_binds);
+
   DBMS_LOB.CREATETEMPORARY(l_bound, TRUE);
-  IF DBMS_LOB.INSTR(l_src, '<if ', 1) > 0 THEN
+  IF DBMS_LOB.INSTR(l_shielded, '<if ', 1) > 0 THEN
     -- Phase 1: resolve <if bind="KEY"> conditional blocks
     DBMS_LOB.CREATETEMPORARY(l_cond, TRUE);
-    apply_conditionals(l_src, l_cond, p_binds);
+    apply_conditionals(l_shielded, l_cond, p_binds);
     -- Phase 2: bind substitution on the post-conditional CLOB
     apply_binds_clob(l_cond, l_bound, p_binds);
     DBMS_LOB.FREETEMPORARY(l_cond);
   ELSE
-    -- No conditionals: bind substitution directly on the source CLOB
-    apply_binds_clob(l_src, l_bound, p_binds);
+    -- No conditionals: bind substitution directly on the shielded CLOB
+    apply_binds_clob(l_shielded, l_bound, p_binds);
   END IF;
   do_render(p_doc, l_bound, p_options);
   DBMS_LOB.FREETEMPORARY(l_bound);
+  IF l_shielded IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
+    DBMS_LOB.FREETEMPORARY(l_shielded);
+  END IF;
   IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
     DBMS_LOB.FREETEMPORARY(l_src);
   END IF;
+  -- Reset session-scoped query-bind state
+  g_qbind_active := FALSE;
+  g_qbind_map.DELETE;
 EXCEPTION
   WHEN OTHERS THEN
-    IF DBMS_LOB.ISTEMPORARY(l_bound) = 1 THEN DBMS_LOB.FREETEMPORARY(l_bound); END IF;
-    IF DBMS_LOB.ISTEMPORARY(l_cond)  = 1 THEN DBMS_LOB.FREETEMPORARY(l_cond);  END IF;
-    IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN DBMS_LOB.FREETEMPORARY(l_src); END IF;
+    g_qbind_active := FALSE;
+    g_qbind_map.DELETE;
+    IF DBMS_LOB.ISTEMPORARY(l_bound)    = 1 THEN DBMS_LOB.FREETEMPORARY(l_bound);    END IF;
+    IF DBMS_LOB.ISTEMPORARY(l_cond)     = 1 THEN DBMS_LOB.FREETEMPORARY(l_cond);     END IF;
+    IF l_shielded IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
+      DBMS_LOB.FREETEMPORARY(l_shielded);
+    END IF;
+    IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
+      DBMS_LOB.FREETEMPORARY(l_src);
+    END IF;
     RAISE;
 END render;
 
