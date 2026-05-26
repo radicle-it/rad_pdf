@@ -8,7 +8,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Version
 -- ---------------------------------------------------------------------------
-  c_version CONSTANT VARCHAR2(10) := '1.1.0';
+  c_version CONSTANT VARCHAR2(10) := '1.2.0';
 
 -- ---------------------------------------------------------------------------
 -- Scalar subtypes
@@ -37,6 +37,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   c_err_layout      CONSTANT PLS_INTEGER := -20750;
   c_err_handle      CONSTANT PLS_INTEGER := -20760;
   c_err_internal    CONSTANT PLS_INTEGER := -20800;
+  c_err_template    CONSTANT PLS_INTEGER := -20810;
 
 -- ---------------------------------------------------------------------------
 -- Path element type constants
@@ -204,6 +205,17 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   c_flow_spacer    CONSTANT t_flowable_type := 'SPACER';
   c_flow_hline     CONSTANT t_flowable_type := 'HLINE';
   c_flow_pagebreak CONSTANT t_flowable_type := 'PAGEBREAK';
+  c_flow_para_runs CONSTANT t_flowable_type := 'PARA_RUNS';  -- multi-style inline runs
+
+  -- Inline run: one styled segment inside a mixed-style paragraph.
+  -- style_name is the pre-computed style (e.g. 'body', 'body__b', 'body__bi').
+  -- is_br = TRUE marks a forced line break (<br/>).
+  TYPE t_inline_run IS RECORD (
+    text       VARCHAR2(32767) := NULL,
+    style_name VARCHAR2(110)   := NULL,
+    is_br      BOOLEAN         := FALSE
+  );
+  TYPE t_inline_run_list IS TABLE OF t_inline_run INDEX BY PLS_INTEGER;
 
   -- t_flowable: rad_pdf_layout._close_doc is responsible for DBMS_LOB.FREETEMPORARY
   -- on each non-NULL text CLOB when destroying the document's flowable list.
@@ -217,6 +229,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     img_height       NUMBER,
     spacer_h         NUMBER,         -- SPACER
     table_ref_id     PLS_INTEGER,    -- TABLE: handle into rad_pdf_table's cache
+    para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
     page_break_before BOOLEAN := FALSE,  -- set by measure pass
     measured_h        NUMBER  := 0        -- set by measure pass
   );
@@ -268,6 +281,42 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     options      t_table_options,
     streaming    BOOLEAN         := FALSE,
     cache_ref_id PLS_INTEGER     := NULL
+  );
+
+-- ---------------------------------------------------------------------------
+-- Template engine types
+-- ---------------------------------------------------------------------------
+
+  -- Bind entry: one #KEY# -> value substitution pair.
+  -- Key is stored and matched case-insensitively (UPPER applied on both sides).
+  -- Value is VARCHAR2(4000); for longer values pre-substitute in the CLOB.
+  --
+  -- raw = FALSE (default): rad_pdf_template.render auto-escapes the value
+  --   (& → &amp;  < → &lt;  > → &gt;) before substitution — safe for any
+  --   user-supplied text without the caller needing to call escape_value().
+  -- raw = TRUE: value is substituted verbatim (already escaped, or deliberately
+  --   contains template tags that should not be re-escaped).
+  TYPE t_bind_entry IS RECORD (
+    key   VARCHAR2(200),
+    value VARCHAR2(4000),
+    raw   BOOLEAN := FALSE
+  );
+  TYPE t_bind_array IS TABLE OF t_bind_entry INDEX BY BINARY_INTEGER;
+
+  -- Options for rad_pdf_template.render.
+  -- All fields default to NULL = use system/style default.
+  -- Passing an uninitialised record is always safe.
+  TYPE t_template_options IS RECORD (
+    default_font_name   VARCHAR2(100)         := NULL,
+    default_font_style  t_font_style          := NULL,
+    default_font_size   NUMBER                := NULL,
+    default_style       VARCHAR2(100)         := 'body',
+    strict_tags         BOOLEAN               := TRUE,
+    allow_queries       BOOLEAN               := FALSE,
+    -- Global row cap applied to every <table> in this render call when the
+    -- tag itself does not specify max_rows="N".  NULL = no limit (default).
+    -- Use to protect against runaway queries without touching every template.
+    max_rows            PLS_INTEGER           := NULL
   );
 
 END rad_pdf_types;

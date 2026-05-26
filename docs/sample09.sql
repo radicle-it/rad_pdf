@@ -71,17 +71,27 @@ BEGIN
   -- Load the image - choose ONE of Options A, B, or C (see header above)
   -- =========================================================================
 
-  -- Option A: from an Oracle Directory
-  -- Replace 'IMG_DIR' with your DIRECTORY name and 'logo.png' with your file.
-  l_img_id := rad_pdf_images.load_image(l_doc, 'IMG_DIR', 'logo.png');
+  -- Option B (active): from a BLOB - 8×8 steel-blue PNG embedded as a RAW
+  -- literal so the sample runs without any directory or network setup.
+  -- In production, replace with Option A (directory) or Option C (HTTPS URL).
+  DECLARE
+    l_blob BLOB;
+    l_raw  RAW(32767) :=
+      HEXTORAW('89504E470D0A1A0A0000000D494844520000000800000008'||
+               '08020000004B6D29DC0000001149444154789C63706BDA82'||
+               '15310C2D090003735F010FD97D610000000049454E44AE42'||
+               '6082');
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_blob, TRUE);
+    DBMS_LOB.WRITEAPPEND(l_blob, UTL_RAW.LENGTH(l_raw), l_raw);
+    l_img_id := rad_pdf_images.load_image(l_doc, l_blob);
+    DBMS_LOB.FREETEMPORARY(l_blob);
+  END;
 
-  -- Option B: from a BLOB (uncomment and replace query):
-  -- DECLARE l_blob BLOB; BEGIN
-  --   SELECT img_data INTO l_blob FROM my_images WHERE id = 1;
-  --   l_img_id := rad_pdf_images.load_image(l_doc, l_blob);
-  -- END;
+  -- Option A: from an Oracle Directory (requires DIRECTORY object + file):
+  -- l_img_id := rad_pdf_images.load_image(l_doc, 'IMG_DIR', 'logo.png');
 
-  -- Option C: from an HTTPS URL (uncomment, requires ACL - see header):
+  -- Option C: from an HTTPS URL (requires network ACL - see header):
   -- l_img_id := rad_pdf_images.load_image(l_doc, 'https://your.server/images/logo.png');
 
   -- =========================================================================

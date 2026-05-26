@@ -1,4 +1,4 @@
--- phase6_canvas.sql — acceptance tests for Phase 6 (rad_pdf_canvas)
+-- phase6_canvas.sql - acceptance tests for Phase 6 (rad_pdf_canvas)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE
@@ -184,7 +184,7 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- 7. write_wrapped — wraps text into multiple lines (cursor moves down)
+  -- 7. write_wrapped - wraps text into multiple lines (cursor moves down)
   -- =========================================================================
   DECLARE
     l_doc  rad_pdf_types.t_doc_handle;
@@ -212,7 +212,7 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- 8. add_page_proc + run_page_procs — token substitution
+  -- 8. add_page_proc + run_page_procs - token substitution
   -- =========================================================================
   DECLARE
     l_doc  rad_pdf_types.t_doc_handle;

@@ -1,4 +1,4 @@
--- phase9_integration.sql — end-to-end integration tests for the RAD_PDF suite.
+-- phase9_integration.sql - end-to-end integration tests for the RAD_PDF suite.
 -- Covers full lifecycle scenarios across all packages via the rad_pdf facade.
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
@@ -44,10 +44,10 @@ BEGIN
     rad_pdf.spacer (l_doc, 12);
     rad_pdf.add    (l_doc, rad_pdf_layout.h_rule('808080', 0.5));
     rad_pdf.spacer (l_doc, 8);
-    rad_pdf.heading(l_doc, 'Section 1 — Financials', 3);
+    rad_pdf.heading(l_doc, 'Section 1 - Financials', 3);
     rad_pdf.write  (l_doc, 'Revenue increased by 18% year-over-year.');
     rad_pdf.new_page(l_doc);
-    rad_pdf.heading(l_doc, 'Section 2 — Operations', 3);
+    rad_pdf.heading(l_doc, 'Section 2 - Operations', 3);
     rad_pdf.write  (l_doc, 'Operational efficiency improved across all units.');
     l_pdf := rad_pdf.finalize(l_doc);
     ok('full-layout: BLOB > 1000',      DBMS_LOB.GETLENGTH(l_pdf) > 1000);
@@ -135,7 +135,7 @@ BEGIN
       'BEGIN ' ||
         'rad_pdf_canvas.set_font(#DOC_HANDLE#, ''Helvetica'', ''N'', 8); ' ||
         'rad_pdf_canvas.write_text(#DOC_HANDLE#, ' ||
-          '''RAD_PDF — Confidential  |  Page #PAGE_NR# of #PAGE_COUNT#'', ' ||
+          '''RAD_PDF - Confidential  |  Page #PAGE_NR# of #PAGE_COUNT#'', ' ||
           '50, 822, ''pt''); ' ||
         'rad_pdf_canvas.h_line(#DOC_HANDLE#, 50, 815, 495, 0.3, ''808080'', ''pt''); ' ||
       'END;';
@@ -151,7 +151,7 @@ BEGIN
     rad_pdf.heading(l_doc, 'Template Demo', 1);
     rad_pdf.write  (l_doc, 'This document has a header and footer on every page.');
     rad_pdf.new_page(l_doc);
-    rad_pdf.write  (l_doc, 'Second page — header and footer should repeat.');
+    rad_pdf.write  (l_doc, 'Second page - header and footer should repeat.');
     l_pdf := rad_pdf.finalize(l_doc);
     ok('template: BLOB > 1000',    DBMS_LOB.GETLENGTH(l_pdf) > 1000);
     ok('template: contains /Title',
@@ -207,7 +207,7 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- 7. Two documents open concurrently — handles are independent
+  -- 7. Two documents open concurrently - handles are independent
   -- =========================================================================
   DECLARE
     l_doc1 rad_pdf_types.t_doc_handle;
@@ -317,15 +317,15 @@ BEGIN
     l_doc := rad_pdf.new_document;
 
     -- Heading containing em-dash: original crash trigger
-    rad_pdf.heading(l_doc, 'Internationalisation Test — Accented Characters', 1);
+    rad_pdf.heading(l_doc, 'Internationalisation Test - Accented Characters', 1);
 
     -- Body text: accented Latin chars, Euro sign (U+20AC), en-dash
     rad_pdf.write(l_doc,
-      'Revenue: € 1,500,000.00 — Fiscal year 2025/2026.');
+      'Revenue: € 1,500,000.00 - Fiscal year 2025/2026.');
     rad_pdf.write(l_doc,
       'Contact: Ségolène Müller (Ürban Développement).');
     rad_pdf.write(l_doc,
-      'Character set: àèìòù ÀÈÌÒÙ — ñ ü ö ä â ê î û œ æ ß.');
+      'Character set: àèìòù ÀÈÌÒÙ - ñ ü ö ä â ê î û œ æ ß.');
 
     l_pdf := rad_pdf.finalize(l_doc);
     ok('multibyte: BLOB > 500',

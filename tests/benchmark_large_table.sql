@@ -1,4 +1,4 @@
--- benchmark_large_table.sql — Volumetric stress test for rad_pdf_table.
+-- benchmark_large_table.sql - Volumetric stress test for rad_pdf_table.
 --
 -- PURPOSE
 --   Validates that rad_pdf_table.refcursor2table handles a large result set
@@ -41,7 +41,7 @@ DECLARE
   END;
 
   -- -------------------------------------------------------------------------
-  -- 1. refcursor2table — 10 000 rows, 3 columns
+  -- 1. refcursor2table - 10 000 rows, 3 columns
   --    Verifies: no crash, valid BLOB, sufficient size.
   -- -------------------------------------------------------------------------
   PROCEDURE bench_refcursor IS
@@ -72,7 +72,7 @@ DECLARE
     l_clr := rad_pdf_styles.default_scheme();
 
     l_doc := rad_pdf.new_document;
-    rad_pdf.heading(l_doc, 'Stress Test — 10 000 Righe', 1);
+    rad_pdf.heading(l_doc, 'Stress Test - 10 000 Righe', 1);
     rad_pdf.spacer (l_doc, 6);
 
     OPEN l_rc FOR
@@ -103,7 +103,7 @@ DECLARE
   END bench_refcursor;
 
   -- -------------------------------------------------------------------------
-  -- 2. query2table — 10 000 rows via inline VARCHAR2 query (measure + render)
+  -- 2. query2table - 10 000 rows via inline VARCHAR2 query (measure + render)
   -- -------------------------------------------------------------------------
   PROCEDURE bench_query2table IS
     l_doc  rad_pdf_types.t_doc_handle;
@@ -125,7 +125,7 @@ DECLARE
     l_cols(2).data_fmt.align_h := 'R';
 
     l_doc := rad_pdf.new_document;
-    rad_pdf.heading(l_doc, 'Stress Test — query2table 10 000 Righe', 1);
+    rad_pdf.heading(l_doc, 'Stress Test - query2table 10 000 Righe', 1);
 
     rad_pdf.query2table(l_doc,
       'SELECT LEVEL, LEVEL * LEVEL ' ||
@@ -149,7 +149,7 @@ DECLARE
   END bench_query2table;
 
   -- -------------------------------------------------------------------------
-  -- 3. Two sequential large documents — verifies cache cleanup between calls.
+  -- 3. Two sequential large documents - verifies cache cleanup between calls.
   --    If g_table_cache is not released by close_doc, PGA doubles here.
   -- -------------------------------------------------------------------------
   PROCEDURE bench_sequential_docs IS

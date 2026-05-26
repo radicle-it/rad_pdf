@@ -1,4 +1,4 @@
--- phase2_ctx_decoders.sql — acceptance tests for Phase 2
+-- phase2_ctx_decoders.sql - acceptance tests for Phase 2
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE
@@ -21,7 +21,7 @@ DECLARE
 
 BEGIN
   -- =========================================================================
-  -- rad_pdf_ctx — handle lifecycle
+  -- rad_pdf_ctx - handle lifecycle
   -- =========================================================================
   DECLARE
     l_doc  rad_pdf_types.t_doc_handle;
@@ -66,7 +66,7 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- rad_pdf_img_data — constructor
+  -- rad_pdf_img_data - constructor
   -- =========================================================================
   DECLARE l_b BLOB; l_d rad_pdf_img_data; BEGIN
     DBMS_LOB.CREATETEMPORARY(l_b, TRUE);

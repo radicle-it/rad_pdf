@@ -1,4 +1,7 @@
 *.~*
 *.log
+.DS_Store
 spec/
+/apex/
+skills/
 CLAUDE.md

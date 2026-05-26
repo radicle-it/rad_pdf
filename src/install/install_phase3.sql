@@ -6,11 +6,11 @@
 PROMPT === Phase 3 rad_pdf_serial ===
 
 PROMPT --- rad_pdf_serial spec
-@@rad_pdf_serial.pks
+@@../rad_pdf_serial.pks
 SHOW ERRORS PACKAGE rad_pdf_serial
 
 PROMPT --- rad_pdf_serial body
-@@rad_pdf_serial.pkb
+@@../rad_pdf_serial.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_serial
 
 PROMPT === Phase 3 complete ===

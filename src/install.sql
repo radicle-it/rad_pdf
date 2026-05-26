@@ -4,43 +4,45 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF — Full Suite Installer
+PROMPT  RAD_PDF v1.2.0 — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
 PROMPT
 
-@@install_phase1.sql
+@@install/install_phase1.sql
 PROMPT
-@@install_phase2.sql
+@@install/install_phase2.sql
 PROMPT
-@@install_phase3.sql
+@@install/install_phase3.sql
 PROMPT
-@@install_phase4.sql
+@@install/install_phase4.sql
 PROMPT
-@@install_phase5.sql
+@@install/install_phase5.sql
 PROMPT
-@@install_phase6.sql
+@@install/install_phase6.sql
 PROMPT
-@@install_phase7.sql
+@@install/install_phase7.sql
 PROMPT
-@@install_phase8.sql
+@@install/install_phase8.sql
+PROMPT
+@@install/install_phase9.sql
 PROMPT
 
 PROMPT ================================================================
 PROMPT  Install complete.
 PROMPT
 PROMPT  Run acceptance tests (from repo root)
-PROMPT    @tests/phase1_foundation.sql
-PROMPT    @tests/phase2_ctx_decoders.sql
-PROMPT    @tests/phase3_serial.sql
-PROMPT    @tests/phase4_fonts.sql
-PROMPT    @tests/phase5_images.sql
-PROMPT    @tests/phase6_canvas.sql
-PROMPT    @tests/phase7_layout.sql
-PROMPT    @tests/phase8_pdf.sql
-PROMPT    @tests/phase9_integration.sql
+PROMPT    @tests/phase9_integration.sql    canvas API + core packages
+PROMPT    @tests/phase10_template.sql      template engine
 PROMPT
-PROMPT  Public API entry point rad_pdf package (rad_pdf.pks / rad_pdf.pkb)
-PROMPT  See docs/sample01.sql .. sample05.sql for usage examples.
+PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
+PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
+PROMPT  APEX examples  docs/apex/apex_sample00.sql .. apex_sample07.sql
+PROMPT                  docs/apex/apex_template_01.sql .. apex_template_14.sql
+PROMPT
+PROMPT  Reference docs
+PROMPT    docs/README.md            full user guide + API reference
+PROMPT    docs/TEMPLATE_GUIDE.md    template engine tag catalogue and patterns
+PROMPT    docs/apex/README.md       APEX integration guide
 PROMPT ================================================================

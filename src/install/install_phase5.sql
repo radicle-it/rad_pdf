@@ -5,11 +5,11 @@
 PROMPT === Phase 5 rad_pdf_images ===
 
 PROMPT --- rad_pdf_images spec
-@@rad_pdf_images.pks
+@@../rad_pdf_images.pks
 SHOW ERRORS PACKAGE rad_pdf_images
 
 PROMPT --- rad_pdf_images body
-@@rad_pdf_images.pkb
+@@../rad_pdf_images.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_images
 
 PROMPT === Phase 5 install complete ===

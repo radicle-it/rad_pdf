@@ -1,4 +1,4 @@
--- phase8_pdf.sql — acceptance tests for Phase 8 (rad_pdf facade)
+-- phase8_pdf.sql - acceptance tests for Phase 8 (rad_pdf facade)
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE

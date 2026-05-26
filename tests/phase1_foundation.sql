@@ -1,4 +1,4 @@
--- phase1_foundation.sql — acceptance tests for Phase 1
+-- phase1_foundation.sql - acceptance tests for Phase 1
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 DECLARE
