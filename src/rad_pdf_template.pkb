@@ -98,6 +98,18 @@ BEGIN
 END decode_entities;
 
 -- ---------------------------------------------------------------------------
+-- Private: validate a 6-character uppercase hex RGB string.
+-- Returns TRUE only when p_rgb is exactly 6 characters matching [0-9A-F]{6}.
+-- Consistent with the inline <color rgb="..."> validation in parse_inline.
+-- ---------------------------------------------------------------------------
+FUNCTION is_valid_rgb(p_rgb IN VARCHAR2) RETURN BOOLEAN IS
+BEGIN
+  RETURN p_rgb IS NOT NULL
+         AND LENGTH(p_rgb) = 6
+         AND REGEXP_LIKE(p_rgb, '^[0-9A-F]{6}$');
+END is_valid_rgb;
+
+-- ---------------------------------------------------------------------------
 -- Private: extract an XML attribute value from a tag string.
 -- Tries double-quoted form first, then single-quoted.
 -- Returns NULL if the attribute is not present.
@@ -482,6 +494,9 @@ BEGIN
     -- <hr [color="cccccc"] [width="0.5"]/>  ----------------------------------
     WHEN 'hr' THEN
       l_color := UPPER(NVL(extract_attr(p_tag, 'color'), '000000'));
+      -- Silently clamp to black when the value is not a valid 6-hex colour.
+      -- Consistent with <color rgb="..."> inline validation in parse_inline.
+      IF NOT is_valid_rgb(l_color) THEN l_color := '000000'; END IF;
       l_lw    := parse_unit_attr(p_tag, 'width', 0.5);
       rad_pdf_layout.add(p_doc, rad_pdf_layout.h_rule(l_color, l_lw));
 
@@ -544,16 +559,17 @@ BEGIN
       -- header_bg="RRGGBB"     overrides header background colour
       -- alt_bg="RRGGBB"        overrides odd-row background (alternating stripe)
       -- border_color="RRGGBB"  overrides all border colours
+      -- Invalid (non-hex) values are silently ignored (tag attribute left unset).
       l_hdr_bg  := UPPER(extract_attr(p_tag, 'header_bg'));
       l_alt_bg  := UPPER(extract_attr(p_tag, 'alt_bg'));
       l_brd_clr := UPPER(extract_attr(p_tag, 'border_color'));
-      IF l_hdr_bg  IS NOT NULL THEN
+      IF is_valid_rgb(l_hdr_bg) THEN
         l_tdef.color_scheme.header_paper  := l_hdr_bg;
       END IF;
-      IF l_alt_bg  IS NOT NULL THEN
+      IF is_valid_rgb(l_alt_bg) THEN
         l_tdef.color_scheme.odd_paper     := l_alt_bg;
       END IF;
-      IF l_brd_clr IS NOT NULL THEN
+      IF is_valid_rgb(l_brd_clr) THEN
         l_tdef.color_scheme.header_border := l_brd_clr;
         l_tdef.color_scheme.even_border   := l_brd_clr;
         l_tdef.color_scheme.odd_border    := l_brd_clr;
@@ -561,7 +577,8 @@ BEGIN
 
       -- Optional layout overrides ----------------------------------------------
       -- row_height="Xpt"   fixed height for header and data rows
-      -- max_rows="N"       maximum rows per page before starting a new table
+      -- max_rows="N"       maximum rows fetched; tag value takes precedence
+      --                    over the global cap in t_template_options.max_rows.
       l_row_h    := parse_unit_attr(p_tag, 'row_height', NULL);
       IF l_row_h IS NOT NULL THEN
         l_tdef.options.h_row_height := l_row_h;
@@ -575,6 +592,10 @@ BEGIN
           RAISE_APPLICATION_ERROR(c_err_attr_val,
             '<table> invalid max_rows value: "' || l_max_rows || '"');
         END;
+      ELSIF p_options.max_rows IS NOT NULL THEN
+        -- No tag-level cap: fall back to the global cap from t_template_options.
+        -- Callers can set l_opts.max_rows once to protect all <table> tags.
+        l_tdef.options.max_rows := p_options.max_rows;
       END IF;
 
       l_ref_id            := rad_pdf_layout.register_table(p_doc, l_tdef);

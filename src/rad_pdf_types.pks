@@ -312,7 +312,11 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     default_font_size   NUMBER                := NULL,
     default_style       VARCHAR2(100)         := 'body',
     strict_tags         BOOLEAN               := TRUE,
-    allow_queries       BOOLEAN               := FALSE
+    allow_queries       BOOLEAN               := FALSE,
+    -- Global row cap applied to every <table> in this render call when the
+    -- tag itself does not specify max_rows="N".  NULL = no limit (default).
+    -- Use to protect against runaway queries without touching every template.
+    max_rows            PLS_INTEGER           := NULL
   );
 
 END rad_pdf_types;

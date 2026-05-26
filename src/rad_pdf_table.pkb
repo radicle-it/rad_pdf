@@ -374,24 +374,30 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     ensure_cache(p_doc, l_ref);
     -- TO_CURSOR_NUMBER takes an already-opened refcursor; no EXECUTE needed.
     l_cur := DBMS_SQL.TO_CURSOR_NUMBER(p_rc);
-    DBMS_SQL.DESCRIBE_COLUMNS2(l_cur, l_ncols, l_desc);
-    g_table_cache(p_doc)(l_ref).col_count := l_ncols;
-    FOR c IN 1..l_ncols LOOP
-      DBMS_SQL.DEFINE_COLUMN(l_cur, c, l_val, 32767);
-    END LOOP;
-    LOOP
-      EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cur) = 0;
-      l_row_nr := l_row_nr + 1;
+    BEGIN
+      DBMS_SQL.DESCRIBE_COLUMNS2(l_cur, l_ncols, l_desc);
+      g_table_cache(p_doc)(l_ref).col_count := l_ncols;
       FOR c IN 1..l_ncols LOOP
-        DBMS_SQL.COLUMN_VALUE(l_cur, c, l_val);
-        g_table_cache(p_doc)(l_ref).data(l_row_nr)(c) := l_val;
+        DBMS_SQL.DEFINE_COLUMN(l_cur, c, l_val, 32767);
       END LOOP;
-      IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
-        EXIT;
-      END IF;
-    END LOOP;
-    g_table_cache(p_doc)(l_ref).row_count := l_row_nr;
-    DBMS_SQL.CLOSE_CURSOR(l_cur);
+      LOOP
+        EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cur) = 0;
+        l_row_nr := l_row_nr + 1;
+        FOR c IN 1..l_ncols LOOP
+          DBMS_SQL.COLUMN_VALUE(l_cur, c, l_val);
+          g_table_cache(p_doc)(l_ref).data(l_row_nr)(c) := l_val;
+        END LOOP;
+        IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
+          EXIT;
+        END IF;
+      END LOOP;
+      g_table_cache(p_doc)(l_ref).row_count := l_row_nr;
+      DBMS_SQL.CLOSE_CURSOR(l_cur);
+    EXCEPTION
+      WHEN OTHERS THEN
+        BEGIN DBMS_SQL.CLOSE_CURSOR(l_cur); EXCEPTION WHEN OTHERS THEN NULL; END;
+        RAISE;
+    END;
     RETURN l_flow;
   END table_flow;
 
@@ -449,50 +455,56 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_frame_y := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_page_height)
                  - rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_top);
     l_cursor := DBMS_SQL.OPEN_CURSOR;
-    DBMS_SQL.PARSE(l_cursor, p_query, DBMS_SQL.NATIVE);
-    DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
-    FOR c IN 1..l_ncols LOOP
-      DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
-    END LOOP;
-    l_dummy := DBMS_SQL.EXECUTE(l_cursor);
-    LOOP
-      EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
-      l_row_nr := l_row_nr + 1;
-      -- Calculate label position
-      l_col_pos := MOD(l_row_nr - 1, p_label.max_columns);
-      l_row_pos := MOD(TRUNC((l_row_nr - 1) / p_label.max_columns), p_label.max_rows);
-      -- New page when grid is full
-      IF l_row_nr > 1 AND l_col_pos = 0 AND l_row_pos = 0 THEN
-        rad_pdf_canvas.new_page(p_doc);
-      END IF;
-      l_cx := l_frame_x + l_col_pos * (p_label.width + p_label.h_distance);
-      l_cy := l_frame_y - l_row_pos * (p_label.height + p_label.v_distance);
-      -- Draw label border
-      rad_pdf_canvas.rect(p_doc, l_cx, l_cy, p_label.width, p_label.height,
-                      p_colors.header_border, NULL, 0.5, 'pt');
-      -- Draw column values in label
-      l_c_idx := p_columns.FIRST;
-      WHILE l_c_idx IS NOT NULL LOOP
-        DBMS_SQL.COLUMN_VALUE(l_cursor, l_c_idx, l_val);
-        IF l_val IS NOT NULL THEN
-          rad_pdf_canvas.set_font(p_doc,
-            p_columns(l_c_idx).data_fmt.font_name,
-            p_columns(l_c_idx).data_fmt.font_style,
-            p_columns(l_c_idx).data_fmt.font_size);
-          rad_pdf_canvas.set_color(p_doc, p_columns(l_c_idx).data_fmt.font_color);
-          rad_pdf_canvas.write_text(p_doc, l_val,
-            l_cx + p_columns(l_c_idx).data_fmt.margin_left,
-            l_cy - (l_c_idx - 1) * (p_columns(l_c_idx).data_fmt.font_size * 1.2 + 2)
-                 - p_columns(l_c_idx).data_fmt.margin_top,
-            'pt');
-        END IF;
-        l_c_idx := p_columns.NEXT(l_c_idx);
+    BEGIN
+      DBMS_SQL.PARSE(l_cursor, p_query, DBMS_SQL.NATIVE);
+      DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
+      FOR c IN 1..l_ncols LOOP
+        DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
       END LOOP;
-      IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
-        EXIT;
-      END IF;
-    END LOOP;
-    DBMS_SQL.CLOSE_CURSOR(l_cursor);
+      l_dummy := DBMS_SQL.EXECUTE(l_cursor);
+      LOOP
+        EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
+        l_row_nr := l_row_nr + 1;
+        -- Calculate label position
+        l_col_pos := MOD(l_row_nr - 1, p_label.max_columns);
+        l_row_pos := MOD(TRUNC((l_row_nr - 1) / p_label.max_columns), p_label.max_rows);
+        -- New page when grid is full
+        IF l_row_nr > 1 AND l_col_pos = 0 AND l_row_pos = 0 THEN
+          rad_pdf_canvas.new_page(p_doc);
+        END IF;
+        l_cx := l_frame_x + l_col_pos * (p_label.width + p_label.h_distance);
+        l_cy := l_frame_y - l_row_pos * (p_label.height + p_label.v_distance);
+        -- Draw label border
+        rad_pdf_canvas.rect(p_doc, l_cx, l_cy, p_label.width, p_label.height,
+                        p_colors.header_border, NULL, 0.5, 'pt');
+        -- Draw column values in label
+        l_c_idx := p_columns.FIRST;
+        WHILE l_c_idx IS NOT NULL LOOP
+          DBMS_SQL.COLUMN_VALUE(l_cursor, l_c_idx, l_val);
+          IF l_val IS NOT NULL THEN
+            rad_pdf_canvas.set_font(p_doc,
+              p_columns(l_c_idx).data_fmt.font_name,
+              p_columns(l_c_idx).data_fmt.font_style,
+              p_columns(l_c_idx).data_fmt.font_size);
+            rad_pdf_canvas.set_color(p_doc, p_columns(l_c_idx).data_fmt.font_color);
+            rad_pdf_canvas.write_text(p_doc, l_val,
+              l_cx + p_columns(l_c_idx).data_fmt.margin_left,
+              l_cy - (l_c_idx - 1) * (p_columns(l_c_idx).data_fmt.font_size * 1.2 + 2)
+                   - p_columns(l_c_idx).data_fmt.margin_top,
+              'pt');
+          END IF;
+          l_c_idx := p_columns.NEXT(l_c_idx);
+        END LOOP;
+        IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
+          EXIT;
+        END IF;
+      END LOOP;
+      DBMS_SQL.CLOSE_CURSOR(l_cursor);
+    EXCEPTION
+      WHEN OTHERS THEN
+        BEGIN DBMS_SQL.CLOSE_CURSOR(l_cursor); EXCEPTION WHEN OTHERS THEN NULL; END;
+        RAISE;
+    END;
   END query2labels;
 
 -- ---------------------------------------------------------------------------
@@ -533,44 +545,50 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_frame_y := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_page_height)
                  - rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_top);
     l_cursor := DBMS_SQL.TO_CURSOR_NUMBER(p_rc);
-    DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
-    FOR c IN 1..l_ncols LOOP
-      DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
-    END LOOP;
-    LOOP
-      EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
-      l_row_nr  := l_row_nr + 1;
-      l_col_pos := MOD(l_row_nr - 1, p_label.max_columns);
-      l_row_pos := MOD(TRUNC((l_row_nr - 1) / p_label.max_columns), p_label.max_rows);
-      IF l_row_nr > 1 AND l_col_pos = 0 AND l_row_pos = 0 THEN
-        rad_pdf_canvas.new_page(p_doc);
-      END IF;
-      l_cx := l_frame_x + l_col_pos * (p_label.width + p_label.h_distance);
-      l_cy := l_frame_y - l_row_pos * (p_label.height + p_label.v_distance);
-      rad_pdf_canvas.rect(p_doc, l_cx, l_cy, p_label.width, p_label.height,
-                      p_colors.header_border, NULL, 0.5, 'pt');
-      l_c_idx := p_columns.FIRST;
-      WHILE l_c_idx IS NOT NULL LOOP
-        DBMS_SQL.COLUMN_VALUE(l_cursor, l_c_idx, l_val);
-        IF l_val IS NOT NULL THEN
-          rad_pdf_canvas.set_font(p_doc,
-            p_columns(l_c_idx).data_fmt.font_name,
-            p_columns(l_c_idx).data_fmt.font_style,
-            p_columns(l_c_idx).data_fmt.font_size);
-          rad_pdf_canvas.set_color(p_doc, p_columns(l_c_idx).data_fmt.font_color);
-          rad_pdf_canvas.write_text(p_doc, l_val,
-            l_cx + p_columns(l_c_idx).data_fmt.margin_left,
-            l_cy - (l_c_idx - 1) * (p_columns(l_c_idx).data_fmt.font_size * 1.2 + 2)
-                 - p_columns(l_c_idx).data_fmt.margin_top,
-            'pt');
-        END IF;
-        l_c_idx := p_columns.NEXT(l_c_idx);
+    BEGIN
+      DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
+      FOR c IN 1..l_ncols LOOP
+        DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
       END LOOP;
-      IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
-        EXIT;
-      END IF;
-    END LOOP;
-    DBMS_SQL.CLOSE_CURSOR(l_cursor);
+      LOOP
+        EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
+        l_row_nr  := l_row_nr + 1;
+        l_col_pos := MOD(l_row_nr - 1, p_label.max_columns);
+        l_row_pos := MOD(TRUNC((l_row_nr - 1) / p_label.max_columns), p_label.max_rows);
+        IF l_row_nr > 1 AND l_col_pos = 0 AND l_row_pos = 0 THEN
+          rad_pdf_canvas.new_page(p_doc);
+        END IF;
+        l_cx := l_frame_x + l_col_pos * (p_label.width + p_label.h_distance);
+        l_cy := l_frame_y - l_row_pos * (p_label.height + p_label.v_distance);
+        rad_pdf_canvas.rect(p_doc, l_cx, l_cy, p_label.width, p_label.height,
+                        p_colors.header_border, NULL, 0.5, 'pt');
+        l_c_idx := p_columns.FIRST;
+        WHILE l_c_idx IS NOT NULL LOOP
+          DBMS_SQL.COLUMN_VALUE(l_cursor, l_c_idx, l_val);
+          IF l_val IS NOT NULL THEN
+            rad_pdf_canvas.set_font(p_doc,
+              p_columns(l_c_idx).data_fmt.font_name,
+              p_columns(l_c_idx).data_fmt.font_style,
+              p_columns(l_c_idx).data_fmt.font_size);
+            rad_pdf_canvas.set_color(p_doc, p_columns(l_c_idx).data_fmt.font_color);
+            rad_pdf_canvas.write_text(p_doc, l_val,
+              l_cx + p_columns(l_c_idx).data_fmt.margin_left,
+              l_cy - (l_c_idx - 1) * (p_columns(l_c_idx).data_fmt.font_size * 1.2 + 2)
+                   - p_columns(l_c_idx).data_fmt.margin_top,
+              'pt');
+          END IF;
+          l_c_idx := p_columns.NEXT(l_c_idx);
+        END LOOP;
+        IF p_options.max_rows IS NOT NULL AND l_row_nr >= p_options.max_rows THEN
+          EXIT;
+        END IF;
+      END LOOP;
+      DBMS_SQL.CLOSE_CURSOR(l_cursor);
+    EXCEPTION
+      WHEN OTHERS THEN
+        BEGIN DBMS_SQL.CLOSE_CURSOR(l_cursor); EXCEPTION WHEN OTHERS THEN NULL; END;
+        RAISE;
+    END;
   END refcursor2labels;
 
 -- ---------------------------------------------------------------------------
@@ -600,30 +618,36 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
 
     -- Open and execute the query
     l_cursor := DBMS_SQL.OPEN_CURSOR;
-    IF l_def.query_clob IS NOT NULL THEN
-      DBMS_SQL.PARSE(l_cursor, l_def.query_clob, DBMS_SQL.NATIVE);
-    ELSE
-      DBMS_SQL.PARSE(l_cursor, l_def.query_txt, DBMS_SQL.NATIVE);
-    END IF;
-    DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
-    g_table_cache(p_doc)(p_table_ref).col_count := l_ncols;
-    FOR c IN 1..l_ncols LOOP
-      DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
-    END LOOP;
-    l_dummy := DBMS_SQL.EXECUTE(l_cursor);
-    LOOP
-      EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
-      l_row_nr := l_row_nr + 1;
-      FOR c IN 1..l_ncols LOOP
-        DBMS_SQL.COLUMN_VALUE(l_cursor, c, l_val);
-        g_table_cache(p_doc)(p_table_ref).data(l_row_nr)(c) := l_val;
-      END LOOP;
-      IF l_def.options.max_rows IS NOT NULL AND l_row_nr >= l_def.options.max_rows THEN
-        EXIT;
+    BEGIN
+      IF l_def.query_clob IS NOT NULL THEN
+        DBMS_SQL.PARSE(l_cursor, l_def.query_clob, DBMS_SQL.NATIVE);
+      ELSE
+        DBMS_SQL.PARSE(l_cursor, l_def.query_txt, DBMS_SQL.NATIVE);
       END IF;
-    END LOOP;
-    g_table_cache(p_doc)(p_table_ref).row_count := l_row_nr;
-    DBMS_SQL.CLOSE_CURSOR(l_cursor);
+      DBMS_SQL.DESCRIBE_COLUMNS2(l_cursor, l_ncols, l_desc);
+      g_table_cache(p_doc)(p_table_ref).col_count := l_ncols;
+      FOR c IN 1..l_ncols LOOP
+        DBMS_SQL.DEFINE_COLUMN(l_cursor, c, l_val, 32767);
+      END LOOP;
+      l_dummy := DBMS_SQL.EXECUTE(l_cursor);
+      LOOP
+        EXIT WHEN DBMS_SQL.FETCH_ROWS(l_cursor) = 0;
+        l_row_nr := l_row_nr + 1;
+        FOR c IN 1..l_ncols LOOP
+          DBMS_SQL.COLUMN_VALUE(l_cursor, c, l_val);
+          g_table_cache(p_doc)(p_table_ref).data(l_row_nr)(c) := l_val;
+        END LOOP;
+        IF l_def.options.max_rows IS NOT NULL AND l_row_nr >= l_def.options.max_rows THEN
+          EXIT;
+        END IF;
+      END LOOP;
+      g_table_cache(p_doc)(p_table_ref).row_count := l_row_nr;
+      DBMS_SQL.CLOSE_CURSOR(l_cursor);
+    EXCEPTION
+      WHEN OTHERS THEN
+        BEGIN DBMS_SQL.CLOSE_CURSOR(l_cursor); EXCEPTION WHEN OTHERS THEN NULL; END;
+        RAISE;
+    END;
 
     -- Height = header + data rows
     IF l_def.col_defs IS NOT NULL AND l_def.col_defs.COUNT > 0 THEN
