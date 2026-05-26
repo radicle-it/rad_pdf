@@ -110,6 +110,62 @@ BEGIN
 END is_valid_rgb;
 
 -- ---------------------------------------------------------------------------
+-- Private: Phase 0 normalisation — lowercase block-tag names that CLOB
+-- scanners match case-sensitively (<LI>/<IF> → <li>/<if>).
+--
+-- Returns a *new* temporary CLOB when replacements were made, or p_src
+-- itself (same LOB locator, IS_TEMPORARY = 0) when none were needed.
+-- Callers must guard FREETEMPORARY with DBMS_LOB.ISTEMPORARY checks.
+--
+-- p_normalise_if = TRUE: also normalise <IF …> / </IF> (used when the
+--   source may contain <if bind="..."> conditional blocks).
+-- ---------------------------------------------------------------------------
+FUNCTION normalize_clob(
+  p_src          IN CLOB,
+  p_normalise_if IN BOOLEAN DEFAULT FALSE
+) RETURN CLOB IS
+  l_needs_norm BOOLEAN;
+  l_tmp        CLOB;
+  l_dst        CLOB;
+BEGIN
+  l_needs_norm :=
+    DBMS_LOB.INSTR(p_src, '<LI>',  1) > 0 OR
+    DBMS_LOB.INSTR(p_src, '</LI>', 1) > 0;
+  IF NVL(p_normalise_if, FALSE) THEN
+    l_needs_norm := l_needs_norm
+      OR DBMS_LOB.INSTR(p_src, '<IF ',  1) > 0
+      OR DBMS_LOB.INSTR(p_src, '</IF>', 1) > 0;
+  END IF;
+
+  IF NOT l_needs_norm THEN
+    RETURN p_src;   -- no copy; caller treats as alias
+  END IF;
+
+  -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
+  -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
+  -- Materialise into an explicit temp CLOB: implicit LOBs returned by
+  -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
+  IF NVL(p_normalise_if, FALSE) THEN
+    SELECT REPLACE(
+             REPLACE(
+               REPLACE(
+                 REPLACE(p_src, '<IF ', '<if '),
+               '</IF>', '</if>'),
+             '<LI>', '<li>'),
+           '</LI>', '</li>')
+      INTO l_tmp FROM DUAL;
+  ELSE
+    SELECT REPLACE(REPLACE(p_src, '<LI>', '<li>'), '</LI>', '</li>')
+      INTO l_tmp FROM DUAL;
+  END IF;
+  DBMS_LOB.CREATETEMPORARY(l_dst, TRUE);
+  IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
+    DBMS_LOB.COPY(l_dst, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
+  END IF;
+  RETURN l_dst;
+END normalize_clob;
+
+-- ---------------------------------------------------------------------------
 -- Private: extract an XML attribute value from a tag string.
 -- Tries double-quoted form first, then single-quoted.
 -- Returns NULL if the attribute is not present.
@@ -455,6 +511,98 @@ BEGIN
 END dispatch_paragraph;
 
 -- ---------------------------------------------------------------------------
+-- Private: handle the <table> self-closing tag.
+-- Extracted from dispatch_self_close so every branch of that CASE sits at
+-- the same abstraction level.  All <table>-specific attribute parsing,
+-- validation, colour overrides, and layout registration live here.
+-- ---------------------------------------------------------------------------
+PROCEDURE handle_table_tag(
+  p_doc     IN rad_pdf_types.t_doc_handle,
+  p_tag     IN VARCHAR2,
+  p_options IN rad_pdf_types.t_template_options
+) IS
+  l_col_name VARCHAR2(200);
+  l_qry      VARCHAR2(32767);
+  l_allow_q  VARCHAR2(10);
+  l_tdef     rad_pdf_types.t_table_def;
+  l_ref_id   PLS_INTEGER;
+  l_flow     rad_pdf_types.t_flowable;
+  l_hdr_bg   VARCHAR2(10);
+  l_alt_bg   VARCHAR2(10);
+  l_brd_clr  VARCHAR2(10);
+  l_row_h    NUMBER;
+  l_max_rows VARCHAR2(20);
+BEGIN
+  l_col_name := extract_attr(p_tag, 'columns');
+  IF l_col_name IS NULL THEN
+    RAISE_APPLICATION_ERROR(c_err_table_attr,
+      '<table> missing required "columns" attribute');
+  END IF;
+  l_qry := extract_attr(p_tag, 'query');
+  IF l_qry IS NULL THEN
+    RAISE_APPLICATION_ERROR(c_err_table_attr,
+      '<table> missing required "query" attribute');
+  END IF;
+  IF NOT g_col_registry.EXISTS(UPPER(l_col_name)) THEN
+    RAISE_APPLICATION_ERROR(c_err_table_cols,
+      '<table> column set not registered: "' || l_col_name || '"');
+  END IF;
+  -- Security double opt-in: tag AND options must both enable queries.
+  -- Two separate checks so the error message names the missing piece.
+  l_allow_q := LOWER(NVL(extract_attr(p_tag, 'allow_query'), 'false'));
+  IF l_allow_q != 'true' THEN
+    RAISE_APPLICATION_ERROR(c_err_table_qry,
+      '<table> query execution blocked: '
+      || 'add allow_query="true" to the <table> tag');
+  END IF;
+  IF NOT NVL(p_options.allow_queries, FALSE) THEN
+    RAISE_APPLICATION_ERROR(c_err_table_qry,
+      '<table> query execution blocked: '
+      || 'set allow_queries => TRUE in t_template_options');
+  END IF;
+  l_tdef.query_txt    := l_qry;
+  l_tdef.col_defs     := g_col_registry(UPPER(l_col_name));
+  l_tdef.color_scheme := rad_pdf_styles.default_scheme;
+  l_tdef.options      := rad_pdf_units.default_table_options;
+
+  -- Optional colour overrides (invalid hex values silently ignored).
+  l_hdr_bg  := UPPER(extract_attr(p_tag, 'header_bg'));
+  l_alt_bg  := UPPER(extract_attr(p_tag, 'alt_bg'));
+  l_brd_clr := UPPER(extract_attr(p_tag, 'border_color'));
+  IF is_valid_rgb(l_hdr_bg) THEN l_tdef.color_scheme.header_paper  := l_hdr_bg; END IF;
+  IF is_valid_rgb(l_alt_bg) THEN l_tdef.color_scheme.odd_paper     := l_alt_bg; END IF;
+  IF is_valid_rgb(l_brd_clr) THEN
+    l_tdef.color_scheme.header_border := l_brd_clr;
+    l_tdef.color_scheme.even_border   := l_brd_clr;
+    l_tdef.color_scheme.odd_border    := l_brd_clr;
+  END IF;
+
+  -- Optional layout overrides.
+  -- max_rows: tag attribute takes precedence over the global options cap.
+  l_row_h := parse_unit_attr(p_tag, 'row_height', NULL);
+  IF l_row_h IS NOT NULL THEN
+    l_tdef.options.h_row_height := l_row_h;
+    l_tdef.options.t_row_height := l_row_h;
+  END IF;
+  l_max_rows := extract_attr(p_tag, 'max_rows');
+  IF l_max_rows IS NOT NULL THEN
+    BEGIN
+      l_tdef.options.max_rows := TO_NUMBER(l_max_rows);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(c_err_attr_val,
+        '<table> invalid max_rows value: "' || l_max_rows || '"');
+    END;
+  ELSIF p_options.max_rows IS NOT NULL THEN
+    l_tdef.options.max_rows := p_options.max_rows;
+  END IF;
+
+  l_ref_id            := rad_pdf_layout.register_table(p_doc, l_tdef);
+  l_flow.flow_type    := rad_pdf_types.c_flow_table;
+  l_flow.table_ref_id := l_ref_id;
+  rad_pdf_layout.add(p_doc, l_flow);
+END handle_table_tag;
+
+-- ---------------------------------------------------------------------------
 -- Private: dispatch a self-closing block tag.
 -- p_tag is the full raw tag string (may include attributes).
 -- ---------------------------------------------------------------------------
@@ -471,18 +619,6 @@ PROCEDURE dispatch_self_close(
   l_id       PLS_INTEGER;
   l_img_w    NUMBER;
   l_img_h    NUMBER;
-  l_col_name VARCHAR2(200);
-  l_qry      VARCHAR2(32767);
-  l_allow_q  VARCHAR2(10);
-  l_tdef     rad_pdf_types.t_table_def;
-  l_ref_id   PLS_INTEGER;
-  l_flow     rad_pdf_types.t_flowable;
-  -- Table optional attributes
-  l_hdr_bg   VARCHAR2(10);
-  l_alt_bg   VARCHAR2(10);
-  l_brd_clr  VARCHAR2(10);
-  l_row_h    NUMBER;
-  l_max_rows VARCHAR2(20);
 BEGIN
   CASE p_name
 
@@ -523,85 +659,7 @@ BEGIN
 
     -- <table columns="NAME" query="SELECT ..." allow_query="true"/>  ---------
     WHEN 'table' THEN
-      l_col_name := extract_attr(p_tag, 'columns');
-      IF l_col_name IS NULL THEN
-        RAISE_APPLICATION_ERROR(c_err_table_attr,
-          '<table> missing required "columns" attribute');
-      END IF;
-      l_qry := extract_attr(p_tag, 'query');
-      IF l_qry IS NULL THEN
-        RAISE_APPLICATION_ERROR(c_err_table_attr,
-          '<table> missing required "query" attribute');
-      END IF;
-      IF NOT g_col_registry.EXISTS(UPPER(l_col_name)) THEN
-        RAISE_APPLICATION_ERROR(c_err_table_cols,
-          '<table> column set not registered: "' || l_col_name || '"');
-      END IF;
-      -- Security double opt-in: tag AND options must both enable queries.
-      -- Two separate checks so the error message names the missing piece.
-      l_allow_q := LOWER(NVL(extract_attr(p_tag, 'allow_query'), 'false'));
-      IF l_allow_q != 'true' THEN
-        RAISE_APPLICATION_ERROR(c_err_table_qry,
-          '<table> query execution blocked: '
-          || 'add allow_query="true" to the <table> tag');
-      END IF;
-      IF NOT NVL(p_options.allow_queries, FALSE) THEN
-        RAISE_APPLICATION_ERROR(c_err_table_qry,
-          '<table> query execution blocked: '
-          || 'set allow_queries => TRUE in t_template_options');
-      END IF;
-      l_tdef.query_txt    := l_qry;
-      l_tdef.col_defs     := g_col_registry(UPPER(l_col_name));
-      l_tdef.color_scheme := rad_pdf_styles.default_scheme;
-      l_tdef.options      := rad_pdf_units.default_table_options;
-
-      -- Optional color overrides -----------------------------------------------
-      -- header_bg="RRGGBB"     overrides header background colour
-      -- alt_bg="RRGGBB"        overrides odd-row background (alternating stripe)
-      -- border_color="RRGGBB"  overrides all border colours
-      -- Invalid (non-hex) values are silently ignored (tag attribute left unset).
-      l_hdr_bg  := UPPER(extract_attr(p_tag, 'header_bg'));
-      l_alt_bg  := UPPER(extract_attr(p_tag, 'alt_bg'));
-      l_brd_clr := UPPER(extract_attr(p_tag, 'border_color'));
-      IF is_valid_rgb(l_hdr_bg) THEN
-        l_tdef.color_scheme.header_paper  := l_hdr_bg;
-      END IF;
-      IF is_valid_rgb(l_alt_bg) THEN
-        l_tdef.color_scheme.odd_paper     := l_alt_bg;
-      END IF;
-      IF is_valid_rgb(l_brd_clr) THEN
-        l_tdef.color_scheme.header_border := l_brd_clr;
-        l_tdef.color_scheme.even_border   := l_brd_clr;
-        l_tdef.color_scheme.odd_border    := l_brd_clr;
-      END IF;
-
-      -- Optional layout overrides ----------------------------------------------
-      -- row_height="Xpt"   fixed height for header and data rows
-      -- max_rows="N"       maximum rows fetched; tag value takes precedence
-      --                    over the global cap in t_template_options.max_rows.
-      l_row_h    := parse_unit_attr(p_tag, 'row_height', NULL);
-      IF l_row_h IS NOT NULL THEN
-        l_tdef.options.h_row_height := l_row_h;
-        l_tdef.options.t_row_height := l_row_h;
-      END IF;
-      l_max_rows := extract_attr(p_tag, 'max_rows');
-      IF l_max_rows IS NOT NULL THEN
-        BEGIN
-          l_tdef.options.max_rows := TO_NUMBER(l_max_rows);
-        EXCEPTION WHEN OTHERS THEN
-          RAISE_APPLICATION_ERROR(c_err_attr_val,
-            '<table> invalid max_rows value: "' || l_max_rows || '"');
-        END;
-      ELSIF p_options.max_rows IS NOT NULL THEN
-        -- No tag-level cap: fall back to the global cap from t_template_options.
-        -- Callers can set l_opts.max_rows once to protect all <table> tags.
-        l_tdef.options.max_rows := p_options.max_rows;
-      END IF;
-
-      l_ref_id            := rad_pdf_layout.register_table(p_doc, l_tdef);
-      l_flow.flow_type    := rad_pdf_types.c_flow_table;
-      l_flow.table_ref_id := l_ref_id;
-      rad_pdf_layout.add(p_doc, l_flow);
+      handle_table_tag(p_doc, p_tag, p_options);
 
     ELSE
       IF NVL(p_options.strict_tags, TRUE) THEN
@@ -1286,36 +1344,11 @@ PROCEDURE render(
   l_bound CLOB;
   l_cond  CLOB;
   l_src   CLOB;  -- normalised source (alias to p_clob when no normalisation needed)
-  l_tmp   CLOB;  -- scratch: holds implicit LOB from SELECT REPLACE before materialisation
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
 
-  -- Phase 0: normalise uppercase block-tag names that CLOB scanners match
-  -- case-sensitively: <IF …> / </IF> for conditionals; <LI> / </LI> for lists.
-  IF DBMS_LOB.INSTR(p_clob, '<IF ', 1) > 0
-     OR DBMS_LOB.INSTR(p_clob, '</IF>', 1) > 0
-     OR DBMS_LOB.INSTR(p_clob, '<LI>',  1) > 0
-     OR DBMS_LOB.INSTR(p_clob, '</LI>', 1) > 0
-  THEN
-    -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
-    -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
-    -- Materialise into an explicit temp CLOB: implicit LOBs returned by
-    -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
-    SELECT REPLACE(
-             REPLACE(
-               REPLACE(
-                 REPLACE(p_clob, '<IF ', '<if '),
-               '</IF>', '</if>'),
-             '<LI>', '<li>'),
-           '</LI>', '</li>')
-      INTO l_tmp FROM DUAL;
-    DBMS_LOB.CREATETEMPORARY(l_src, TRUE);
-    IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
-      DBMS_LOB.COPY(l_src, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
-    END IF;
-  ELSE
-    l_src := p_clob;  -- no copy; l_src is just an alias
-  END IF;
+  -- Phase 0: normalise uppercase block-tag names (<IF>/<LI> → lowercase).
+  l_src := normalize_clob(p_clob, p_normalise_if => TRUE);
 
   DBMS_LOB.CREATETEMPORARY(l_bound, TRUE);
   IF DBMS_LOB.INSTR(l_src, '<if ', 1) > 0 THEN
@@ -1361,27 +1394,11 @@ PROCEDURE render(
   p_clob    IN CLOB,
   p_options IN rad_pdf_types.t_template_options DEFAULT NULL
 ) IS
-  l_src CLOB;
-  l_tmp CLOB;  -- scratch: holds implicit LOB from SELECT REPLACE before materialisation
+  l_src CLOB;  -- normalised source (alias to p_clob when no normalisation needed)
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
-  -- Phase 0: normalise <LI> / </LI> so DBMS_LOB.INSTR always finds '<li>'.
-  IF DBMS_LOB.INSTR(p_clob, '<LI>',  1) > 0
-     OR DBMS_LOB.INSTR(p_clob, '</LI>', 1) > 0
-  THEN
-    -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
-    -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
-    -- Materialise into an explicit temp CLOB: implicit LOBs returned by
-    -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
-    SELECT REPLACE(REPLACE(p_clob, '<LI>', '<li>'), '</LI>', '</li>')
-      INTO l_tmp FROM DUAL;
-    DBMS_LOB.CREATETEMPORARY(l_src, TRUE);
-    IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
-      DBMS_LOB.COPY(l_src, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
-    END IF;
-  ELSE
-    l_src := p_clob;
-  END IF;
+  -- Phase 0: normalise uppercase <LI> / </LI> → lowercase.
+  l_src := normalize_clob(p_clob);
   do_render(p_doc, l_src, p_options);
   IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
     DBMS_LOB.FREETEMPORARY(l_src);
