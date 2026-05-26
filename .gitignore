@@ -1,6 +1,7 @@
 *.~*
 *.log
+.DS_Store
 spec/
 /apex/
 skills/
-CLAUDE.md.DS_Store
+CLAUDE.md
