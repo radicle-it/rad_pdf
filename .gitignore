@@ -1,4 +1,6 @@
 *.~*
 *.log
 spec/
+/apex/
+skills/
 CLAUDE.md

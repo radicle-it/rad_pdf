@@ -5,27 +5,172 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ## [Unreleased]
 
-### Added
-- `rad_pdf_template` package (Phase 9): lightweight XML-like template engine
-  - Parses CLOB/VARCHAR2 templates with block tags (`<p>`, `<h1>`-`<h6>`,
-    `<spacer>`, `<hr>`, `<table>`, `<img>`, `<pagebreak>`) and inline tags
-    (`<b>`, `<i>`, `<br/>` inside `<p>`)
-  - `#KEY#` placeholder substitution via `t_bind_array`; `##` escapes to `#`
-  - Column set registry (`register_columns` / `drop_columns` / `clear_columns`)
-    for referencing pre-defined `t_columns` from `<table>` tags
-  - Security double opt-in for `<table>` query execution:
-    `allow_query="true"` in tag AND `allow_queries = TRUE` in `t_template_options`
-  - `escape_value` utility function for safe bind value encoding
-  - Lazy bold/italic style derivation (creates `<style>__b`, `__i`, `__bi`
-    variants on first use)
-  - Four `render` overloads: CLOB+binds, VARCHAR2+binds, CLOB no-bind,
-    VARCHAR2 no-bind
-  - `rad_pdf.render_template` facade shortcuts (4 overloads) delegating to
-    `rad_pdf_template.render`
-  - `src/install_phase9.sql` and updated `src/install.sql`
-  - `tests/phase10_template.sql` with 16 acceptance tests
-  - `docs/sample11.sql`: non-APEX template engine example
-  - `docs/apex/apex_sample07.sql`: APEX template engine example
+_No unreleased changes._
+
+## [1.2.0] - Unreleased
+
+### Added — Template engine (`rad_pdf_template`, Phase 9)
+
+- New package `rad_pdf_template` (spec + body, `AUTHID CURRENT_USER`) — a
+  lightweight, injection-safe XML-like template engine that turns a CLOB or
+  VARCHAR2 template into a PDF document section.
+
+- **Block tags** supported in templates:
+  `<p>`, `<h1>`–`<h6>`, `<ul>`, `<ol>`, `<li>`,
+  `<spacer height="Xpt"/>`, `<hr [color="RRGGBB"] [width="N"]/>`,
+  `<img id="N" [width="Xmm"] [height="Ymm"]/>`,
+  `<table columns="NAME" query="SQL" allow_query="true" .../>`,
+  `<pagebreak/>`
+
+- **Inline tags** inside `<p>`, `<li>`, and `<h1>`–`<h6>`:
+  `<b>`, `<i>`, `<br/>`, `<color rgb="RRGGBB">`, `<font size="Xpt">` —
+  all with unlimited LIFO nesting depth.  Mixed-style paragraphs render
+  inline on the same wrapped line via the `PARA_RUNS` flowable.
+
+- **`#KEY#` bind substitution**: CLOB-level scanner (no 32767-char limit);
+  `##` escapes to `#`; unknown tokens are written verbatim.
+
+- **`<if bind="KEY">…</if>` conditional blocks**: evaluated before bind
+  substitution so suppressed blocks never trigger NULL-bind errors.
+
+- **Auto-escape** of bind values (`&` → `&amp;`, `<` → `&lt;`,
+  `>` → `&gt;`); bypass per-entry with `t_bind_entry.raw = TRUE`.
+
+- **SQL injection protection for `<table query>`**: `#TOKEN#` placeholders
+  inside `query` attributes are automatically safe-quoted via a
+  CHR(1)/CHR(2) sentinel mechanism (Phase 0b, `shield_query_attrs`).
+  The raw bind value is wrapped in SQL single quotes with embedded quotes
+  doubled — no manual `TO_NUMBER` validation is required for safety.
+
+- **Column set registry**: `register_columns`, `drop_columns`,
+  `clear_columns` — pre-register `t_columns` definitions once (e.g. in an
+  APEX Application Process) and reference them by name in `<table>` tags.
+
+- **`<table>` security double opt-in**: both `allow_query="true"` in the
+  tag AND `p_options.allow_queries = TRUE` in `t_template_options` are
+  required; each check raises a distinct error message naming the missing piece.
+
+- **`<table>` optional attributes**: `row_height`, `max_rows`, `header_bg`,
+  `alt_bg`, `border_color`; invalid hex colour values are silently ignored.
+
+- **`t_template_options`** record: `default_font_name`, `default_font_style`,
+  `default_font_size`, `default_style`, `strict_tags`, `allow_queries`,
+  `max_rows` (global row cap applied to every `<table>` in the call).
+
+- **`escape_value`** public utility function for callers that need to
+  manually pre-escape a value before passing it as `raw = TRUE`.
+
+- **Four `render` overloads**: `(doc, CLOB, binds, opts)`,
+  `(doc, VARCHAR2, binds, opts)`, `(doc, CLOB, opts)`,
+  `(doc, VARCHAR2, opts)`.
+
+- **`rad_pdf.render_template`** facade (4 matching overloads) in the public
+  package for callers who import only `rad_pdf`.
+
+- **`t_bind_entry`** and **`t_bind_array`** types added to `rad_pdf_types`
+  (plus `t_template_options`, `t_inline_run`, `t_inline_run_list`,
+  `c_flow_para_runs`, `c_err_template`).
+
+- **`src/install/install_phase9.sql`**: installs `rad_pdf_template`; uses
+  `SET DEFINE OFF` around the `pkb` compile step so `&amp;` in
+  `escape_value` is not substituted by SQL\*Plus/SQLcl.
+
+- **`tests/phase10_template.sql`** with **36 acceptance tests** covering all
+  tags, inline markup, conditional blocks, bind substitution, error paths,
+  security (SQL injection), large-CLOB paths, and edge cases.
+
+- **`docs/TEMPLATE_GUIDE.md`**: complete template engine reference —
+  pipeline diagram, tag catalogue, bind substitution, conditional blocks,
+  security model, APEX integration patterns, and error code table.
+
+- **`docs/apex/apex_template_01.sql`–`apex_template_14.sql`**: 14 worked
+  APEX examples (minimal hello-world through DB-driven templates, multi-page
+  layouts, and conditional sections).
+
+- **`docs/sample11.sql`**: non-APEX template engine example (standalone
+  SQL\*Plus / SQL Developer).
+
+- **`docs/sample12.sql`**: DB-driven template store pattern (`pdf_templates`
+  table, hot-update without code change).
+
+### Added — Other
+
+- `rad_pdf_types.c_err_template` constant (`-20810`) and
+  `t_inline_run` / `t_inline_run_list` / `t_flowable.para_runs_ref_id` for
+  the new PARA_RUNS flowable type.
+
+- `rad_pdf_layout.paragraph_runs` constructor and `render_para_runs` render
+  pass for multi-style inline paragraphs.
+
+### Changed
+
+- Install scripts moved from `src/` into `src/install/` subfolder;
+  `install.sql` updated to reference `@@install/install_phaseN.sql`.
+
+- `docs/TEMPLATE_GUIDE.md` relocated from `docs/apex/` to `docs/`
+  (root-level docs directory alongside `README.md`).
+
+- `.gitignore`: `apex/` pattern anchored to repository root (`/apex/`) so
+  that `docs/apex/` is no longer inadvertently excluded from version control.
+
+### Fixed
+
+- **SQL injection** via `#TOKEN#` in `<table query="...">` attributes:
+  previously substituted verbatim, allowing single-quote injection; now
+  wrapped in safe-quoted SQL string literals automatically.
+
+- **`find_tag_end` ORA-06502**: `VARCHAR2(512)` buffer overflowed on 512-char
+  chunks containing multi-byte UTF-8 characters (e.g. em-dash U+2014, 3
+  bytes in AL32UTF8). Enlarged to `VARCHAR2(2048)`.
+
+- **`draw_cell` vertical text alignment** (non-wrap cells): baseline was
+  placed at `p_y + margin_bot` (≈1pt), clipping descenders below the cell
+  border. New formula centres text: `p_y + p_h/2 − font_size × 0.25`.
+
+- **Post-`<hr>` spacer**: headings placed after a horizontal rule with an
+  8–10pt spacer had cap ascenders visually overlapping the rule. Spacer
+  before `<h1>`/`<h2>` increased to 14pt across APEX template examples.
+
+- **`rad_pdf_table` cursor leak**: DBMS_SQL cursors are now always closed
+  in a `BEGIN/EXCEPTION` guard inside `table_flow`, `measure_table`,
+  `query2labels`, and `refcursor2labels`. A `CLOSE_CURSOR` failure in the
+  handler is silently swallowed so it never masks the original error.
+
+- **`extract_attr` truncation**: return type widened from `VARCHAR2(4000)` to
+  `VARCHAR2(32767)`, fixing silent truncation of long `<table query>` strings.
+
+- **`<LI>` / `<IF>` uppercase normalisation**: the CLOB-level scanners use
+  `DBMS_LOB.INSTR` which is case-sensitive; Phase 0 now normalises uppercase
+  `<LI>`, `</LI>`, `<IF ...>`, `</IF>` to lowercase via SQL-engine `REPLACE`
+  (which is CLOB-aware, avoiding the PL/SQL `REPLACE` varchar2 32767 limit).
+
+- **`<br/>` routing**: always dispatched via PARA_RUNS regardless of whether
+  other inline markup is present, giving consistent within-paragraph line
+  breaks in all contexts.
+
+- **`default_font_name` / `default_font_style` / `default_font_size`** in
+  `t_template_options` were accepted but had no effect; now lazily derive a
+  style variant from `default_style` and apply it for the render call.
+
+- **`rad_pdf_template.pkb` compile corruption**: `shield_query_attrs` was
+  declared before `find_tag_end` and `extract_attr` in the file, causing
+  PLS-00313 forward-reference errors that were silently masked by SQL\*Plus
+  consuming stdin lines during `&amp;` substitution; moved after `find_tag_end`.
+
+### Refactored (internal, no API change)
+
+- `rad_pdf_template.pkb`: extracted `normalize_clob` (Phase 0 CLOB
+  case-folding), `handle_table_tag` (`<table>` attribute parsing and dispatch),
+  and `emit_list_item` (list prefix + dispatch) as private procedures, reducing
+  duplication across render overloads and dispatch paths.
+
+- `rad_pdf_table.pkb`: extracted `fetch_into_cache` (shared
+  DESCRIBE/DEFINE/EXECUTE/FETCH pattern for table and labels) and
+  `draw_labels_from_cursor` (shared label-drawing loop), eliminating ~60
+  lines of duplication across `table_flow`, `measure_table`, `query2labels`,
+  and `refcursor2labels`.
+
+---
 
 ## [1.1.0] - 2026-05-24
 
