@@ -7,6 +7,45 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
+## [1.3.0] - Unreleased
+
+### Added - Auto-width columns (`t_column_def.auto_width`)
+
+- New field `auto_width BOOLEAN := FALSE` on `t_column_def`: when `TRUE`, the
+  column width is derived from content during the measure pass instead of using
+  the declared `width` value.
+
+- New field `max_width NUMBER := NULL` on `t_column_def`: upper cap for
+  auto-width columns in the same unit as `width` (NULL = no cap).
+
+- `width` is retained as a minimum floor: `auto_width` columns are never
+  narrower than the declared `width` value.
+
+- Width is measured from the populated row cache (no second query execution):
+  max of header label width (in `header_fmt` font) and widest data cell (in
+  `data_fmt` font), including left and right cell margins.
+
+- `num_format` is honoured during measurement: the formatted display string
+  (via `TO_CHAR(TO_NUMBER(...), num_format)`) is measured, not the raw value.
+
+- `auto_width = TRUE` and `wrap = TRUE` on the same column: `auto_width` is
+  silently ignored and the column behaves as a wrap column with the declared
+  `width`. Wrap requires a fixed width to determine line-break points.
+
+- Auto-width columns participate in `col_widths` proportional fill as normal;
+  their content-based widths replace the declared widths before scaling.
+
+- Streaming tables (`t_table_def.streaming = TRUE`): auto-width falls back to
+  header-only measurement (the row cache is not populated for streaming tables).
+
+- `src/install/install_phase11.sql`: recompiles `rad_pdf_types` and
+  `rad_pdf_table` to pick up the new fields and `resolve_auto_widths` logic.
+
+- `tests/phase12_autowidth.sql`: 16 acceptance tests covering single and
+  multi-column auto-width, floor/cap, wrap interaction, NULL values,
+  num_format measurement, refcursor source, multi-page tables, layout engine
+  and template engine integration, and two-document session isolation.
+
 ## [1.2.0] - Unreleased
 
 ### Added — Template engine (`rad_pdf_template`, Phase 9)

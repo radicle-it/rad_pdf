@@ -1,6 +1,6 @@
 # RAD_PDF - User Guide
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer  
 ← [Back to project README](../README.md)
@@ -862,7 +862,7 @@ security notes, and patterns for APEX and non-APEX use.
 
 | Subprogram | Description |
 |---|---|
-| `version` | Return the library version string, e.g. `'1.2.0'`. |
+| `version` | Return the library version string, e.g. `'1.3.0'`. |
 | `new_document(p_info, p_template)` | Create document. Returns handle. |
 | `finalize(p_doc)` | Finalise, close handle, return BLOB. Caller must `FREETEMPORARY`. |
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |

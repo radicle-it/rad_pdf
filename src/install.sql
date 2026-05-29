@@ -4,7 +4,7 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF v1.2.0 — Full Suite Installer
+PROMPT  RAD_PDF v1.3.0 — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
@@ -28,6 +28,8 @@ PROMPT
 PROMPT
 @@install/install_phase9.sql
 PROMPT
+@@install/install_phase11.sql
+PROMPT
 
 PROMPT ================================================================
 PROMPT  Install complete.
@@ -35,6 +37,7 @@ PROMPT
 PROMPT  Run acceptance tests (from repo root)
 PROMPT    @tests/phase9_integration.sql    canvas API + core packages
 PROMPT    @tests/phase10_template.sql      template engine
+PROMPT    @tests/phase12_autowidth.sql     auto-width columns
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
