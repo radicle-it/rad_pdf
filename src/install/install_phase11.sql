@@ -1,7 +1,9 @@
--- install_phase11.sql — Auto-width columns (v1.3.0)
--- Recompiles rad_pdf_types (new t_column_def fields) and rad_pdf_table
--- (resolve_auto_widths). All other packages depend on rad_pdf_types by spec,
--- so they recompile automatically when invalidated by Oracle.
+-- install_phase11.sql — UPGRADE script: v1.2.x -> v1.3.0 (auto-width columns)
+--
+-- USE THIS FILE only when upgrading an existing v1.2.x installation.
+-- For a fresh install use install.sql instead (phases 1 and 7 already
+-- include the updated rad_pdf_types and rad_pdf_table source).
+--
 -- Working directory must be src/ when running in SQL*Plus:
 --   SQL> @@install/install_phase11.sql
 

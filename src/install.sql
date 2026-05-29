@@ -28,8 +28,6 @@ PROMPT
 PROMPT
 @@install/install_phase9.sql
 PROMPT
-@@install/install_phase11.sql
-PROMPT
 
 PROMPT ================================================================
 PROMPT  Install complete.
@@ -41,7 +39,7 @@ PROMPT    @tests/phase12_autowidth.sql     auto-width columns
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
-PROMPT  APEX examples  docs/apex/apex_sample00.sql .. apex_sample07.sql
+PROMPT  APEX examples  docs/apex/apex_sample00.sql .. apex_sample08.sql
 PROMPT                  docs/apex/apex_template_01.sql .. apex_template_14.sql
 PROMPT
 PROMPT  Reference docs
