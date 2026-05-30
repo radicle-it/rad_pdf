@@ -7,7 +7,38 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
-## [1.5.1] - Unreleased
+## [1.5.2] - 2026-05-30
+
+### Fixed
+
+- **`sample14.sql`**: embedded stand-in image was a malformed JPEG literal
+  (`RAW(60)` too small, odd-length hex string). Replaced with the same valid
+  8x8 PNG used in `sample09.sql`.
+
+### Added - PLFPDF / FPDF attribution
+
+- `README.md` and `docs/README.md`: credited [PLFPDF](https://github.com/mczarski/plfpdf)
+  and [FPDF](http://www.fpdf.org/) (Olivier Plathey) for the v1.5 graphics-state API
+  (`set_draw_color`, `set_fill_color`, `set_line_width`, `set_line_dash`).
+
+### Documentation
+
+- **`docs/README.md`**: filled all previously undocumented API surface:
+  - `auto_width` / `max_width` fields in `t_column_def` (v1.3.0 feature)
+  - New "Persistent Graphics-State Setters" section
+  - `render_template` facade shortcuts
+  - `rad_pdf_table` section: `query2table`, `refcursor2table`, `query2labels`,
+    `refcursor2labels`, `t_label_def` fields
+  - `rad_pdf_canvas` section: complete 25-procedure reference including
+    `goto_page`, `text_width`, `measure_wrapped`, `path`, `set_bk_color`,
+    `get_x`/`get_y`, `add_page_proc`
+  - Multi-column layout: `n_columns` + `col_gap` in `t_page_template`
+- **`docs/TEMPLATE_GUIDE.md`**:
+  - Column registry API table: `register_columns`, `drop_columns`, `clear_columns`
+  - `max_rows` field added to `t_template_options`
+  - Fixed `<color>` inline tag nesting claim: "single-level" → "unlimited (LIFO stack)"
+
+## [1.5.1] - 2026-05-30 (superseded by 1.5.2)
 
 ### Fixed - Image cache memory leak (`rad_pdf_images`)
 
