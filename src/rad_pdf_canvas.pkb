@@ -31,6 +31,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   TYPE t_canvas_map IS TABLE OF t_canvas_state INDEX BY PLS_INTEGER;
   g_canvas t_canvas_map;
 
+  -- Watermark state (v1.4.0). One watermark per document; private to this package.
+  -- WM_GS is the only /ExtGState key written by this package; future keys must use
+  -- a different name to avoid collisions.
+  TYPE t_watermark IS RECORD (
+    active      BOOLEAN              := FALSE,
+    wm_type     VARCHAR2(5)          := NULL,    -- 'TEXT' | 'IMAGE'
+    text        VARCHAR2(500)        := NULL,
+    font_name   VARCHAR2(100)        := 'Helvetica',
+    font_size   NUMBER               := 60,
+    color       rad_pdf_types.t_rgb  := 'C0C0C0',
+    opacity     NUMBER               := 0.3,
+    angle       NUMBER               := 45,
+    layer       VARCHAR2(5)          := 'UNDER',
+    image_id    PLS_INTEGER          := NULL,
+    width_pct   NUMBER               := 60
+  );
+  TYPE t_watermark_map IS TABLE OF t_watermark INDEX BY PLS_INTEGER;
+  g_watermarks t_watermark_map;
+
 -- ---------------------------------------------------------------------------
 -- PRIVATE: ensure canvas state exists for this handle
 -- ---------------------------------------------------------------------------
@@ -761,6 +780,89 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   END run_page_procs;
 
 -- ---------------------------------------------------------------------------
+-- PRIVATE: build watermark content stream BLOB for p_doc
+-- Returns the BLOB (caller owns it; do not free — write_stream_obj consumes it).
+-- ---------------------------------------------------------------------------
+  FUNCTION build_watermark_blob(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN BLOB IS
+    c_pi     CONSTANT NUMBER := 3.14159265358979;
+    l_wm     t_watermark := g_watermarks(p_doc);
+    l_blob   BLOB;
+    l_stream VARCHAR2(32767);
+    l_a_rad  NUMBER;
+    l_co     NUMBER;
+    l_si     NUMBER;
+    l_cx     NUMBER;
+    l_cy     NUMBER;
+    l_pw     NUMBER;
+    l_ph     NUMBER;
+    l_fi     PLS_INTEGER;
+    l_tw     NUMBER;
+    l_img_w  NUMBER;
+    l_img_h  NUMBER;
+    l_wm_w   NUMBER;
+    l_wm_h   NUMBER;
+    l_ix     NUMBER;
+    l_iy     NUMBER;
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_blob, TRUE, DBMS_LOB.SESSION);
+
+    l_pw := g_canvas(p_doc).fmt.width;
+    l_ph := g_canvas(p_doc).fmt.height;
+    l_cx := l_pw / 2;
+    l_cy := l_ph / 2;
+
+    l_stream := 'q' || CHR(10);
+
+    IF l_wm.opacity < 1.0 THEN
+      l_stream := l_stream || '/WM_GS gs' || CHR(10);
+    END IF;
+
+    IF l_wm.wm_type = 'TEXT' THEN
+      l_fi    := rad_pdf_fonts.find_font(p_doc, l_wm.font_name, 'N');
+      l_tw    := rad_pdf_fonts.text_width(l_wm.text, l_fi, l_wm.font_size);
+      l_a_rad := l_wm.angle * c_pi / 180;
+      l_co    := COS(l_a_rad);
+      l_si    := SIN(l_a_rad);
+      l_stream := l_stream ||
+        rad_pdf_codec.fmt(l_co,  6) || ' ' || rad_pdf_codec.fmt(l_si,  6) || ' ' ||
+        rad_pdf_codec.fmt(-l_si, 6) || ' ' || rad_pdf_codec.fmt(l_co,  6) || ' ' ||
+        rad_pdf_codec.fmt(l_cx,  2) || ' ' || rad_pdf_codec.fmt(l_cy,  2) || ' cm' || CHR(10) ||
+        'BT' || CHR(10) ||
+        '/F' || TO_CHAR(l_fi) || ' ' || rad_pdf_codec.fmt(l_wm.font_size, 2) || ' Tf' || CHR(10) ||
+        rad_pdf_codec.rgb_to_pdf(l_wm.color) || ' rg' || CHR(10) ||
+        rad_pdf_codec.fmt(-(l_tw / 2), 2) || ' ' ||
+        rad_pdf_codec.fmt(-(l_wm.font_size * 0.25), 2) || ' Td' || CHR(10) ||
+        rad_pdf_fonts.text_to_pdf_string(l_wm.text, l_fi) || ' Tj' || CHR(10) ||
+        'ET' || CHR(10);
+      rad_pdf_fonts.mark_font_used(p_doc, l_fi);
+
+    ELSIF l_wm.wm_type = 'IMAGE' THEN
+      rad_pdf_images.get_image_dimensions(p_doc, l_wm.image_id, l_img_w, l_img_h);
+      l_wm_w := l_pw * l_wm.width_pct / 100;
+      l_wm_h := CASE WHEN l_img_w > 0 THEN l_wm_w * l_img_h / l_img_w ELSE l_wm_w END;
+      l_ix   := l_cx - l_wm_w / 2;
+      l_iy   := l_cy - l_wm_h / 2;
+      l_stream := l_stream ||
+        rad_pdf_codec.fmt(l_wm_w, 2) || ' 0 0 ' ||
+        rad_pdf_codec.fmt(l_wm_h, 2) || ' ' ||
+        rad_pdf_codec.fmt(l_ix,   2) || ' ' ||
+        rad_pdf_codec.fmt(l_iy,   2) || ' cm' || CHR(10) ||
+        '/Im' || TO_CHAR(l_wm.image_id) || ' Do' || CHR(10);
+    END IF;
+
+    l_stream := l_stream || 'Q' || CHR(10);
+
+    DECLARE
+      l_raw RAW(32767);
+    BEGIN
+      l_raw := UTL_RAW.CAST_TO_RAW(l_stream);
+      DBMS_LOB.WRITEAPPEND(l_blob, UTL_RAW.LENGTH(l_raw), l_raw);
+    END;
+    RETURN l_blob;
+  END build_watermark_blob;
+
+-- ---------------------------------------------------------------------------
 -- write_page_objects — write page tree to PDF (called at finalization)
 -- ---------------------------------------------------------------------------
   FUNCTION write_page_objects(p_doc      IN rad_pdf_types.t_doc_handle,
@@ -776,6 +878,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_c_nr     NUMBER;
     l_dummy    NUMBER;
     l_pages_nr NUMBER;
+    l_wm_nr    NUMBER;
+    l_have_wm  BOOLEAN := FALSE;
     TYPE t_num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
     l_c_nrs  t_num_tab;  -- content stream obj numbers (0-indexed)
     l_p_nrs  t_num_tab;  -- page dict obj numbers (0-indexed)
@@ -789,6 +893,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_mb_w := g_canvas(p_doc).fmt.width;
     l_mb_h := g_canvas(p_doc).fmt.height;
 
+    l_have_wm := g_watermarks.EXISTS(p_doc) AND g_watermarks(p_doc).active;
+
+    -- Before Pass 1: write the shared watermark stream object once.
+    IF l_have_wm THEN
+      l_blob  := build_watermark_blob(p_doc);
+      l_wm_nr := rad_pdf_serial.write_stream_obj(p_doc, l_blob, NULL, FALSE);
+      IF DBMS_LOB.ISTEMPORARY(l_blob) = 1 THEN
+        DBMS_LOB.FREETEMPORARY(l_blob);
+      END IF;
+    END IF;
+
     -- Build resources dict
     l_res := '<</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]';
     IF p_font_res IS NOT NULL THEN
@@ -796,6 +911,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     END IF;
     IF p_img_res IS NOT NULL THEN
       l_res := l_res || ' /XObject <<' || p_img_res || '>>';
+    END IF;
+    IF l_have_wm AND g_watermarks(p_doc).opacity < 1.0 THEN
+      l_res := l_res ||
+        ' /ExtGState <</WM_GS <</Type /ExtGState /ca ' ||
+        rad_pdf_codec.fmt(g_watermarks(p_doc).opacity, 2) ||
+        ' /CA ' ||
+        rad_pdf_codec.fmt(g_watermarks(p_doc).opacity, 2) ||
+        '>>>>';
     END IF;
     l_res := l_res || '>>';
 
@@ -807,19 +930,35 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       IF i = 0 THEN l_base_nr := l_c_nr; END IF;
     END LOOP;
 
-    -- The Pages root will be at base_nr + 2*N
+    -- The Pages root will be at base_nr + 2*N (unchanged when no watermark)
+    -- When watermark is active, base_nr already accounts for the wm stream obj.
     l_pages_nr := l_base_nr + 2 * l_n;
 
     -- Pass 2: write N page dictionary objects
     FOR i IN 0 .. l_n - 1 LOOP
-      l_dummy := rad_pdf_serial.begin_obj(p_doc,
-        '/Type /Page' ||
-        ' /Parent '   || TO_CHAR(l_pages_nr) || ' 0 R' ||
-        ' /Resources ' || l_res ||
-        ' /MediaBox [0 0 ' || rad_pdf_codec.fmt(l_mb_w, 2) ||
-                       ' ' || rad_pdf_codec.fmt(l_mb_h, 2) || ']' ||
-        ' /Contents ' || TO_CHAR(l_c_nrs(i)) || ' 0 R');
-      l_p_nrs(i) := l_dummy;
+      DECLARE
+        l_contents VARCHAR2(200);
+      BEGIN
+        IF l_have_wm THEN
+          IF g_watermarks(p_doc).layer = 'OVER' THEN
+            l_contents := '[' || TO_CHAR(l_c_nrs(i)) || ' 0 R ' ||
+                          TO_CHAR(l_wm_nr) || ' 0 R]';
+          ELSE
+            l_contents := '[' || TO_CHAR(l_wm_nr) || ' 0 R ' ||
+                          TO_CHAR(l_c_nrs(i)) || ' 0 R]';
+          END IF;
+        ELSE
+          l_contents := TO_CHAR(l_c_nrs(i)) || ' 0 R';
+        END IF;
+        l_dummy := rad_pdf_serial.begin_obj(p_doc,
+          '/Type /Page' ||
+          ' /Parent '   || TO_CHAR(l_pages_nr) || ' 0 R' ||
+          ' /Resources ' || l_res ||
+          ' /MediaBox [0 0 ' || rad_pdf_codec.fmt(l_mb_w, 2) ||
+                         ' ' || rad_pdf_codec.fmt(l_mb_h, 2) || ']' ||
+          ' /Contents ' || l_contents);
+        l_p_nrs(i) := l_dummy;
+      END;
     END LOOP;
 
     -- Pass 3: write Pages root
@@ -851,7 +990,104 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       l_i := g_canvas(p_doc).page_prcs.NEXT(l_i);
     END LOOP;
     g_canvas.DELETE(p_doc);
+    IF g_watermarks.EXISTS(p_doc) THEN
+      g_watermarks.DELETE(p_doc);
+    END IF;
   END close_doc;
+
+-- ---------------------------------------------------------------------------
+-- Watermark procedures (v1.4.0)
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_text      IN VARCHAR2,
+    p_font_name IN VARCHAR2              DEFAULT 'Helvetica',
+    p_font_size IN NUMBER                DEFAULT 60,
+    p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
+    p_opacity   IN NUMBER                DEFAULT 0.3,
+    p_angle     IN NUMBER                DEFAULT 45,
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+    l_wm t_watermark;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    IF p_text IS NULL OR LENGTH(p_text) = 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark: p_text must not be NULL or empty', TRUE);
+    END IF;
+    IF p_font_size IS NULL OR p_font_size <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark: p_font_size must be > 0', TRUE);
+    END IF;
+    IF p_opacity IS NULL OR p_opacity < 0 OR p_opacity > 1 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark: p_opacity must be in [0.0, 1.0]', TRUE);
+    END IF;
+    IF p_angle IS NULL OR p_angle < -360 OR p_angle > 360 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark: p_angle must be in [-360, 360]', TRUE);
+    END IF;
+    IF UPPER(p_layer) NOT IN ('UNDER', 'OVER') THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark: p_layer must be ''UNDER'' or ''OVER''', TRUE);
+    END IF;
+    l_wm.active    := TRUE;
+    l_wm.wm_type   := 'TEXT';
+    l_wm.text      := p_text;
+    l_wm.font_name := NVL(p_font_name, 'Helvetica');
+    l_wm.font_size := p_font_size;
+    l_wm.color     := NVL(p_color, 'C0C0C0');
+    l_wm.opacity   := p_opacity;
+    l_wm.angle     := p_angle;
+    l_wm.layer     := UPPER(p_layer);
+    g_watermarks(p_doc) := l_wm;
+  END set_watermark;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark_image(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_image_id  IN PLS_INTEGER,
+    p_opacity   IN NUMBER   DEFAULT 0.3,
+    p_width_pct IN NUMBER   DEFAULT 60,
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+    l_wm t_watermark;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    IF p_opacity IS NULL OR p_opacity < 0 OR p_opacity > 1 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark_image: p_opacity must be in [0.0, 1.0]', TRUE);
+    END IF;
+    IF p_width_pct IS NULL OR p_width_pct < 1 OR p_width_pct > 100 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark_image: p_width_pct must be in [1, 100]', TRUE);
+    END IF;
+    IF UPPER(p_layer) NOT IN ('UNDER', 'OVER') THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_canvas.set_watermark_image: p_layer must be ''UNDER'' or ''OVER''', TRUE);
+    END IF;
+    IF NOT rad_pdf_images.image_exists(p_doc, p_image_id) THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+        'rad_pdf_canvas.set_watermark_image: image_id ' ||
+        NVL(TO_CHAR(p_image_id), '<null>') ||
+        ' not registered for this document', TRUE);
+    END IF;
+    l_wm.active    := TRUE;
+    l_wm.wm_type   := 'IMAGE';
+    l_wm.image_id  := p_image_id;
+    l_wm.opacity   := p_opacity;
+    l_wm.width_pct := p_width_pct;
+    l_wm.layer     := UPPER(p_layer);
+    g_watermarks(p_doc) := l_wm;
+  END set_watermark_image;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    IF g_watermarks.EXISTS(p_doc) THEN
+      g_watermarks.DELETE(p_doc);
+    END IF;
+  END clear_watermark;
 
 END rad_pdf_canvas;
 /

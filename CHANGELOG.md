@@ -7,6 +7,67 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
+## [1.4.0] - Unreleased
+
+### Added - Watermark (`rad_pdf.set_watermark`)
+
+- New procedure `rad_pdf.set_watermark`: register a text watermark drawn
+  behind or in front of every page at finalization. Parameters: `p_text`
+  (up to 500 chars), `p_font_name` (default `'Helvetica'`), `p_font_size`
+  in points (default 60), `p_color` 6-char hex RGB (default `'C0C0C0'`),
+  `p_opacity` in [0.0, 1.0] (default 0.3), `p_angle` counter-clockwise
+  degrees in [-360, 360] (default 45), `p_layer` `'UNDER'` or `'OVER'`
+  (default `'UNDER'`).
+
+- New procedure `rad_pdf.set_watermark_image`: register an image watermark
+  (loaded via `rad_pdf_images.load_image`). Parameters: `p_image_id`,
+  `p_opacity` (default 0.3), `p_width_pct` in [1, 100] percent of page
+  width with aspect ratio preserved (default 60), `p_layer` (default
+  `'UNDER'`).
+
+- New procedure `rad_pdf.clear_watermark`: remove a previously registered
+  watermark. No-op if no watermark is set.
+
+- All three procedures are also available directly on `rad_pdf_canvas` for
+  canvas-only (no layout engine) documents.
+
+- The watermark is written as a **single shared PDF stream object** referenced
+  by every page's `/Contents` array. File size growth is independent of page
+  count.
+
+- **Zero change to existing output** when no watermark is set: no extra stream
+  objects, no `/Contents` array, no `/ExtGState` in resources.
+
+- Opacity < 1.0 adds `/ExtGState <</WM_GS ...>>` to each page's `/Resources`.
+  Opacity = 1.0 emits no graphics state operator and no `/ExtGState` entry.
+
+- Watermark drawing is wrapped in `q ... Q` (graphics state save/restore).
+  The watermark CTM, colour, and opacity do not leak into surrounding content.
+
+- Calling `set_watermark` or `set_watermark_image` twice replaces the previous
+  registration. Only one watermark per document; text and image watermarks
+  cannot coexist.
+
+- `src/rad_pdf_types.pks`: version bumped to `'1.4.0'`.
+
+- `src/install/install_phase10.sql`: upgrade-only script for v1.3.x to v1.4.0.
+  Recompiles `rad_pdf_types`, `rad_pdf_canvas` (spec + body), `rad_pdf`
+  (spec + body).
+
+- `tests/phase11_watermark.sql`: 30 acceptance tests covering text and image
+  watermarks, UNDER/OVER layer, opacity 0/1 boundary cases, angle variants,
+  multi-page documents, page template + watermark combination, layout engine
+  and template engine integration, `clear_watermark`, session isolation
+  (two independent documents), all validation error paths, and a non-regression
+  check that documents without a watermark produce no extra PDF structures.
+
+- `docs/sample13.sql`: non-APEX example: "DRAFT" grey watermark on an EMP
+  table report.
+
+- `docs/apex/apex_sample09.sql`: APEX conditional watermark driven by a page
+  item (`P1_IS_DRAFT`); includes an alternative snippet for APEX authorization
+  scheme-based stamping.
+
 ## [1.3.0] - Unreleased
 
 ### Added - Auto-width columns (`t_column_def.auto_width`)

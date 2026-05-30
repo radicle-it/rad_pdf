@@ -352,5 +352,40 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     rad_pdf_template.render(p_doc, p_template, p_options);
   END render_template;
 
+-- ---------------------------------------------------------------------------
+-- Watermark shortcuts (v1.4.0)
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_text      IN VARCHAR2,
+    p_font_name IN VARCHAR2              DEFAULT 'Helvetica',
+    p_font_size IN NUMBER                DEFAULT 60,
+    p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
+    p_opacity   IN NUMBER                DEFAULT 0.3,
+    p_angle     IN NUMBER                DEFAULT 45,
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+  BEGIN
+    rad_pdf_canvas.set_watermark(p_doc, p_text, p_font_name, p_font_size,
+                                  p_color, p_opacity, p_angle, p_layer);
+  END set_watermark;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark_image(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_image_id  IN PLS_INTEGER,
+    p_opacity   IN NUMBER   DEFAULT 0.3,
+    p_width_pct IN NUMBER   DEFAULT 60,
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+  BEGIN
+    rad_pdf_canvas.set_watermark_image(p_doc, p_image_id, p_opacity,
+                                        p_width_pct, p_layer);
+  END set_watermark_image;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    rad_pdf_canvas.clear_watermark(p_doc);
+  END clear_watermark;
+
 END rad_pdf;
 /
