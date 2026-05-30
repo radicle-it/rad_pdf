@@ -1,6 +1,6 @@
 # RAD_PDF
 
-**Version 1.3.0** - Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
+**Version 1.5.1** - Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
 No Java, no external tools, no OS dependencies.
 
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
@@ -190,10 +190,16 @@ RAD_PDF is a complete rewrite of [AS_PDF](https://github.com/antonscheffer/as_pd
 originally created by **Anton Scheffer** (Oracle APEX team).
 The PDF generation algorithms and font-width tables from AS_PDF are the foundation of this work.
 
+The v1.5 graphics-state API (`set_draw_color`, `set_fill_color`, `set_line_width`, `set_line_dash`)
+was modeled on [PLFPDF](https://github.com/mczarski/plfpdf), a PL/SQL port of
+[FPDF](http://www.fpdf.org/) by **Olivier Plathey**.
+
 | Role | Name |
 |---|---|
 | Original author | Anton Scheffer |
 | AS_PDF contributors | Valerio Rossetti, Andreas Weiden, Lee Lindley, Javier Meza |
+| FPDF (PHP) | Olivier Plathey |
+| PLFPDF (PL/SQL port) | mczarski and contributors |
 | RAD_PDF rewrite | Roberto Capancioni - Radicle S.r.l. |
 
 ---
