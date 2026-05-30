@@ -57,6 +57,19 @@ BEGIN
 END;
 ```
 
+### Column registry API
+
+| Procedure | Description |
+|---|---|
+| `register_columns(p_name, p_columns)` | Register a named `t_columns` set. Replaces any previous registration with the same name. Session-scoped. |
+| `drop_columns(p_name)` | Remove a single named set from the registry. No-op if the name does not exist. |
+| `clear_columns` | Remove all registered column sets. Useful in batch jobs to release memory between runs. |
+
+The registry is **session-scoped**: it survives `close_doc` and `finalize` but is
+lost at session end or DB connection pool recycle. In APEX, register in an
+Application Process that runs *On New Session* so every pooled connection gets
+the definitions.
+
 ---
 
 ## How the pipeline works
@@ -110,7 +123,7 @@ Block tag names are **case-insensitive** (`<P>`, `<H1>`, `<Ul>` all work).
 | `<b>…</b>` | Bold run |
 | `<i>…</i>` | Italic run |
 | `<br/>` | Forced line break (same-paragraph) |
-| `<color rgb="RRGGBB">…</color>` | Custom ink colour; single-level nesting |
+| `<color rgb="RRGGBB">…</color>` | Custom ink colour; unlimited nesting depth (LIFO stack) |
 | `<font size="Xpt">…</font>` | Custom font size; any unit (pt, mm, cm, in) |
 
 Inline tag names are **case-insensitive**.
@@ -190,9 +203,20 @@ TYPE t_template_options IS RECORD (
   default_font_size   NUMBER         := NULL,   -- in pt; e.g. 11
   default_style       VARCHAR2(100)  := 'body', -- base style for <p> without style=""
   strict_tags         BOOLEAN        := TRUE,   -- TRUE = error on unknown tags
-  allow_queries       BOOLEAN        := FALSE   -- must be TRUE to execute <table> queries
+  allow_queries       BOOLEAN        := FALSE,  -- must be TRUE to execute <table> queries
+  max_rows            PLS_INTEGER    := NULL    -- global row cap for every <table> in this render call
 );
 ```
+
+| Field | Default | Description |
+|---|---|---|
+| `default_font_name` | NULL | Override the font for all unstyled paragraphs (e.g. `'Arial'` after loading a TTF). |
+| `default_font_style` | NULL | Override font style for unstyled paragraphs: `'N'`,`'B'`,`'I'`,`'BI'`. |
+| `default_font_size` | NULL | Override font size in points for unstyled paragraphs. |
+| `default_style` | `'body'` | Base style name for `<p>` tags without a `style=""` attribute. |
+| `strict_tags` | TRUE | When TRUE, an unknown block tag raises ORA-20811. Set FALSE to silently skip unrecognised tags. |
+| `allow_queries` | FALSE | Must be TRUE to execute `<table query="…">` tags. Acts as a second opt-in alongside `allow_query="true"` on the tag itself. |
+| `max_rows` | NULL | Global row cap applied to every `<table>` in this `render()` call when the tag itself does not specify `max_rows="N"`. NULL = no limit. Use to protect against runaway queries without editing every template. |
 
 All fields default to safe, conservative values.  Passing an uninitialised record is
 always safe.  Pass `NULL` (no record) to use all defaults.

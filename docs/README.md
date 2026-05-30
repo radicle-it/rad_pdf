@@ -433,6 +433,8 @@ END;
 | `label` | NULL | Column header text |
 | `width` | 30 | Column width in the unit set by `t_table_options.unit` |
 | `wrap` | FALSE | When TRUE, data cell text wraps across multiple lines; row height expands to fit |
+| `auto_width` | FALSE | v1.3.0: when TRUE, width is derived from content during the measure pass; `width` acts as a minimum floor |
+| `max_width` | NULL | v1.3.0: upper cap for `auto_width` columns in the same unit as `width` (NULL = no cap) |
 | `header_fmt` | Helvetica B 9, center | Header cell format (see below) |
 | `data_fmt` | Helvetica N 9, left | Data cell format |
 | `cell_row` | 1 | Row within a multi-line cell group (advanced) |
@@ -447,6 +449,20 @@ computed height unchanged.
 l_cols(2).label  := 'Notes';
 l_cols(2).width  := 200;
 l_cols(2).wrap   := TRUE;   -- long text wraps; row grows to fit
+```
+
+When `auto_width = TRUE` the column measures the widest header + data cell
+in both fonts and sets the width accordingly, floored by `width` and capped
+by `max_width`. No second query is run — measurement uses the row cache.
+`num_format` is honoured during measurement (formatted string is measured,
+not the raw value). `auto_width` and `wrap = TRUE` on the same column are
+incompatible; `auto_width` is silently ignored when `wrap = TRUE`.
+
+```sql
+l_cols(2).label      := 'Name';
+l_cols(2).width      := 40;        -- minimum 40 pt even if content is narrower
+l_cols(2).auto_width := TRUE;      -- grow to fit widest cell
+l_cols(2).max_width  := 150;       -- but never wider than 150 pt
 ```
 
 ### Cell format fields (`rad_pdf_types.t_cell_format`)
@@ -622,6 +638,33 @@ END;
 
 > **Tip:** `rad_pdf_canvas.h_line(doc, x, y, width_pt, thickness, color, unit)` -
 > a quick horizontal line without needing `set_color` separately.
+
+### Multi-column layout
+
+Set `n_columns` in `t_page_template` to split the content area into equal-width
+columns. The layout engine fills each column top-to-bottom before advancing to the
+next. `col_gap` sets the gutter width in points.
+
+```sql
+l_tpl.n_columns := 2;     -- two equal columns
+l_tpl.col_gap   := 20;    -- 20 pt gutter between them
+
+l_doc := rad_pdf.new_document(p_template => l_tpl);
+rad_pdf.write(l_doc, 'Left column content…');
+-- Layout engine fills column 1, then wraps to column 2 automatically.
+```
+
+`t_page_template` geometry fields at a glance:
+
+| Field | Default | Description |
+|---|---|---|
+| `page_format_name` | NULL | Named page size: `'A4'`, `'A3'`, `'A5'`, `'LETTER'`, `'LEGAL'`, `'TABLOID'` |
+| `page_width` / `page_height` | NULL | Explicit dimensions in points (use instead of `page_format_name`) |
+| `margin_top/bottom/left/right` | NULL | Margins in points; NULL keeps the current document value |
+| `n_columns` | 1 | Number of equal-width content columns |
+| `col_gap` | 20 | Gutter between columns in points |
+| `header_proc` | NULL | Anonymous PL/SQL block run on every page after render |
+| `footer_proc` | NULL | Anonymous PL/SQL block run on every page after render |
 
 ### Cover page with header/footer from page 2
 
@@ -992,6 +1035,45 @@ rad_pdf.set_line_dash(l_doc, 0);
 
 ---
 
+## Persistent Graphics-State Setters
+
+`set_draw_color`, `set_fill_color`, and `set_line_width` store values in the
+per-document canvas state. `line`, `h_line`, and `v_line` inherit these values
+when their per-call `p_color` / `p_line_width` parameter is `NULL` (the default).
+
+```sql
+-- Set once; all subsequent h_line / v_line / line calls inherit these values.
+rad_pdf.set_draw_color(l_doc, '1A3A5C');   -- dark navy stroke
+rad_pdf.set_line_width(l_doc, 1.5, 'pt');  -- 1.5 pt line
+
+-- These two calls inherit the persistent state (no per-call color/width needed).
+rad_pdf_canvas.h_line(l_doc, 42, 780, 511, NULL, NULL, 'pt');
+rad_pdf_canvas.h_line(l_doc, 42, 50,  511, NULL, NULL, 'pt');
+
+-- Override for one call only; persistent state is unchanged.
+rad_pdf_canvas.h_line(l_doc, 42, 415, 511, 0.3, 'AAAAAA', 'pt');
+
+-- Reset to defaults.
+rad_pdf.set_draw_color(l_doc, '000000');
+rad_pdf.set_line_width(l_doc, 0.5, 'pt');
+```
+
+### Parameters
+
+| Procedure | Parameter | Default | Description |
+|---|---|---|---|
+| `set_draw_color` | `p_rgb` | `'000000'` | Hex RGB stroke color for `line`, `h_line`, `v_line`. |
+| `set_fill_color` | `p_rgb` | `NULL` | Reserved persistent fill. `rect`, `polygon`, `path` still use their per-call `p_fill_color`. |
+| `set_line_width` | `p_width` | `0.5` | Line width for `line`, `h_line`, `v_line`. |
+| `set_line_width` | `p_unit` | `'pt'` | Unit for `p_width` (`'pt'`, `'mm'`, `'cm'`, `'in'`). |
+
+**Notes:**
+- Initial state on `new_document`: stroke `'000000'`, fill `NULL`, width `0.5 pt` — identical to the previous hard-coded defaults, so **all existing code is backward-compatible**.
+- `rect`, `polygon`, and `path` are per-call only: `p_line_color = NULL` still means "no stroke" for those primitives.
+- `set_fill_color` stores a value but it is not yet read by `rect`/`polygon`/`path`. Its primary use is as an explicit documentation of the intended fill before a drawing loop, or for future extension.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1018,9 +1100,60 @@ rad_pdf.set_line_dash(l_doc, 0);
 | `set_watermark_image(p_doc, p_image_id, p_opacity, p_width_pct, p_layer)` | Register an image watermark applied to every page at finalization. See [Watermarks](#watermarks). |
 | `clear_watermark(p_doc)` | Remove any registered watermark. No-op if none was set. |
 | `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set line dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. See [Line Dash Patterns](#line-dash-patterns). |
-| `set_draw_color(p_doc, p_rgb)` | Set persistent stroke color used by `line`, `h_line`, `v_line` when `p_color` is omitted. Default `'000000'`. |
-| `set_fill_color(p_doc, p_rgb)` | Set persistent fill color. Currently informational; shapes still require an explicit `p_fill_color`. Default `NULL`. |
-| `set_line_width(p_doc, p_width, p_unit)` | Set persistent line width (pt) used by `line`, `h_line`, `v_line` when `p_width` is omitted. Default `0.5`. |
+| `set_draw_color(p_doc, p_rgb)` | Set persistent stroke color used by `line`, `h_line`, `v_line` when `p_color` is omitted. Default `'000000'`. See [Persistent Graphics-State Setters](#persistent-graphics-state-setters). |
+| `set_fill_color(p_doc, p_rgb)` | Set persistent fill color. Default `NULL`. See [Persistent Graphics-State Setters](#persistent-graphics-state-setters). |
+| `set_line_width(p_doc, p_width, p_unit)` | Set persistent line width used by `line`, `h_line`, `v_line` when `p_width` is omitted. Default `0.5 pt`. See [Persistent Graphics-State Setters](#persistent-graphics-state-setters). |
+| `render_template(p_doc, p_clob_or_varchar2, ...)` | Shortcut for `rad_pdf_template.render`. Four overloads: CLOB or VARCHAR2 × with or without `p_binds`. See [Template Engine](#template-engine). |
+
+### `rad_pdf_table` package - table and label rendering
+
+| Subprogram | Description |
+|---|---|
+| `query2table(p_doc, p_query, p_columns, p_colors, p_options)` | Render a table from a SQL string or CLOB query. |
+| `refcursor2table(p_doc, p_rc, p_columns, p_colors, p_options)` | Render a table from an open `SYS_REFCURSOR`. |
+| `query2labels(p_doc, p_query, p_columns, p_label, p_colors, p_options)` | Render a peel-off label grid from a SQL string or CLOB query. `p_label` is a `t_label_def` record (columns, rows, width, height, spacing). |
+| `refcursor2labels(p_doc, p_rc, p_columns, p_label, p_colors, p_options)` | Label grid from an open `SYS_REFCURSOR`. |
+
+**`t_label_def` fields:**
+
+| Field | Default | Description |
+|---|---|---|
+| `max_columns` | 2 | Number of label columns across the page |
+| `max_rows` | 8 | Number of label rows down the page |
+| `width` | 170.079 | Label width in points (~6 cm) |
+| `height` | 85.039 | Label height in points (~3 cm) |
+| `h_distance` | 14.173 | Horizontal gap between labels in points |
+| `v_distance` | 0 | Vertical gap between labels in points |
+
+### `rad_pdf_canvas` package - drawing primitives
+
+| Subprogram | Description |
+|---|---|
+| `new_page(p_doc)` | Append a new blank page and make it current. |
+| `goto_page(p_doc, p_page_nr)` | Make an existing page current for further drawing. 1-based. |
+| `set_font(p_doc, p_family, p_style, p_size)` | Set font by name + style (`'N'`,`'B'`,`'I'`,`'BI'`) + size in pt. |
+| `set_font(p_doc, p_font_idx, p_size)` | Set font by index returned from `rad_pdf_fonts.load_ttf`. |
+| `set_color(p_doc, p_rgb)` | Set ink (text) colour. Default `'000000'`. |
+| `set_bk_color(p_doc, p_rgb)` | Set background colour used for highlighted text. Default `'ffffff'`. |
+| `set_draw_color(p_doc, p_rgb)` | Persistent stroke colour for `line`/`h_line`/`v_line`. |
+| `set_fill_color(p_doc, p_rgb)` | Persistent fill colour (see [Persistent Graphics-State Setters](#persistent-graphics-state-setters)). |
+| `set_line_width(p_doc, p_width, p_unit)` | Persistent line width for `line`/`h_line`/`v_line`. |
+| `write_text(p_doc, p_text, p_x, p_y, p_unit, p_rotation)` | Place text at absolute canvas coordinates; optional rotation in degrees. |
+| `write_wrapped(p_doc, p_text, p_x, p_y, p_width, p_align, p_unit, p_leading)` | Word-wrap text within a column width. `p_align`: `'L'`,`'C'`,`'R'`,`'J'`. |
+| `text_width(p_doc, p_text)` | Return the width of `p_text` in points at the current font. Useful for manual positioning. |
+| `measure_wrapped(p_doc, p_text, p_width, p_unit, p_leading)` | Return the total height in points that `p_text` would occupy when wrapped to `p_width`. |
+| `line(p_doc, p_x1, p_y1, p_x2, p_y2, p_color, p_width, p_unit)` | Draw a line between two points. `NULL` color/width inherits persistent state. |
+| `h_line(p_doc, p_x, p_y, p_width, p_line_width, p_color, p_unit)` | Horizontal line. `NULL` color/width inherits persistent state. |
+| `v_line(p_doc, p_x, p_y, p_height, p_line_width, p_color, p_unit)` | Vertical line. `NULL` color/width inherits persistent state. |
+| `rect(p_doc, p_x, p_y, p_width, p_height, p_line_color, p_fill_color, p_line_width, p_unit)` | Rectangle. `NULL` line_color = no stroke; `NULL` fill_color = no fill. |
+| `polygon(p_doc, p_xs, p_ys, p_line_color, p_fill_color, p_line_width)` | Arbitrary polygon from coordinate arrays. |
+| `path(p_doc, p_path, p_line_color, p_fill_color, p_line_width)` | Bezier path from a `t_path` array of `t_path_element` records (move-to, line-to, curve-to, close). |
+| `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. |
+| `put_image(p_doc, p_image_id, p_x, p_y, p_width, p_height, p_align, p_valign, p_unit)` | Place image at absolute canvas coordinates. |
+| `add_page_proc(p_doc, p_src)` | Register an additional PL/SQL block to run on every page (VARCHAR2 or CLOB). Appended after the template's `header_proc`/`footer_proc`. Tokens: `#PAGE_NR#`, `#PAGE_COUNT#`, `#DOC_HANDLE#`. |
+| `get_x(p_doc)` | Return current canvas X cursor in points. |
+| `get_y(p_doc)` | Return current canvas Y cursor in points. |
+| `get_info(p_doc, p_what)` | Return a numeric document property (same constants as `rad_pdf.get_info`). |
 
 ### `rad_pdf_layout` package - flowable constructors
 
