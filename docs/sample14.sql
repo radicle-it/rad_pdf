@@ -58,18 +58,16 @@ DECLARE
   l_img_id   PLS_INTEGER := NULL;
   i          PLS_INTEGER;
 
-  -- Minimal 1x1 white JPEG used as a stand-in logo.
+  -- Minimal 8x8 steel-blue PNG used as a stand-in logo.
   -- Replace this with your own image BLOB, or use one of:
   --   l_img_id := rad_pdf_images.load_image(l_doc, 'MY_DIR', 'logo.png');
   --   l_img_id := rad_pdf_images.load_image(l_doc, 'https://example.com/logo.png');
-  c_minimal_jpeg CONSTANT RAW(60) :=
+  c_stand_in_png CONSTANT RAW(200) :=
     HEXTORAW(
-      'FFD8FFE000104A46494600010100000100010000'
-      || 'FFDB00430001010101010101010101010101010101'
-      || '01010101010101010101010101010101010101010101010101'
-      || 'FFC00011080001000101011100FFC4001F000001050101010101'
-      || '000000000000000102030405060708090A0BFFDA000801010000'
-      || '003F007F8080FFFD9');
+      '89504E470D0A1A0A0000000D494844520000000800000008'
+      || '08020000004B6D29DC0000001149444154789C63706BDA82'
+      || '15310C2D090003735F010FD97D610000000049454E44AE42'
+      || '6082');
 
 BEGIN
   rad_pdf_styles.load_defaults;
@@ -80,7 +78,7 @@ BEGIN
   -- Load logo from BLOB and register image watermark
   -- =========================================================================
   DBMS_LOB.CREATETEMPORARY(l_logo_blob, TRUE);
-  DBMS_LOB.WRITEAPPEND(l_logo_blob, UTL_RAW.LENGTH(c_minimal_jpeg), c_minimal_jpeg);
+  DBMS_LOB.WRITEAPPEND(l_logo_blob, UTL_RAW.LENGTH(c_stand_in_png), c_stand_in_png);
 
   BEGIN
     l_img_id := rad_pdf_images.load_image(l_doc, l_logo_blob);
