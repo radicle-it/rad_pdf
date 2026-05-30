@@ -818,36 +818,41 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
 -- ---------------------------------------------------------------------------
   PROCEDURE run_page_procs(p_doc   IN rad_pdf_types.t_doc_handle,
                            p_total IN PLS_INTEGER) IS
-    l_src  CLOB;
-    l_tmp  CLOB;
-    l_n    PLS_INTEGER;
-    l_pi   PLS_INTEGER;
+    TYPE t_varchar_tab IS TABLE OF VARCHAR2(32767) INDEX BY PLS_INTEGER;
+    l_procs  t_varchar_tab;   -- page procs cached as VARCHAR2 before the loop
+    l_tmp    VARCHAR2(32767);
+    l_pi     PLS_INTEGER;
   BEGIN
     IF NOT g_canvas.EXISTS(p_doc) THEN RETURN; END IF;
-    l_n := g_canvas(p_doc).page_prcs.COUNT;
-    IF l_n = 0 OR NVL(p_total, 0) = 0 THEN
+    IF g_canvas(p_doc).page_prcs.COUNT = 0 OR NVL(p_total, 0) = 0 THEN
       rad_pdf_serial.page_flush(p_doc);
       RETURN;
     END IF;
 
+    -- Cache each proc as VARCHAR2 once so the page loop avoids per-page
+    -- CREATETEMPORARY + COPY + FREETEMPORARY (LOB temp-segment I/O).
+    -- Page procs are always short strings; DBMS_LOB.SUBSTR(32767) is safe.
+    l_pi := g_canvas(p_doc).page_prcs.FIRST;
+    WHILE l_pi IS NOT NULL LOOP
+      l_procs(l_pi) := DBMS_LOB.SUBSTR(g_canvas(p_doc).page_prcs(l_pi), 32767, 1);
+      l_pi := g_canvas(p_doc).page_prcs.NEXT(l_pi);
+    END LOOP;
+
     FOR pg IN 0 .. p_total - 1 LOOP
       rad_pdf_serial.goto_page(p_doc, pg);
-      l_pi := g_canvas(p_doc).page_prcs.FIRST;
+      l_pi := l_procs.FIRST;
       WHILE l_pi IS NOT NULL LOOP
-        -- Substitute tokens into a temporary CLOB
-        l_src := g_canvas(p_doc).page_prcs(l_pi);
-        DBMS_LOB.CREATETEMPORARY(l_tmp, TRUE, DBMS_LOB.SESSION);
-        DBMS_LOB.COPY(l_tmp, l_src, DBMS_LOB.GETLENGTH(l_src));
-        l_tmp := REPLACE(l_tmp, '#PAGE_NR#',    TO_CHAR(pg + 1));
-        l_tmp := REPLACE(l_tmp, '#PAGE_COUNT#', TO_CHAR(p_total));
-        l_tmp := REPLACE(l_tmp, '#DOC_HANDLE#', TO_CHAR(p_doc));
+        l_tmp := REPLACE(
+                 REPLACE(
+                 REPLACE(l_procs(l_pi),
+                   '#PAGE_NR#',    TO_CHAR(pg + 1)),
+                   '#PAGE_COUNT#', TO_CHAR(p_total)),
+                   '#DOC_HANDLE#', TO_CHAR(p_doc));
         EXECUTE IMMEDIATE l_tmp;
-        DBMS_LOB.FREETEMPORARY(l_tmp);
-        l_pi := g_canvas(p_doc).page_prcs.NEXT(l_pi);
+        l_pi := l_procs.NEXT(l_pi);
       END LOOP;
     END LOOP;
 
-    -- Flush last page proc content
     rad_pdf_serial.page_flush(p_doc);
   END run_page_procs;
 
