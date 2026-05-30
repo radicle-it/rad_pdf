@@ -322,3 +322,39 @@ rad_pdf_template.render(l_doc, l_body_tmpl,   l_body_binds,   l_opts);
 rad_pdf_template.render(l_doc, l_footer_tmpl, l_footer_binds);
 l_pdf := rad_pdf.finalize(l_doc);
 ```
+
+---
+
+## Combining with Watermarks
+
+`set_watermark` and `set_watermark_image` operate on the same document handle
+as `render` and can be called before or after any `render()` call. The watermark
+is applied at `finalize` time, so call order relative to `render()` does not
+matter - the only requirement is that `set_watermark` / `set_watermark_image` is
+called before `finalize`.
+
+```sql
+l_doc := rad_pdf.new_document;
+
+-- Render content using the template engine.
+rad_pdf_template.render(l_doc, l_tmpl, l_binds, l_opts);
+
+-- Register the watermark - before or after render() is fine.
+rad_pdf.set_watermark(l_doc, 'DRAFT');
+
+-- finalize applies the watermark to every page and returns the PDF.
+l_pdf := rad_pdf.finalize(l_doc);
+```
+
+For a conditional watermark driven by an APEX page item:
+
+```sql
+IF NVL(:P1_IS_DRAFT, 'N') = 'Y' THEN
+  rad_pdf.set_watermark(l_doc, 'DRAFT', p_opacity => 0.3);
+END IF;
+
+l_pdf := rad_pdf.finalize(l_doc);
+```
+
+See [docs/README.md - Watermarks](README.md#watermarks) for the full parameter
+reference and all supported options.

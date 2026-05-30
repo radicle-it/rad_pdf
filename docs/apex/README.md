@@ -222,6 +222,62 @@ Available `c_info_*` constants (all return values in points unless noted):
 | [apex_sample06.sql](apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
 | [apex_sample07.sql](apex_sample07.sql) | Template engine quick-start: bind substitution, block tags, table tag |
 
+### Watermarks
+
+A watermark is a translucent text or image stamped across every page. RAD_PDF
+applies it at `finalize` time - no per-page callback is required.
+
+**Text watermark driven by a page item:**
+
+```sql
+-- Page item P1_IS_DRAFT: VARCHAR2(1), default 'N'
+IF NVL(:P1_IS_DRAFT, 'N') = 'Y' THEN
+  rad_pdf.set_watermark(
+    p_doc       => l_doc,
+    p_text      => 'DRAFT',
+    p_font_name => 'Helvetica',
+    p_font_size => 72,
+    p_color     => 'C0C0C0',
+    p_opacity   => 0.3,
+    p_angle     => 45,
+    p_layer     => 'UNDER');
+END IF;
+```
+
+**Using an APEX authorization scheme instead of a page item:**
+
+```sql
+IF NOT APEX_AUTHORIZATION.IS_AUTHORIZED('REPORT_APPROVER') THEN
+  rad_pdf.set_watermark(l_doc, 'RESTRICTED', p_opacity => 0.2);
+END IF;
+```
+
+**Image watermark (logo) loaded from application static files:**
+
+```sql
+BEGIN
+  SELECT file_content INTO l_logo_blob
+  FROM   apex_application_static_files
+  WHERE  application_id = :APP_ID
+  AND    file_name      = 'company_logo.png';
+
+  l_logo_id := rad_pdf_images.load_image(l_doc, l_logo_blob);
+  rad_pdf.set_watermark_image(l_doc, l_logo_id,
+    p_opacity   => 0.2,
+    p_width_pct => 50,
+    p_layer     => 'UNDER');
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN NULL;  -- no image uploaded - proceed without watermark
+END;
+```
+
+**Full parameter reference:** [docs/README.md - Watermarks](../README.md#watermarks)
+
+| File | Description |
+|---|---|
+| [apex_sample09.sql](apex_sample09.sql) | Conditional text watermark driven by P1_IS_DRAFT; authorization-scheme alternative |
+| [apex_sample10.sql](apex_sample10.sql) | Image watermark from application static files with graceful fallback when image is absent |
+
 ---
 
 ## Template engine
