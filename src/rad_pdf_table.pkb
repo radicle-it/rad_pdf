@@ -237,6 +237,112 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
   END has_wrap_cols;
 
 -- ---------------------------------------------------------------------------
+-- Returns TRUE if any column has auto_width = TRUE (and wrap = FALSE).
+-- ---------------------------------------------------------------------------
+  FUNCTION has_auto_width_cols(p_col_defs IN rad_pdf_types.t_columns) RETURN BOOLEAN IS
+    i PLS_INTEGER;
+  BEGIN
+    i := p_col_defs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF NVL(p_col_defs(i).auto_width, FALSE)
+         AND NOT NVL(p_col_defs(i).wrap, FALSE)
+      THEN RETURN TRUE; END IF;
+      i := p_col_defs.NEXT(i);
+    END LOOP;
+    RETURN FALSE;
+  END has_auto_width_cols;
+
+-- ---------------------------------------------------------------------------
+-- resolve_auto_widths — for every column with auto_width = TRUE (and
+-- wrap = FALSE), measure the header label and the widest data cell from the
+-- cache, then update col.width (in the declared unit) to the content-based
+-- value, capped by max_width and floored by the original width declaration.
+--
+-- Must be called after fetch_into_cache and before col_widths().
+-- wrap = TRUE on the same column silently wins (wrap needs a fixed width).
+-- ---------------------------------------------------------------------------
+  PROCEDURE resolve_auto_widths(
+    p_doc       IN     rad_pdf_types.t_doc_handle,
+    p_table_ref IN     PLS_INTEGER,
+    p_col_defs  IN OUT rad_pdf_types.t_columns,
+    p_unit      IN     rad_pdf_types.t_unit
+  ) IS
+    l_unit_scale NUMBER;
+    l_floor_pt   NUMBER;
+    l_hdr_w      NUMBER;
+    l_data_w     NUMBER;
+    l_content_w  NUMBER;
+    l_display    VARCHAR2(32767);
+    l_row        t_row_values;
+    i            PLS_INTEGER;
+    r            PLS_INTEGER;
+  BEGIN
+    -- Factor to convert pt back into the declared unit:
+    --   col_widths() calls to_pt(col.width, unit); we store in same unit.
+    l_unit_scale := rad_pdf_units.to_pt(1, p_unit);
+    IF l_unit_scale <= 0 THEN l_unit_scale := 1; END IF;
+
+    i := p_col_defs.FIRST;
+    WHILE i IS NOT NULL LOOP
+      IF NVL(p_col_defs(i).auto_width, FALSE)
+         AND NOT NVL(p_col_defs(i).wrap, FALSE)
+      THEN
+        -- Floor: existing declared width converted to pt
+        l_floor_pt := rad_pdf_units.to_pt(NVL(p_col_defs(i).width, 0), p_unit);
+
+        -- Header width
+        rad_pdf_canvas.set_font(p_doc,
+          NVL(p_col_defs(i).header_fmt.font_name,  'Helvetica'),
+          NVL(p_col_defs(i).header_fmt.font_style, 'N'),
+          NVL(p_col_defs(i).header_fmt.font_size,  9));
+        l_hdr_w := rad_pdf_canvas.text_width(p_doc, NVL(p_col_defs(i).label, ''))
+                 + NVL(p_col_defs(i).header_fmt.margin_left, 1)
+                 + NVL(p_col_defs(i).header_fmt.margin_rgt,  1);
+
+        -- Max data cell width from cache
+        l_data_w := 0;
+        IF g_table_cache.EXISTS(p_doc)
+           AND g_table_cache(p_doc).EXISTS(p_table_ref)
+           AND g_table_cache(p_doc)(p_table_ref).row_count > 0
+        THEN
+          rad_pdf_canvas.set_font(p_doc,
+            NVL(p_col_defs(i).data_fmt.font_name,  'Helvetica'),
+            NVL(p_col_defs(i).data_fmt.font_style, 'N'),
+            NVL(p_col_defs(i).data_fmt.font_size,  9));
+          FOR r IN 1 .. g_table_cache(p_doc)(p_table_ref).row_count LOOP
+            l_row     := g_table_cache(p_doc)(p_table_ref).data(r);
+            l_display := CASE WHEN l_row.EXISTS(i) THEN l_row(i) ELSE NULL END;
+            IF p_col_defs(i).data_fmt.num_format IS NOT NULL
+               AND l_display IS NOT NULL
+            THEN
+              BEGIN
+                l_display := TO_CHAR(TO_NUMBER(l_display), p_col_defs(i).data_fmt.num_format);
+              EXCEPTION WHEN OTHERS THEN NULL; END;
+            END IF;
+            IF l_display IS NOT NULL AND LENGTH(l_display) > 0 THEN
+              l_data_w := GREATEST(l_data_w,
+                rad_pdf_canvas.text_width(p_doc, l_display)
+                + NVL(p_col_defs(i).data_fmt.margin_left, 1)
+                + NVL(p_col_defs(i).data_fmt.margin_rgt,  1));
+            END IF;
+          END LOOP;
+        END IF;
+
+        -- Content width: max(header, data), then apply floor and cap
+        l_content_w := GREATEST(l_hdr_w, l_data_w, l_floor_pt);
+        IF p_col_defs(i).max_width IS NOT NULL THEN
+          l_content_w := LEAST(l_content_w,
+                               rad_pdf_units.to_pt(p_col_defs(i).max_width, p_unit));
+        END IF;
+
+        -- Store back in declared unit so col_widths() converts correctly
+        p_col_defs(i).width := l_content_w / l_unit_scale;
+      END IF;
+      i := p_col_defs.NEXT(i);
+    END LOOP;
+  END resolve_auto_widths;
+
+-- ---------------------------------------------------------------------------
 -- Draw header row starting at (p_x, p_y upper edge). Returns row height.
 -- ---------------------------------------------------------------------------
   FUNCTION draw_header_row(p_doc   IN rad_pdf_types.t_doc_handle,
@@ -615,6 +721,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     END;
     l_row_nr := g_table_cache(p_doc)(p_table_ref).row_count;
 
+    -- Resolve auto-width columns from cache before any height measurement
+    IF l_def.col_defs IS NOT NULL
+       AND has_auto_width_cols(l_def.col_defs)
+    THEN
+      resolve_auto_widths(p_doc, p_table_ref, l_def.col_defs,
+                          NVL(l_def.options.unit, 'pt'));
+    END IF;
+
     -- Height = header + data rows
     IF l_def.col_defs IS NOT NULL AND l_def.col_defs.COUNT > 0 THEN
       l_hdr_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).header_fmt,
@@ -663,6 +777,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     IF l_def.col_defs IS NULL OR l_def.col_defs.COUNT = 0 THEN RETURN; END IF;
     IF NOT g_table_cache.EXISTS(p_doc) THEN RETURN; END IF;
     IF NOT g_table_cache(p_doc).EXISTS(p_table_ref) THEN RETURN; END IF;
+
+    -- Resolve auto-width columns from cache before scaling
+    IF has_auto_width_cols(l_def.col_defs) THEN
+      resolve_auto_widths(p_doc, p_table_ref, l_def.col_defs,
+                          NVL(l_def.options.unit, 'pt'));
+    END IF;
 
     l_ws         := col_widths(l_def.col_defs, p_width, NVL(l_def.options.unit, 'pt'));
     l_frame_y    := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_page_height)

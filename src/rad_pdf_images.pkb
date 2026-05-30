@@ -155,7 +155,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
                               'FFD4','FFD5','FFD6','FFD7','FF01') THEN
         l_pos := l_pos + 2;
       ELSE
-        IF l_buf = HEXTORAW('FFC0') THEN  -- SOF0: baseline DCT
+        IF l_buf = HEXTORAW('FFC0')        -- SOF0: baseline DCT
+        OR l_buf = HEXTORAW('FFC2') THEN  -- SOF2: progressive DCT
           l_img.color_res := blob2num(p_blob, 1, l_pos + 4);
           l_img.height    := blob2num(p_blob, 2, l_pos + 5);
           l_img.width     := blob2num(p_blob, 2, l_pos + 7);
@@ -566,6 +567,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
       IF g_cache(l_oldest).img.pixels IS NOT NULL
          AND DBMS_LOB.ISTEMPORARY(g_cache(l_oldest).img.pixels) = 1 THEN
         DBMS_LOB.FREETEMPORARY(g_cache(l_oldest).img.pixels);
+      END IF;
+      IF g_cache(l_oldest).img.smask IS NOT NULL
+         AND DBMS_LOB.ISTEMPORARY(g_cache(l_oldest).img.smask) = 1 THEN
+        DBMS_LOB.FREETEMPORARY(g_cache(l_oldest).img.smask);
       END IF;
       g_cache_bytes := g_cache_bytes - g_cache(l_oldest).byte_size;
       g_cache.DELETE(l_oldest);
@@ -1029,6 +1034,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
                 || ' ' || TO_CHAR(l_pal_obj) || ' 0 R]';
       ELSIF l_img.greyscale THEN
         l_extra := l_extra || ' /ColorSpace /DeviceGray';
+      ELSIF l_img.nr_colors = 4 AND l_img.img_type = 'jpg' THEN
+        -- CMYK JPEG (4 components): PDF spec requires DeviceCMYK + Decode inversion
+        -- because Photoshop/Adobe CMYK JPEG stores values as 0=full ink, 255=no ink.
+        l_extra := l_extra || ' /ColorSpace /DeviceCMYK /Decode [1 0 1 0 1 0 1 0]';
       ELSE
         l_extra := l_extra || ' /ColorSpace /DeviceRGB';
       END IF;

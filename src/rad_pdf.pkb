@@ -352,5 +352,71 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     rad_pdf_template.render(p_doc, p_template, p_options);
   END render_template;
 
+-- ---------------------------------------------------------------------------
+-- Watermark shortcuts (v1.4.0)
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_text      IN VARCHAR2,
+    p_font_name IN VARCHAR2              DEFAULT 'Helvetica',
+    p_font_size IN NUMBER                DEFAULT 60,
+    p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
+    p_opacity   IN NUMBER                DEFAULT 0.3,
+    p_angle     IN NUMBER                DEFAULT 45,
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+  BEGIN
+    rad_pdf_canvas.set_watermark(p_doc, p_text, p_font_name, p_font_size,
+                                  p_color, p_opacity, p_angle, p_layer);
+  END set_watermark;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark_image(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_image_id  IN PLS_INTEGER,
+    p_opacity   IN NUMBER   DEFAULT 0.3,
+    p_width_pct IN NUMBER   DEFAULT 60,
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+  BEGIN
+    rad_pdf_canvas.set_watermark_image(p_doc, p_image_id, p_opacity,
+                                        p_width_pct, p_layer);
+  END set_watermark_image;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    rad_pdf_canvas.clear_watermark(p_doc);
+  END clear_watermark;
+
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit);
+  END set_line_dash;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000') IS
+  BEGIN
+    rad_pdf_canvas.set_draw_color(p_doc, p_rgb);
+  END set_draw_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_canvas.set_fill_color(p_doc, p_rgb);
+  END set_fill_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_line_width(p_doc   IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.set_line_width(p_doc, p_width, p_unit);
+  END set_line_width;
+
 END rad_pdf;
 /

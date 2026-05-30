@@ -4,7 +4,7 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF v1.2.0 — Full Suite Installer
+PROMPT  RAD_PDF v1.4.0 — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
@@ -35,10 +35,13 @@ PROMPT
 PROMPT  Run acceptance tests (from repo root)
 PROMPT    @tests/phase9_integration.sql    canvas API + core packages
 PROMPT    @tests/phase10_template.sql      template engine
+PROMPT    @tests/phase11_watermark.sql     watermark (v1.4.0)
+PROMPT    @tests/phase12_autowidth.sql     auto-width columns
+PROMPT    @tests/phase12_canvas_ext.sql    line-dash + justification (v1.5.0)
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
-PROMPT  APEX examples  docs/apex/apex_sample00.sql .. apex_sample07.sql
+PROMPT  APEX examples  docs/apex/apex_sample00.sql .. apex_sample08.sql
 PROMPT                  docs/apex/apex_template_01.sql .. apex_template_14.sql
 PROMPT
 PROMPT  Reference docs

@@ -170,5 +170,57 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                         p_left   IN NUMBER DEFAULT NULL,
                         p_right  IN NUMBER DEFAULT NULL);
 
+-- ---------------------------------------------------------------------------
+-- Watermark (v1.4.0)
+-- ---------------------------------------------------------------------------
+
+  -- Register a text watermark drawn on every page at finalization.
+  -- Replaces any previously registered watermark for p_doc.
+  -- p_font_size is in points. p_angle is degrees counter-clockwise.
+  -- p_layer: 'UNDER' (behind page content) or 'OVER' (in front).
+  PROCEDURE set_watermark(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_text      IN VARCHAR2,
+    p_font_name IN VARCHAR2              DEFAULT 'Helvetica',
+    p_font_size IN NUMBER                DEFAULT 60,
+    p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
+    p_opacity   IN NUMBER                DEFAULT 0.3,
+    p_angle     IN NUMBER                DEFAULT 45,
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER');
+
+  -- Register an image watermark drawn on every page at finalization.
+  -- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
+  -- p_width_pct: [1, 100] percentage of page width; aspect ratio is preserved.
+  PROCEDURE set_watermark_image(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_image_id  IN PLS_INTEGER,
+    p_opacity   IN NUMBER   DEFAULT 0.3,
+    p_width_pct IN NUMBER   DEFAULT 60,
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+
+  -- Remove the watermark for p_doc. No-op if no watermark is set.
+  PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);
+
+  -- Set the line dash pattern for subsequent stroked paths.
+  -- p_dash: dash length; p_gap: gap length (default = p_dash).
+  -- Call with p_dash => 0 to restore solid lines.
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+  -- Persistent graphics-state setters (v1.5.1).
+  -- set_draw_color / set_fill_color / set_line_width store values in document
+  -- state; line, h_line, v_line use them when the per-call color / width is NULL.
+  -- rect, polygon, path are per-call only (NULL = no paint).
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000');
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL);
+  PROCEDURE set_line_width(p_doc   IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
 END rad_pdf;
 /

@@ -8,7 +8,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Version
 -- ---------------------------------------------------------------------------
-  c_version CONSTANT VARCHAR2(10) := '1.2.0';
+  c_version CONSTANT VARCHAR2(10) := '1.5.1';
 
 -- ---------------------------------------------------------------------------
 -- Scalar subtypes
@@ -91,6 +91,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     offset_x   NUMBER         := NULL,
     offset_y   NUMBER         := NULL,
     wrap       BOOLEAN        := FALSE,
+    auto_width BOOLEAN        := FALSE,  -- v1.3.0: derive width from content; uses width as floor
+    max_width  NUMBER         := NULL,   -- v1.3.0: cap for auto_width in declared unit (NULL = no cap)
     header_fmt t_cell_format,
     data_fmt   t_cell_format
   );

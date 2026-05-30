@@ -1,6 +1,6 @@
 # RAD_PDF - User Guide
 
-**Version:** 1.2.0  
+**Version:** 1.5.1  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer  
 ← [Back to project README](../README.md)
@@ -23,9 +23,11 @@
 12. [Fonts](#fonts)
 13. [Images](#images)
 14. [Template Engine](#template-engine)
-15. [API Reference](#api-reference)
-16. [Known Limitations](#known-limitations)
-17. [Examples Index](#examples-index)
+15. [Watermarks](#watermarks)
+16. [Line Dash Patterns](#line-dash-patterns)
+17. [API Reference](#api-reference)
+18. [Known Limitations](#known-limitations)
+19. [Examples Index](#examples-index)
 
 ---
 
@@ -348,13 +350,20 @@ rad_pdf_canvas.set_color(l_doc, 'CC3300');                -- hex RGB ink colour
 rad_pdf_canvas.write_text(l_doc, 'Hello', 72, 700, 'pt');
 
 -- Word-wrapped text within a width
+-- p_align: 'L' left (default), 'C' centre, 'R' right, 'J' justified
 rad_pdf_canvas.write_wrapped(l_doc, 'Long text...', 72, 650, 400, 'L', 'pt');
+rad_pdf_canvas.write_wrapped(l_doc, 'Justified paragraph...', 72, 600, 400, 'J', 'pt');
 
 -- Lines and shapes
 rad_pdf_canvas.h_line  (l_doc, 50, 740, 495, 0.5, '808080', 'pt');  -- horiz. line
 rad_pdf_canvas.v_line  (l_doc, 50, 600, 100, 0.5, '000000', 'pt');  -- vert. line
 rad_pdf_canvas.rect    (l_doc, 50, 600, 200, 80, '003366', 'E0F0FF', 1, 'pt');  -- border, fill
 rad_pdf_canvas.polygon (l_doc, l_xs, l_ys, '000000', 'FFE0A0', 1);  -- arbitrary polygon
+
+-- Dash patterns for lines and rectangles (unit-aware)
+rad_pdf.set_line_dash(l_doc, 3, p_gap => 2, p_unit => 'mm');  -- 3mm dash, 2mm gap
+rad_pdf_canvas.h_line(l_doc, 50, 550, 495, 0.5, '888888', 'pt');
+rad_pdf.set_line_dash(l_doc, 0);  -- restore solid lines
 
 -- New page (canvas mode)
 rad_pdf_canvas.new_page(l_doc);
@@ -710,6 +719,10 @@ l_pdf := rad_pdf.finalize(l_doc);
 Load JPEG, PNG, or GIF images from a BLOB, Oracle Directory, or HTTPS URL.  
 Images are cached per-session by SHA-256 hash (default cache limit: 50 MB).
 
+**JPEG support (v1.4.1+):** both baseline (SOF0) and progressive (SOF2) JPEG files are
+handled. CMYK JPEG files exported by Photoshop or Adobe tools are rendered correctly with
+automatic `/ColorSpace /DeviceCMYK /Decode [1 0 1 0 1 0 1 0]` inversion.
+
 ```sql
 DECLARE
   l_doc rad_pdf_types.t_doc_handle;
@@ -856,13 +869,136 @@ security notes, and patterns for APEX and non-APEX use.
 
 ---
 
+## Watermarks
+
+A watermark is a translucent text or image stamped across every page of the
+document, typically used to mark a report as DRAFT, CONFIDENTIAL, or to display
+a company logo in the background.
+
+### `set_watermark` - text watermark
+
+```sql
+rad_pdf.set_watermark(
+  p_doc       => l_doc,
+  p_text      => 'DRAFT',
+  p_font_name => 'Helvetica',
+  p_font_size => 72,
+  p_color     => 'C0C0C0',
+  p_opacity   => 0.3,
+  p_angle     => 45,
+  p_layer     => 'UNDER');
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `p_doc` | `t_doc_handle` | - | Document handle returned by `new_document`. |
+| `p_text` | `VARCHAR2` | - | Watermark text. Must be non-NULL and non-empty (ORA-20400 if blank). |
+| `p_font_name` | `VARCHAR2` | `'Helvetica'` | Standard PDF font name or a loaded TTF font name. |
+| `p_font_size` | `NUMBER` | `60` | Font size in points. Must be > 0 (ORA-20400 if not). Always in points - no unit conversion. |
+| `p_color` | `t_rgb` | `'C0C0C0'` | 6-character uppercase hex RGB colour string (e.g. `'C0C0C0'` for light grey, `'FF0000'` for red). |
+| `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
+| `p_angle` | `NUMBER` | `45` | Rotation in counter-clockwise degrees. Must be in [-360, 360] (ORA-20400 if not). 45 = default diagonal. |
+| `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+
+### `set_watermark_image` - image watermark
+
+```sql
+rad_pdf.set_watermark_image(
+  p_doc       => l_doc,
+  p_image_id  => l_logo_id,
+  p_opacity   => 0.25,
+  p_width_pct => 50,
+  p_layer     => 'UNDER');
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `p_doc` | `t_doc_handle` | - | Document handle returned by `new_document`. |
+| `p_image_id` | `PLS_INTEGER` | - | Image ID returned by `rad_pdf_images.load_image`. Must be registered for this document (ORA-20710 if not). |
+| `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
+| `p_width_pct` | `NUMBER` | `60` | Width of the watermark image as a percentage of the page width (1-100). Aspect ratio is preserved. Must be in [1, 100] (ORA-20400 if not). |
+| `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+
+### `clear_watermark`
+
+```sql
+rad_pdf.clear_watermark(p_doc => l_doc);
+```
+
+Removes any previously registered watermark from the document. This is a no-op
+if no watermark was set.
+
+### Notes
+
+- **One watermark per document.** Calling `set_watermark` or `set_watermark_image`
+  a second time replaces the first registration entirely.
+- **UNDER vs OVER.** `'UNDER'` (default) places the watermark behind all page
+  content so text and tables remain easy to read. `'OVER'` places it in front,
+  which can partially obscure content.
+- **Opacity.** 0.0 is fully invisible; 1.0 is fully opaque. Values around 0.2-0.4
+  are typical for DRAFT or CONFIDENTIAL marks.
+- **Angle.** Rotation is counter-clockwise in degrees. 45 (the default) produces
+  a diagonal mark from the lower-left to the upper-right corner of the page.
+- **`p_font_size` is always in points.** Watermarks are page-level elements that
+  are not tied to the document unit setting, so no `p_um` conversion is applied.
+- **`p_image_id` must be loaded before calling `set_watermark_image`.** Use
+  `rad_pdf_images.load_image` to obtain the ID. Passing an ID that is not
+  registered for the document raises ORA-20710.
+- **No watermark - no overhead.** When no watermark is set, the output is
+  byte-identical to that produced by earlier versions of RAD_PDF.
+
+### Quick example
+
+```sql
+l_doc := rad_pdf.new_document;
+rad_pdf.heading(l_doc, 'Q1 Report', 1);
+rad_pdf.query2table(l_doc, 'SELECT empno, ename, sal FROM emp', l_cols);
+rad_pdf.set_watermark(l_doc, 'DRAFT', p_color => 'C0C0C0', p_opacity => 0.3);
+l_pdf := rad_pdf.finalize(l_doc);
+```
+
+---
+
+## Line Dash Patterns
+
+`set_line_dash` sets the dash pattern for all subsequently stroked paths (lines, rectangles, polygons) until it is changed or reset.
+
+```sql
+-- 3 mm dash, 2 mm gap, starting at offset 0
+rad_pdf.set_line_dash(l_doc, 3, p_gap => 2, p_unit => 'mm');
+rad_pdf_canvas.h_line(l_doc, 50, 500, 495, 0.5, '555555', 'pt');
+
+-- Symmetric: 5 pt dash and 5 pt gap (p_gap defaults to p_dash)
+rad_pdf.set_line_dash(l_doc, 5);
+rad_pdf_canvas.rect(l_doc, 50, 400, 200, 80, '003366', NULL, 1, 'pt');
+
+-- Reset to solid lines
+rad_pdf.set_line_dash(l_doc, 0);
+```
+
+### `set_line_dash` parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `p_doc` | `t_doc_handle` | - | Document handle. |
+| `p_dash` | `NUMBER` | - | Dash length. Pass `0` to restore solid lines. |
+| `p_gap` | `NUMBER` | `p_dash` | Gap length. Defaults to `p_dash` for a symmetric pattern. |
+| `p_phase` | `NUMBER` | `0` | Offset into the pattern before the first dash (rarely needed). |
+| `p_unit` | `t_unit` | `'pt'` | Unit for `p_dash`, `p_gap`, and `p_phase` (`'pt'`, `'mm'`, `'cm'`, `'in'`). |
+
+**Notes:**
+- The dash pattern persists in the graphics state until changed or until the page is closed. Use `set_line_dash(l_doc, 0)` to return to solid lines before switching styles.
+- Dash patterns affect all stroked paths: `line`, `h_line`, `v_line`, `rect` (stroke only — fill is unaffected), `polygon`, `path`.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
 
 | Subprogram | Description |
 |---|---|
-| `version` | Return the library version string, e.g. `'1.2.0'`. |
+| `version` | Return the library version string, e.g. `'1.5.1'`. |
 | `new_document(p_info, p_template)` | Create document. Returns handle. |
 | `finalize(p_doc)` | Finalise, close handle, return BLOB. Caller must `FREETEMPORARY`. |
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
@@ -878,6 +1014,13 @@ security notes, and patterns for APEX and non-APEX use.
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
 | `set_margins(p_doc, p_top, p_bottom, p_left, p_right)` | Set individual margins (points). |
+| `set_watermark(p_doc, p_text, p_font_name, p_font_size, p_color, p_opacity, p_angle, p_layer)` | Register a text watermark applied to every page at finalization. See [Watermarks](#watermarks). |
+| `set_watermark_image(p_doc, p_image_id, p_opacity, p_width_pct, p_layer)` | Register an image watermark applied to every page at finalization. See [Watermarks](#watermarks). |
+| `clear_watermark(p_doc)` | Remove any registered watermark. No-op if none was set. |
+| `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set line dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. See [Line Dash Patterns](#line-dash-patterns). |
+| `set_draw_color(p_doc, p_rgb)` | Set persistent stroke color used by `line`, `h_line`, `v_line` when `p_color` is omitted. Default `'000000'`. |
+| `set_fill_color(p_doc, p_rgb)` | Set persistent fill color. Currently informational; shapes still require an explicit `p_fill_color`. Default `NULL`. |
+| `set_line_width(p_doc, p_width, p_unit)` | Set persistent line width (pt) used by `line`, `h_line`, `v_line` when `p_width` is omitted. Default `0.5`. |
 
 ### `rad_pdf_layout` package - flowable constructors
 
@@ -959,6 +1102,10 @@ security notes, and patterns for APEX and non-APEX use.
 | [sample08.sql](sample08.sql) | Wide table in landscape orientation (`set_page_orientation`) |
 | [sample09.sql](sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |
 | [sample10.sql](sample10.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
+| [sample13.sql](sample13.sql) | Text watermark: "DRAFT" diagonal on an EMP table report |
+| [sample14.sql](sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
+| [sample15.sql](sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
+| [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 
 ### Template engine examples (standalone PL/SQL)
 
@@ -990,6 +1137,10 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample05.sql](apex/apex_sample05.sql) | Cover page on page 1, header/footer from page 2, `get_info` |
 | [apex/apex_sample06.sql](apex/apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
 | [apex/apex_sample07.sql](apex/apex_sample07.sql) | Template engine quick-start: bind substitution, tags, data table |
+| [apex/apex_sample09.sql](apex/apex_sample09.sql) | Conditional text watermark driven by page item P1_IS_DRAFT |
+| [apex/apex_sample10.sql](apex/apex_sample10.sql) | Image watermark loaded from application static files with graceful fallback |
+| [apex/apex_sample11.sql](apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders on reports |
+| [apex/apex_sample12.sql](apex/apex_sample12.sql) | Justified paragraph text using `write_wrapped` with `'J'` alignment |
 
 **Template engine (progressive curriculum - start at 01, work through to 14):**
 

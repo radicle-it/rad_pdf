@@ -54,6 +54,17 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   PROCEDURE set_bk_color(p_doc IN rad_pdf_types.t_doc_handle,
                          p_rgb IN rad_pdf_types.t_rgb DEFAULT 'ffffff');
 
+  -- Persistent graphics-state setters (v1.5.1).
+  -- Apply to line, h_line, v_line when the per-call color / width is NULL.
+  -- rect, polygon, path use per-call parameters only (NULL = no paint).
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000');
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL);
+  PROCEDURE set_line_width(p_doc   IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
 -- ---------------------------------------------------------------------------
 -- Text
 -- ---------------------------------------------------------------------------
@@ -64,6 +75,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
                        p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt',
                        p_rotation IN NUMBER           DEFAULT NULL);
 
+  -- p_align: 'L' left, 'C' centre, 'R' right, 'J' justified (last line is left).
   PROCEDURE write_wrapped(p_doc     IN rad_pdf_types.t_doc_handle,
                           p_text    IN VARCHAR2,
                           p_x       IN NUMBER              DEFAULT NULL,
@@ -86,29 +98,31 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Graphics
 -- ---------------------------------------------------------------------------
+  -- p_color / p_width: pass NULL to use the persistent set_draw_color /
+  -- set_line_width value (default is black / 0.5 pt when unset).
   PROCEDURE line(p_doc   IN rad_pdf_types.t_doc_handle,
                  p_x1    IN NUMBER,
                  p_y1    IN NUMBER,
                  p_x2    IN NUMBER,
                  p_y2    IN NUMBER,
-                 p_color IN rad_pdf_types.t_rgb  DEFAULT '000000',
-                 p_width IN NUMBER           DEFAULT 0.5,
+                 p_color IN rad_pdf_types.t_rgb  DEFAULT NULL,
+                 p_width IN NUMBER           DEFAULT NULL,
                  p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
 
   PROCEDURE h_line(p_doc        IN rad_pdf_types.t_doc_handle,
                    p_x          IN NUMBER,
                    p_y          IN NUMBER,
                    p_width      IN NUMBER,
-                   p_line_width IN NUMBER           DEFAULT 0.5,
-                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_line_width IN NUMBER           DEFAULT NULL,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT NULL,
                    p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt');
 
   PROCEDURE v_line(p_doc        IN rad_pdf_types.t_doc_handle,
                    p_x          IN NUMBER,
                    p_y          IN NUMBER,
                    p_height     IN NUMBER,
-                   p_line_width IN NUMBER           DEFAULT 0.5,
-                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_line_width IN NUMBER           DEFAULT NULL,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT NULL,
                    p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt');
 
   PROCEDURE rect(p_doc        IN rad_pdf_types.t_doc_handle,
@@ -133,6 +147,15 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
                  p_line_color IN rad_pdf_types.t_rgb DEFAULT '000000',
                  p_fill_color IN rad_pdf_types.t_rgb DEFAULT NULL,
                  p_line_width IN NUMBER          DEFAULT 0.5);
+
+  -- Set the current dash pattern for subsequent stroked paths.
+  -- p_dash: length of each dash (pt); p_gap: length of each gap (pt).
+  -- Call with p_dash => 0 to restore solid lines.
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
 
 -- ---------------------------------------------------------------------------
 -- Images
@@ -181,6 +204,36 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   -- Release per-document state (CLOBs in page_prcs + g_canvas entry).
   -- Called by rad_pdf_ctx.close_doc in reverse-dependency order.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
+
+-- ---------------------------------------------------------------------------
+-- Watermark (v1.4.0)
+-- Set a text watermark drawn on every page at finalization.
+-- Replaces any previously registered watermark for p_doc.
+-- p_font_size is in points. p_angle is degrees counter-clockwise.
+-- p_layer: 'UNDER' (behind page content) or 'OVER' (in front).
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_watermark(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_text      IN VARCHAR2,
+    p_font_name IN VARCHAR2                DEFAULT 'Helvetica',
+    p_font_size IN NUMBER                  DEFAULT 60,
+    p_color     IN rad_pdf_types.t_rgb     DEFAULT 'C0C0C0',
+    p_opacity   IN NUMBER                  DEFAULT 0.3,
+    p_angle     IN NUMBER                  DEFAULT 45,
+    p_layer     IN VARCHAR2                DEFAULT 'UNDER');
+
+-- Set an image watermark drawn on every page at finalization.
+-- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
+-- p_width_pct: [1, 100] percentage of page width; aspect ratio is preserved.
+  PROCEDURE set_watermark_image(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_image_id  IN PLS_INTEGER,
+    p_opacity   IN NUMBER  DEFAULT 0.3,
+    p_width_pct IN NUMBER  DEFAULT 60,
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+
+-- Remove the watermark for p_doc. No-op if no watermark is set.
+  PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);
 
 END rad_pdf_canvas;
 /
