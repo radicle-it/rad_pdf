@@ -245,6 +245,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END query2table;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE refcursor2table(p_doc     IN rad_pdf_types.t_doc_handle,
+                            p_rc      IN OUT SYS_REFCURSOR,
+                            p_columns IN rad_pdf_types.t_columns,
+                            p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
+                            p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options()) IS
+  BEGIN
+    rad_pdf_table.refcursor2table(p_doc, p_rc, p_columns, p_colors, p_options);
+  END refcursor2table;
+
+-- ---------------------------------------------------------------------------
   PROCEDURE image(p_doc      IN rad_pdf_types.t_doc_handle,
                   p_image_id IN PLS_INTEGER,
                   p_width    IN NUMBER DEFAULT NULL,

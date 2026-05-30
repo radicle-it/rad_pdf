@@ -104,9 +104,9 @@ BEGIN
   rad_pdf.set_line_dash(l_doc, 0);
   l_pdf := rad_pdf.finalize(l_doc);
   assert(DBMS_LOB.GETLENGTH(l_pdf) > 0, 'BLOB empty');
-  -- Stream must contain "[5.000 3.000] 2.000 d"
+  -- Stream must contain "[5 3] 2 d" (fmt strips trailing zeros for integers)
   assert(DBMS_LOB.INSTR(l_pdf,
-         UTL_RAW.CAST_TO_RAW('[5.000 3.000] 2.000 d')) > 0,
+         UTL_RAW.CAST_TO_RAW('[5 3] 2 d')) > 0,
          'Asymmetric dash pattern not found in PDF stream');
   DBMS_LOB.FREETEMPORARY(l_pdf);
   DBMS_OUTPUT.PUT_LINE('  PASS');

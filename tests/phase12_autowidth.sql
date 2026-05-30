@@ -15,6 +15,10 @@ PROMPT  Phase 12 - Auto-width Columns Acceptance Tests (v1.3.0)
 PROMPT ================================================================
 PROMPT
 
+-- ===========================================================================
+-- Test 1: auto_width = FALSE (default) - finalize succeeds, behaviour
+--         identical to v1.2.0 (no auto-width logic runs)
+-- ===========================================================================
 DECLARE
   l_doc rad_pdf_types.t_doc_handle;
   l_pdf BLOB;
@@ -25,11 +29,6 @@ DECLARE
       RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
     END IF;
   END assert;
-
--- ===========================================================================
--- Test 1: auto_width = FALSE (default) - finalize succeeds, behaviour
---         identical to v1.2.0 (no auto-width logic runs)
--- ===========================================================================
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 1: auto_width = FALSE (default) - no change to existing behaviour');
   rad_pdf_styles.load_defaults;
@@ -40,7 +39,6 @@ BEGIN
     l_cols.EXTEND(2);
     l_cols(1).label := 'Name';   l_cols(1).width := 80;
     l_cols(2).label := 'Value';  l_cols(2).width := 60;
-    -- auto_width defaults to FALSE - not set
     rad_pdf.query2table(l_doc,
       'SELECT ''Alice'', ''100'' FROM DUAL UNION ALL SELECT ''Bob'', ''200'' FROM DUAL',
       l_cols);
@@ -62,6 +60,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 2: single auto-width column');
   rad_pdf_styles.load_defaults;
@@ -93,6 +97,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: all columns auto-width');
   rad_pdf_styles.load_defaults;
@@ -121,6 +131,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: max_width cap');
   rad_pdf_styles.load_defaults;
@@ -149,6 +165,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 5: width floor');
   rad_pdf_styles.load_defaults;
@@ -175,6 +197,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: auto_width + wrap on same column - wrap wins, no crash');
   rad_pdf_styles.load_defaults;
@@ -204,6 +232,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: empty result set - falls back to header width');
   rad_pdf_styles.load_defaults;
@@ -232,6 +266,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: NULL values in auto-width column');
   rad_pdf_styles.load_defaults;
@@ -261,6 +301,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 9: num_format - auto-width from formatted value');
   rad_pdf_styles.load_defaults;
@@ -293,6 +339,12 @@ DECLARE
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
   l_rc   SYS_REFCURSOR;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 10: refcursor source with auto-width');
   rad_pdf_styles.load_defaults;
@@ -321,6 +373,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 11: mixed auto + fixed columns');
   rad_pdf_styles.load_defaults;
@@ -351,6 +409,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 12: multi-page table with auto-width');
   rad_pdf_styles.load_defaults;
@@ -380,6 +444,12 @@ DECLARE
   l_doc  rad_pdf_types.t_doc_handle;
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 13: max_width < width - cap wins, no error');
   rad_pdf_styles.load_defaults;
@@ -451,6 +521,12 @@ DECLARE
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
   l_opts rad_pdf_types.t_table_options;
   l_clrs rad_pdf_types.t_color_scheme;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 15: layout engine integration');
   rad_pdf_styles.load_defaults;
@@ -462,8 +538,8 @@ BEGIN
   l_cols(2).label      := 'Location';
   l_cols(2).auto_width := TRUE;
 
-  rad_pdf.add_heading(l_doc, 'Department List', 1);
-  rad_pdf.add_table(l_doc,
+  rad_pdf.heading(l_doc, 'Department List', 1);
+  rad_pdf.query2table(l_doc,
     'SELECT dname, loc FROM dept ORDER BY dname',
     l_cols, l_clrs, l_opts);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -484,6 +560,12 @@ DECLARE
   l_pdf  BLOB;
   l_cols rad_pdf_types.t_columns := rad_pdf_types.t_columns();
   l_opts rad_pdf_types.t_template_options;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 16: template engine integration');
   rad_pdf_styles.load_defaults;

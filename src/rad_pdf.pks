@@ -94,6 +94,12 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                         p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
                         p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options());
 
+  PROCEDURE refcursor2table(p_doc     IN rad_pdf_types.t_doc_handle,
+                            p_rc      IN OUT SYS_REFCURSOR,
+                            p_columns IN rad_pdf_types.t_columns,
+                            p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
+                            p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options());
+
 -- ---------------------------------------------------------------------------
 -- Image shortcut — adds an image flowable via the layout engine
 -- ---------------------------------------------------------------------------
