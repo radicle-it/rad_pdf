@@ -106,21 +106,23 @@ BEGIN
   -- =========================================================================
   -- Color scheme
   -- =========================================================================
+  l_clr.header_paper  := '1A3A5C';
+  l_clr.header_ink    := 'FFFFFF';
+  l_clr.header_border := '1A3A5C';
   l_clr.even_paper    := 'FFFFFF';
   l_clr.odd_paper     := 'EAF0FB';
   l_clr.even_border   := 'AAAAAA';
   l_clr.odd_border    := 'AAAAAA';
-  l_clr.header_border := '1A3A5C';
 
   -- =========================================================================
   -- Title + table
   -- =========================================================================
-  rad_pdf.add_heading(l_doc, 'Employee Roster', 1);
-  rad_pdf.add_paragraph(l_doc,
+  rad_pdf.heading(l_doc, 'Employee Roster', 1);
+  rad_pdf.write(l_doc,
     'Column widths adapt automatically to cell content. '
     || 'No and Salary columns are fixed or capped; Name, Job, and Hired are auto-sized.');
 
-  rad_pdf.add_table(l_doc,
+  rad_pdf.query2table(l_doc,
     'SELECT TO_CHAR(empno),'
     || ' INITCAP(ename),'
     || ' INITCAP(job),'
@@ -129,9 +131,9 @@ BEGIN
     || ' FROM emp'
     || ' ORDER BY ename',
     l_cols,
-    l_clr);
+    p_colors => l_clr);
 
-  rad_pdf.add_paragraph(l_doc, 'Generated: ' || l_today);
+  rad_pdf.write(l_doc, 'Generated: ' || l_today);
 
   -- =========================================================================
   -- Output
