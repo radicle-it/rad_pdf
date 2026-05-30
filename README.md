@@ -123,6 +123,10 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample08.sql](docs/sample08.sql) | Wide table in landscape orientation |
 | [docs/sample09.sql](docs/sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |
 | [docs/sample10.sql](docs/sample10.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
+| [docs/sample13.sql](docs/sample13.sql) | Text watermark: "DRAFT" diagonal on an EMP table report |
+| [docs/sample14.sql](docs/sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
+| [docs/sample15.sql](docs/sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
+| [docs/sample16.sql](docs/sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 
 ### Template engine examples
 
@@ -150,6 +154,11 @@ See **[docs/apex/README.md](docs/apex/README.md)** for APEX-specific streaming a
 | [docs/apex/apex_sample05.sql](docs/apex/apex_sample05.sql) | Cover page on page 1, header/footer from page 2 |
 | [docs/apex/apex_sample06.sql](docs/apex/apex_sample06.sql) | Table with `wrap = TRUE`: multi-line cells, dynamic row height |
 | [docs/apex/apex_sample07.sql](docs/apex/apex_sample07.sql) | Template engine quick-start: bind substitution, block tags, data table |
+| [docs/apex/apex_sample08.sql](docs/apex/apex_sample08.sql) | Auto-width columns: derive column widths from content |
+| [docs/apex/apex_sample09.sql](docs/apex/apex_sample09.sql) | Conditional text watermark driven by page item `P1_IS_DRAFT` |
+| [docs/apex/apex_sample10.sql](docs/apex/apex_sample10.sql) | Image watermark loaded from application static files |
+| [docs/apex/apex_sample11.sql](docs/apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders |
+| [docs/apex/apex_sample12.sql](docs/apex/apex_sample12.sql) | Justified paragraph text with `write_wrapped 'J'` |
 
 Template engine examples for APEX (progressive curriculum — see [TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md)):
 
