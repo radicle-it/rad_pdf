@@ -17,15 +17,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   TYPE t_page_prcs_tab IS TABLE OF CLOB INDEX BY PLS_INTEGER;
 
   TYPE t_canvas_state IS RECORD (
-    x          NUMBER               := 0,
-    y          NUMBER               := 0,
-    font_idx   PLS_INTEGER          := 1,
-    font_size  NUMBER               := 10,
-    fcolor     rad_pdf_types.t_rgb      := '000000',
-    bcolor     rad_pdf_types.t_rgb      := 'ffffff',
-    fmt        rad_pdf_types.t_page_format,   -- defaults: A4 595.276 × 841.890
-    margins    rad_pdf_types.t_margins,       -- defaults: top=85, left=28, bot=113, right=28
-    page_prcs  t_page_prcs_tab
+    x            NUMBER               := 0,
+    y            NUMBER               := 0,
+    font_idx     PLS_INTEGER          := 1,
+    font_size    NUMBER               := 10,
+    fcolor       rad_pdf_types.t_rgb      := '000000',
+    bcolor       rad_pdf_types.t_rgb      := 'ffffff',
+    draw_color   rad_pdf_types.t_rgb      := '000000',  -- persistent stroke color
+    fill_color   rad_pdf_types.t_rgb      := NULL,       -- persistent fill color (NULL = no fill)
+    stroke_width NUMBER               := 0.5,            -- persistent line width in pt
+    fmt          rad_pdf_types.t_page_format,   -- defaults: A4 595.276 × 841.890
+    margins      rad_pdf_types.t_margins,       -- defaults: top=85, left=28, bot=113, right=28
+    page_prcs    t_page_prcs_tab
   );
 
   TYPE t_canvas_map IS TABLE OF t_canvas_state INDEX BY PLS_INTEGER;
@@ -220,6 +223,38 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   END set_bk_color;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000') IS
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    rad_pdf_units.assert_rgb(p_rgb);
+    g_canvas(p_doc).draw_color := p_rgb;
+  END set_draw_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    IF p_rgb IS NOT NULL THEN
+      rad_pdf_units.assert_rgb(p_rgb);
+    END IF;
+    g_canvas(p_doc).fill_color := p_rgb;
+  END set_fill_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_line_width(p_doc  IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    g_canvas(p_doc).stroke_width := u2pt(NVL(p_width, 0.5), p_unit);
+  END set_line_width;
+
+-- ---------------------------------------------------------------------------
 -- PRIVATE: build PDF text block for a single string at absolute position
 -- ---------------------------------------------------------------------------
   FUNCTION text_block(p_text     IN VARCHAR2,
@@ -360,13 +395,41 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     -- Word-wrap locals
     l_pos     PLS_INTEGER := 1;
     l_len     PLS_INTEGER;
-    l_ws      PLS_INTEGER;   -- word start
-    l_we      PLS_INTEGER;   -- word end
+    l_wstart  PLS_INTEGER;   -- word start index
     l_word    VARCHAR2(32767);
     l_line    VARCHAR2(32767) := '';
     l_tw      NUMBER;        -- text width of current line candidate
     l_lw      NUMBER;        -- finalized line width
     l_off_x   NUMBER;        -- horizontal offset for alignment
+    l_spaces  PLS_INTEGER;   -- space count in current line (for Tw justification)
+    l_word_sp NUMBER;        -- PDF Tw word-spacing value (pt)
+
+    PROCEDURE emit_line(p_last IN BOOLEAN) IS
+    BEGIN
+      l_lw     := rad_pdf_fonts.text_width(l_line, l_fi, l_fs);
+      l_spaces := LENGTH(l_line) - LENGTH(REPLACE(l_line, ' ', ''));
+      IF p_align = 'J' AND NOT p_last AND l_spaces > 0 THEN
+        -- Justified: distribute surplus space across inter-word gaps via Tw
+        l_word_sp := (l_w - l_lw) / l_spaces;
+        rad_pdf_serial.page_write(p_doc, rad_pdf_codec.fmt(l_word_sp) || ' Tw');
+        l_off_x := l_x;
+      ELSE
+        l_word_sp := 0;
+        l_off_x := CASE p_align
+                     WHEN 'R' THEN l_x + (l_w - l_lw)
+                     WHEN 'C' THEN l_x + (l_w - l_lw) / 2
+                     ELSE l_x   -- 'L' and last line of 'J'
+                   END;
+      END IF;
+      rad_pdf_serial.page_write(p_doc,
+        text_block(l_line, l_off_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor));
+      IF l_word_sp != 0 THEN
+        rad_pdf_serial.page_write(p_doc, '0 Tw');  -- reset word spacing
+      END IF;
+      rad_pdf_fonts.mark_font_used(p_doc, l_fi);
+      l_y := l_y - l_lead;
+    END emit_line;
+
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
@@ -396,35 +459,19 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       EXIT WHEN l_pos > l_len;
 
       -- Extract next word
-      l_ws := l_pos;
+      l_wstart := l_pos;
       WHILE l_pos <= l_len AND SUBSTR(p_text, l_pos, 1) != ' ' LOOP
         l_pos := l_pos + 1;
       END LOOP;
-      l_word := SUBSTR(p_text, l_ws, l_pos - l_ws);
+      l_word := SUBSTR(p_text, l_wstart, l_pos - l_wstart);
 
-      -- Would adding this word exceed the line width?
       IF l_line IS NULL OR LENGTH(l_line) = 0 THEN
-        l_tw := rad_pdf_fonts.text_width(l_word, l_fi, l_fs);
-        IF l_tw > l_w THEN
-          -- Single word wider than line: emit it alone (no split)
-          l_line := l_word;
-        ELSE
-          l_line := l_word;
-        END IF;
+        l_line := l_word;  -- first word on line (even if wider than l_w)
       ELSE
         l_tw := rad_pdf_fonts.text_width(l_line || ' ' || l_word, l_fi, l_fs);
         IF l_tw > l_w THEN
-          -- Emit current line, start new with this word
-          l_lw  := rad_pdf_fonts.text_width(l_line, l_fi, l_fs);
-          l_off_x := CASE p_align
-                       WHEN 'R' THEN l_x + (l_w - l_lw)
-                       WHEN 'C' THEN l_x + (l_w - l_lw) / 2
-                       ELSE l_x
-                     END;
-          rad_pdf_serial.page_write(p_doc,
-            text_block(l_line, l_off_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor));
-          rad_pdf_fonts.mark_font_used(p_doc, l_fi);
-          l_y    := l_y - l_lead;
+          -- Line full: emit it as a non-last line, then start fresh
+          emit_line(FALSE);
           l_line := l_word;
         ELSE
           l_line := l_line || ' ' || l_word;
@@ -432,18 +479,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       END IF;
     END LOOP;
 
-    -- Emit last (or only) line
+    -- Emit last (or only) line — always L/R/C, never justified
     IF l_line IS NOT NULL AND LENGTH(l_line) > 0 THEN
-      l_lw  := rad_pdf_fonts.text_width(l_line, l_fi, l_fs);
-      l_off_x := CASE p_align
-                   WHEN 'R' THEN l_x + (l_w - l_lw)
-                   WHEN 'C' THEN l_x + (l_w - l_lw) / 2
-                   ELSE l_x
-                 END;
-      rad_pdf_serial.page_write(p_doc,
-        text_block(l_line, l_off_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor));
-      rad_pdf_fonts.mark_font_used(p_doc, l_fi);
-      l_y := l_y - l_lead;
+      emit_line(TRUE);
     END IF;
 
     g_canvas(p_doc).x := l_x;
@@ -458,20 +496,23 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
                  p_y1    IN NUMBER,
                  p_x2    IN NUMBER,
                  p_y2    IN NUMBER,
-                 p_color IN rad_pdf_types.t_rgb  DEFAULT '000000',
-                 p_width IN NUMBER           DEFAULT 0.5,
+                 p_color IN rad_pdf_types.t_rgb  DEFAULT NULL,
+                 p_width IN NUMBER           DEFAULT NULL,
                  p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
     l_x1 NUMBER := u2pt(p_x1, p_unit);
     l_y1 NUMBER := u2pt(p_y1, p_unit);
     l_x2 NUMBER := u2pt(p_x2, p_unit);
     l_y2 NUMBER := u2pt(p_y2, p_unit);
-    l_pw NUMBER := u2pt(p_width, p_unit);
+    l_pw NUMBER;
+    l_c  rad_pdf_types.t_rgb;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
+    l_c  := NVL(p_color, g_canvas(p_doc).draw_color);
+    l_pw := u2pt(NVL(p_width, g_canvas(p_doc).stroke_width), p_unit);
     emit_path(p_doc,
       rad_pdf_codec.fmt(l_pw, 3) || ' w'                           || CHR(10) ||
-      rad_pdf_codec.rgb_to_pdf(p_color) || ' RG'                   || CHR(10) ||
+      rad_pdf_codec.rgb_to_pdf(l_c) || ' RG'                       || CHR(10) ||
       rad_pdf_codec.fmt(l_x1, 2) || ' ' || rad_pdf_codec.fmt(l_y1, 2) || ' m' || CHR(10) ||
       rad_pdf_codec.fmt(l_x2, 2) || ' ' || rad_pdf_codec.fmt(l_y2, 2) || ' l',
       'S');
@@ -482,19 +523,22 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
                    p_x          IN NUMBER,
                    p_y          IN NUMBER,
                    p_width      IN NUMBER,
-                   p_line_width IN NUMBER           DEFAULT 0.5,
-                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_line_width IN NUMBER           DEFAULT NULL,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT NULL,
                    p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt') IS
     l_x  NUMBER := u2pt(p_x, p_unit);
     l_y  NUMBER := u2pt(p_y, p_unit);
     l_w  NUMBER := u2pt(p_width, p_unit);
-    l_lw NUMBER := u2pt(p_line_width, p_unit);
+    l_lw NUMBER;
+    l_c  rad_pdf_types.t_rgb;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
+    l_c  := NVL(p_color, g_canvas(p_doc).draw_color);
+    l_lw := u2pt(NVL(p_line_width, g_canvas(p_doc).stroke_width), p_unit);
     emit_path(p_doc,
       rad_pdf_codec.fmt(l_lw, 3) || ' w'                         || CHR(10) ||
-      rad_pdf_codec.rgb_to_pdf(p_color) || ' RG'                 || CHR(10) ||
+      rad_pdf_codec.rgb_to_pdf(l_c) || ' RG'                     || CHR(10) ||
       rad_pdf_codec.fmt(l_x, 2) || ' '   || rad_pdf_codec.fmt(l_y, 2) || ' m' || CHR(10) ||
       rad_pdf_codec.fmt(l_x + l_w, 2) || ' ' || rad_pdf_codec.fmt(l_y, 2) || ' l',
       'S');
@@ -505,19 +549,22 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
                    p_x          IN NUMBER,
                    p_y          IN NUMBER,
                    p_height     IN NUMBER,
-                   p_line_width IN NUMBER           DEFAULT 0.5,
-                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_line_width IN NUMBER           DEFAULT NULL,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT NULL,
                    p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt') IS
     l_x  NUMBER := u2pt(p_x, p_unit);
     l_y  NUMBER := u2pt(p_y, p_unit);
     l_h  NUMBER := u2pt(p_height, p_unit);
-    l_lw NUMBER := u2pt(p_line_width, p_unit);
+    l_lw NUMBER;
+    l_c  rad_pdf_types.t_rgb;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
+    l_c  := NVL(p_color, g_canvas(p_doc).draw_color);
+    l_lw := u2pt(NVL(p_line_width, g_canvas(p_doc).stroke_width), p_unit);
     emit_path(p_doc,
       rad_pdf_codec.fmt(l_lw, 3) || ' w'                         || CHR(10) ||
-      rad_pdf_codec.rgb_to_pdf(p_color) || ' RG'                 || CHR(10) ||
+      rad_pdf_codec.rgb_to_pdf(l_c) || ' RG'                     || CHR(10) ||
       rad_pdf_codec.fmt(l_x, 2) || ' '   || rad_pdf_codec.fmt(l_y, 2) || ' m' || CHR(10) ||
       rad_pdf_codec.fmt(l_x, 2) || ' '   || rad_pdf_codec.fmt(l_y - l_h, 2) || ' l',
       'S');
@@ -614,6 +661,31 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     END LOOP;
     emit_path(p_doc, RTRIM(l_ops, CHR(10)), paint_op(p_line_color, p_fill_color));
   END path;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_dash  NUMBER;
+    l_gap   NUMBER;
+    l_phase NUMBER;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    l_phase := NVL(p_phase, 0);
+    IF NVL(p_dash, 0) <= 0 THEN
+      -- Restore solid lines
+      rad_pdf_serial.page_write(p_doc, '[] 0 d');
+    ELSE
+      l_dash := u2pt(p_dash, p_unit);
+      l_gap  := u2pt(NVL(p_gap, p_dash), p_unit);  -- symmetric gap default
+      rad_pdf_serial.page_write(p_doc,
+        '[' || rad_pdf_codec.fmt(l_dash) || ' ' || rad_pdf_codec.fmt(l_gap) || '] '
+        || rad_pdf_codec.fmt(u2pt(l_phase, p_unit)) || ' d');
+    END IF;
+  END set_line_dash;
 
 -- ---------------------------------------------------------------------------
 -- Images

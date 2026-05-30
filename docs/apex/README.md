@@ -277,6 +277,8 @@ END;
 |---|---|
 | [apex_sample09.sql](apex_sample09.sql) | Conditional text watermark driven by P1_IS_DRAFT; authorization-scheme alternative |
 | [apex_sample10.sql](apex_sample10.sql) | Image watermark from application static files with graceful fallback when image is absent |
+| [apex_sample11.sql](apex_sample11.sql) | Line dash patterns: dashed header/footer rules using set_line_dash in callbacks |
+| [apex_sample12.sql](apex_sample12.sql) | Justified paragraph text: write_wrapped 'J' in a two-column letterhead layout |
 
 ---
 

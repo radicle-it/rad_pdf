@@ -3,5 +3,6 @@
 .DS_Store
 spec/
 /apex/
+pl_fpdf/
 skills/
 CLAUDE.md

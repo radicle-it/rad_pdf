@@ -201,5 +201,26 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
   -- Remove the watermark for p_doc. No-op if no watermark is set.
   PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);
 
+  -- Set the line dash pattern for subsequent stroked paths.
+  -- p_dash: dash length; p_gap: gap length (default = p_dash).
+  -- Call with p_dash => 0 to restore solid lines.
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+  -- Persistent graphics-state setters (v1.5.1).
+  -- set_draw_color / set_fill_color / set_line_width store values in document
+  -- state; line, h_line, v_line use them when the per-call color / width is NULL.
+  -- rect, polygon, path are per-call only (NULL = no paint).
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000');
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL);
+  PROCEDURE set_line_width(p_doc   IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
 END rad_pdf;
 /

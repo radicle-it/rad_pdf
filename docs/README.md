@@ -1,6 +1,6 @@
 # RAD_PDF - User Guide
 
-**Version:** 1.3.0  
+**Version:** 1.5.1  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer  
 ← [Back to project README](../README.md)
@@ -24,9 +24,10 @@
 13. [Images](#images)
 14. [Template Engine](#template-engine)
 15. [Watermarks](#watermarks)
-16. [API Reference](#api-reference)
-17. [Known Limitations](#known-limitations)
-18. [Examples Index](#examples-index)
+16. [Line Dash Patterns](#line-dash-patterns)
+17. [API Reference](#api-reference)
+18. [Known Limitations](#known-limitations)
+19. [Examples Index](#examples-index)
 
 ---
 
@@ -349,13 +350,20 @@ rad_pdf_canvas.set_color(l_doc, 'CC3300');                -- hex RGB ink colour
 rad_pdf_canvas.write_text(l_doc, 'Hello', 72, 700, 'pt');
 
 -- Word-wrapped text within a width
+-- p_align: 'L' left (default), 'C' centre, 'R' right, 'J' justified
 rad_pdf_canvas.write_wrapped(l_doc, 'Long text...', 72, 650, 400, 'L', 'pt');
+rad_pdf_canvas.write_wrapped(l_doc, 'Justified paragraph...', 72, 600, 400, 'J', 'pt');
 
 -- Lines and shapes
 rad_pdf_canvas.h_line  (l_doc, 50, 740, 495, 0.5, '808080', 'pt');  -- horiz. line
 rad_pdf_canvas.v_line  (l_doc, 50, 600, 100, 0.5, '000000', 'pt');  -- vert. line
 rad_pdf_canvas.rect    (l_doc, 50, 600, 200, 80, '003366', 'E0F0FF', 1, 'pt');  -- border, fill
 rad_pdf_canvas.polygon (l_doc, l_xs, l_ys, '000000', 'FFE0A0', 1);  -- arbitrary polygon
+
+-- Dash patterns for lines and rectangles (unit-aware)
+rad_pdf.set_line_dash(l_doc, 3, p_gap => 2, p_unit => 'mm');  -- 3mm dash, 2mm gap
+rad_pdf_canvas.h_line(l_doc, 50, 550, 495, 0.5, '888888', 'pt');
+rad_pdf.set_line_dash(l_doc, 0);  -- restore solid lines
 
 -- New page (canvas mode)
 rad_pdf_canvas.new_page(l_doc);
@@ -711,6 +719,10 @@ l_pdf := rad_pdf.finalize(l_doc);
 Load JPEG, PNG, or GIF images from a BLOB, Oracle Directory, or HTTPS URL.  
 Images are cached per-session by SHA-256 hash (default cache limit: 50 MB).
 
+**JPEG support (v1.4.1+):** both baseline (SOF0) and progressive (SOF2) JPEG files are
+handled. CMYK JPEG files exported by Photoshop or Adobe tools are rendered correctly with
+automatic `/ColorSpace /DeviceCMYK /Decode [1 0 1 0 1 0 1 0]` inversion.
+
 ```sql
 DECLARE
   l_doc rad_pdf_types.t_doc_handle;
@@ -947,13 +959,46 @@ l_pdf := rad_pdf.finalize(l_doc);
 
 ---
 
+## Line Dash Patterns
+
+`set_line_dash` sets the dash pattern for all subsequently stroked paths (lines, rectangles, polygons) until it is changed or reset.
+
+```sql
+-- 3 mm dash, 2 mm gap, starting at offset 0
+rad_pdf.set_line_dash(l_doc, 3, p_gap => 2, p_unit => 'mm');
+rad_pdf_canvas.h_line(l_doc, 50, 500, 495, 0.5, '555555', 'pt');
+
+-- Symmetric: 5 pt dash and 5 pt gap (p_gap defaults to p_dash)
+rad_pdf.set_line_dash(l_doc, 5);
+rad_pdf_canvas.rect(l_doc, 50, 400, 200, 80, '003366', NULL, 1, 'pt');
+
+-- Reset to solid lines
+rad_pdf.set_line_dash(l_doc, 0);
+```
+
+### `set_line_dash` parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `p_doc` | `t_doc_handle` | - | Document handle. |
+| `p_dash` | `NUMBER` | - | Dash length. Pass `0` to restore solid lines. |
+| `p_gap` | `NUMBER` | `p_dash` | Gap length. Defaults to `p_dash` for a symmetric pattern. |
+| `p_phase` | `NUMBER` | `0` | Offset into the pattern before the first dash (rarely needed). |
+| `p_unit` | `t_unit` | `'pt'` | Unit for `p_dash`, `p_gap`, and `p_phase` (`'pt'`, `'mm'`, `'cm'`, `'in'`). |
+
+**Notes:**
+- The dash pattern persists in the graphics state until changed or until the page is closed. Use `set_line_dash(l_doc, 0)` to return to solid lines before switching styles.
+- Dash patterns affect all stroked paths: `line`, `h_line`, `v_line`, `rect` (stroke only — fill is unaffected), `polygon`, `path`.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
 
 | Subprogram | Description |
 |---|---|
-| `version` | Return the library version string, e.g. `'1.4.0'`. |
+| `version` | Return the library version string, e.g. `'1.5.1'`. |
 | `new_document(p_info, p_template)` | Create document. Returns handle. |
 | `finalize(p_doc)` | Finalise, close handle, return BLOB. Caller must `FREETEMPORARY`. |
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
@@ -972,6 +1017,10 @@ l_pdf := rad_pdf.finalize(l_doc);
 | `set_watermark(p_doc, p_text, p_font_name, p_font_size, p_color, p_opacity, p_angle, p_layer)` | Register a text watermark applied to every page at finalization. See [Watermarks](#watermarks). |
 | `set_watermark_image(p_doc, p_image_id, p_opacity, p_width_pct, p_layer)` | Register an image watermark applied to every page at finalization. See [Watermarks](#watermarks). |
 | `clear_watermark(p_doc)` | Remove any registered watermark. No-op if none was set. |
+| `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set line dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. See [Line Dash Patterns](#line-dash-patterns). |
+| `set_draw_color(p_doc, p_rgb)` | Set persistent stroke color used by `line`, `h_line`, `v_line` when `p_color` is omitted. Default `'000000'`. |
+| `set_fill_color(p_doc, p_rgb)` | Set persistent fill color. Currently informational; shapes still require an explicit `p_fill_color`. Default `NULL`. |
+| `set_line_width(p_doc, p_width, p_unit)` | Set persistent line width (pt) used by `line`, `h_line`, `v_line` when `p_width` is omitted. Default `0.5`. |
 
 ### `rad_pdf_layout` package - flowable constructors
 
@@ -1055,6 +1104,8 @@ l_pdf := rad_pdf.finalize(l_doc);
 | [sample10.sql](sample10.sql) | Table with `wrap = TRUE`: multi-line cell text, dynamic row height |
 | [sample13.sql](sample13.sql) | Text watermark: "DRAFT" diagonal on an EMP table report |
 | [sample14.sql](sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
+| [sample15.sql](sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
+| [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 
 ### Template engine examples (standalone PL/SQL)
 
@@ -1088,6 +1139,8 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample07.sql](apex/apex_sample07.sql) | Template engine quick-start: bind substitution, tags, data table |
 | [apex/apex_sample09.sql](apex/apex_sample09.sql) | Conditional text watermark driven by page item P1_IS_DRAFT |
 | [apex/apex_sample10.sql](apex/apex_sample10.sql) | Image watermark loaded from application static files with graceful fallback |
+| [apex/apex_sample11.sql](apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders on reports |
+| [apex/apex_sample12.sql](apex/apex_sample12.sql) | Justified paragraph text using `write_wrapped` with `'J'` alignment |
 
 **Template engine (progressive curriculum - start at 01, work through to 14):**
 

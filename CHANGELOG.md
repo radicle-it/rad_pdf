@@ -7,6 +7,74 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
+## [1.5.1] - Unreleased
+
+### Fixed - Image cache memory leak (`rad_pdf_images`)
+
+- **`evict_to_fit` smask leak**: when the LRU eviction loop freed a cache slot
+  containing a PNG with an alpha channel, it freed `img.pixels` but left
+  `img.smask` (the greyscale alpha BLOB) allocated in the session's TEMPORARY
+  tablespace. Over long sessions with many transparent PNG replacements the
+  unreferenced smask BLOBs would accumulate silently. Fixed to mirror the
+  complete dual-BLOB cleanup already present in `clear_image_cache`.
+
+### Added - Persistent graphics-state setters (`rad_pdf_canvas`)
+
+- New procedures `set_draw_color`, `set_fill_color`, `set_line_width` on both
+  `rad_pdf_canvas` and the `rad_pdf` public facade.
+  They store values in the per-document canvas state and are used as fallback
+  defaults by `line`, `h_line`, and `v_line` when the per-call `p_color` /
+  `p_line_width` parameter is `NULL`. Initial state: stroke = `'000000'`,
+  fill = `NULL` (no persistent fill), width = `0.5 pt` - matching the
+  previous hard-coded defaults, so all existing code is backward-compatible.
+
+- **`line`, `h_line`, `v_line`**: `p_color` and `p_width`/`p_line_width`
+  now default to `NULL` (was `'000000'` / `0.5`). `NULL` means "inherit
+  from the persistent state set by `set_draw_color` / `set_line_width`".
+  Callers that never changed these parameters see identical output because
+  the persistent defaults match the old hard-coded values.
+
+- `rect`, `polygon`, `path` remain per-call only: `p_line_color = NULL`
+  still means "no stroke" for those primitives.
+
+## [1.5.0] - Unreleased
+
+### Added - Line dash patterns (`rad_pdf_canvas.set_line_dash`)
+
+- New procedure `rad_pdf.set_line_dash` (and `rad_pdf_canvas.set_line_dash`):
+  set the current line dash pattern for subsequent stroked paths.
+  Parameters: `p_dash` (dash length), `p_gap` (gap length, defaults to `p_dash`
+  for a symmetric pattern), `p_phase` (offset into the pattern, default 0),
+  `p_unit` (default `'pt'`). Call with `p_dash => 0` to restore solid lines
+  (`[] 0 d`). The pattern persists until changed or the graphics state is
+  restored.
+
+### Added - Justified text (`rad_pdf_canvas.write_wrapped`)
+
+- `write_wrapped` now accepts `p_align => 'J'` for full justification.
+  Non-last wrapped lines emit a PDF `Tw` (word-spacing) operator that
+  distributes the surplus line width across inter-word spaces so the text
+  reaches both margins. The last line of each paragraph is always
+  left-aligned (standard typographic convention). Single-word lines
+  (where there are no inter-word spaces) are also left-aligned.
+  All existing alignments (`'L'`, `'C'`, `'R'`) are unchanged.
+
+## [1.4.1] - Unreleased
+
+### Fixed - JPEG image improvements (`rad_pdf_images`)
+
+- **Progressive JPEG (SOF2)**: `parse_jpg()` now recognises the `FFC2`
+  Start-of-Frame marker in addition to `FFC0`. Progressive JPEGs whose
+  dimensions were encoded only in a SOF2 marker previously fell through
+  with default 1x1 dimensions, producing a corrupt or rejected image XObject.
+
+- **CMYK JPEG**: `write_image_objects()` now detects 4-component JPEG images
+  and emits `/ColorSpace /DeviceCMYK /Decode [1 0 1 0 1 0 1 0]` instead of
+  `/ColorSpace /DeviceRGB`. Without this, Photoshop/press-export CMYK JPEGs
+  were rendered with completely inverted (negative) colors. The `/Decode`
+  array is required by the PDF specification to account for the Adobe
+  convention where 0 = full ink, 255 = no ink.
+
 ## [1.4.0] - Unreleased
 
 ### Added - Watermark (`rad_pdf.set_watermark`)

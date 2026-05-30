@@ -387,5 +387,36 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     rad_pdf_canvas.clear_watermark(p_doc);
   END clear_watermark;
 
+  PROCEDURE set_line_dash(p_doc   IN rad_pdf_types.t_doc_handle,
+                          p_dash  IN NUMBER,
+                          p_gap   IN NUMBER  DEFAULT NULL,
+                          p_phase IN NUMBER  DEFAULT 0,
+                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit);
+  END set_line_dash;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_draw_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT '000000') IS
+  BEGIN
+    rad_pdf_canvas.set_draw_color(p_doc, p_rgb);
+  END set_draw_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_fill_color(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_rgb IN rad_pdf_types.t_rgb DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_canvas.set_fill_color(p_doc, p_rgb);
+  END set_fill_color;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_line_width(p_doc   IN rad_pdf_types.t_doc_handle,
+                           p_width IN NUMBER DEFAULT 0.5,
+                           p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.set_line_width(p_doc, p_width, p_unit);
+  END set_line_width;
+
 END rad_pdf;
 /

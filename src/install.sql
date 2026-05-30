@@ -37,6 +37,7 @@ PROMPT    @tests/phase9_integration.sql    canvas API + core packages
 PROMPT    @tests/phase10_template.sql      template engine
 PROMPT    @tests/phase11_watermark.sql     watermark (v1.4.0)
 PROMPT    @tests/phase12_autowidth.sql     auto-width columns
+PROMPT    @tests/phase12_canvas_ext.sql    line-dash + justification (v1.5.0)
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
