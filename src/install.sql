@@ -4,7 +4,7 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF v1.4.0 — Full Suite Installer
+PROMPT  RAD_PDF v1.5.2 — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
