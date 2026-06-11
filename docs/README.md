@@ -1,6 +1,6 @@
 # RAD_PDF - User Guide
 
-**Version:** 1.5.2  
+**Version:** 1.6.0  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer; v1.5 graphics-state API modeled on [PLFPDF](https://github.com/mczarski/plfpdf) / [FPDF](http://www.fpdf.org/) by Olivier Plathey  
 ← [Back to project README](../README.md)

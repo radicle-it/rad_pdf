@@ -3,7 +3,11 @@
 All notable changes to RAD_PDF are documented here.  
 Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](https://semver.org)
 
-## [Unreleased] - 1.6.0-dev
+## [Unreleased]
+
+_No unreleased changes._
+
+## [1.6.0] - 2026-06-11
 
 ### Added - QR codes (`rad_pdf_barcode`, install Phase 12)
 
