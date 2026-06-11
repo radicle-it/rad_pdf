@@ -21,6 +21,18 @@ PROMPT --- rad_pdf_types (adds c_err_barcode + t_flowable.bookmark)
 @@../rad_pdf_types.pks
 SHOW ERRORS PACKAGE rad_pdf_types
 
+PROMPT --- rad_pdf_codec body (pure PL/SQL inflate + flate_encode zlib fix)
+@@../rad_pdf_codec.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_codec
+
+PROMPT --- rad_pdf_png_decoder (rejects interlaced PNG with a clear error)
+@@../rad_pdf_png_decoder.sql
+SHOW ERRORS TYPE BODY rad_pdf_png_decoder
+
+PROMPT --- rad_pdf_images body (interlaced PNG check in parse_png)
+@@../rad_pdf_images.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_images
+
 PROMPT --- rad_pdf_canvas spec (adds add_bookmark, write_outline_objects)
 @@../rad_pdf_canvas.pks
 SHOW ERRORS PACKAGE rad_pdf_canvas

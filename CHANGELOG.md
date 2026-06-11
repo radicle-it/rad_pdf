@@ -61,6 +61,33 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `docs/apex/apex_sample13.sql` — payment QR from page items (demo app page 3).
 - `docs/apex/apex_sample14.sql` — barcode labels from a query (demo app page 4).
 
+### Fixed - PNG alpha channel (ORA-20710) and invalid Flate streams
+
+- **Every 8-bit PNG with an alpha channel failed to load** (`ORA-20710` /
+  `ORA-29294`): the alpha-strip path inflates the IDAT zlib stream, and
+  `UTL_COMPRESS` cannot do that — it only speaks gzip and validates the
+  trailer CRC32, which is computed over the uncompressed data and therefore
+  unavailable (zlib carries an Adler-32 instead; the code comment claiming
+  Oracle skips CRC validation was wrong). `rad_pdf_codec.flate_decode` is
+  now a **pure PL/SQL inflate** (RFC 1950/1951, puff.c-style canonical
+  Huffman; stored, fixed and dynamic blocks; multi-IDAT). RGBA and
+  grey+alpha PNGs now load correctly and produce a proper SMask —
+  verified by rasterizing and inspecting transparency over a coloured
+  background.
+- **`flate_encode` produced invalid zlib streams** (latent since v1.0):
+  `UTL_COMPRESS.LZ_COMPRESS` emits gzip, not zlib as the code assumed, so
+  every compressed PDF stream it produced (GIF pixels, stripped-alpha
+  pixels, embedded fonts) carried 8 bytes of gzip header garbage and
+  failed `FCHECK` in viewers. Never noticed because page content streams
+  are uncompressed and tests only checked `%PDF`/sizes. Now strips the
+  10-byte gzip envelope and rebuilds a valid `78 9C` zlib stream;
+  round-trip `flate_encode → flate_decode` is covered by tests.
+- **Interlaced (Adam7) PNGs are now rejected with a clear error** instead
+  of rendering silently corrupted output (neither the PDF Predictor-15
+  path nor the alpha-strip unfilter can handle Adam7 scanline order).
+- New `tests/phase15_png.sql` — 6 tests (flate round-trip, RGBA SMask,
+  grey+alpha, multi-IDAT + stored blocks, interlaced error, 16-bit error).
+
 ### Fixed
 
 - **`install.sql` fresh-install ordering**: the facade (`rad_pdf`, Phase 8)

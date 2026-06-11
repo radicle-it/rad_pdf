@@ -1364,6 +1364,11 @@ See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
 
 4. **GIF animation** - only the first frame is used.
 
+5. **PNG**: interlaced (Adam7) files and 16-bit-per-channel files with alpha
+   are rejected with a clear error - re-save as non-interlaced / 8-bit.
+   8-bit alpha (RGBA and grey+alpha) is fully supported: the alpha channel
+   becomes a PDF SMask (v1.6.0).
+
 5. **Right-to-left text** (Arabic, Hebrew) is not supported; glyphs are placed left-to-right.
 
 ---
