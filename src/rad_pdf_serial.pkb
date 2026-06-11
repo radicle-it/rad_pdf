@@ -78,9 +78,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     -- xref entry 0 is always the free-list head.
     g_docs(p_doc).obj_offsets(0) := 0;
 
-    -- PDF header + 7-byte binary marker (signals binary content to PDF tools).
+    -- PDF header + binary marker comment.  PDF/A 6.1.2: the marker line
+    -- must IMMEDIATELY follow the header EOL (no blank line between).
     doc_write(p_doc, '%PDF-1.4');
-    blob_append_raw(g_docs(p_doc).pdf_doc, HEXTORAW('0A25E2E3CFD30A'));
+    blob_append_raw(g_docs(p_doc).pdf_doc, HEXTORAW('25E2E3CFD30A'));
   END init_doc;
 
 -- ---------------------------------------------------------------------------
@@ -188,6 +189,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
                      NVL(p_extra, '') || '>>');
     doc_write(p_doc, 'stream');
     doc_write_raw(p_doc, l_stream);
+    -- PDF/A 6.1.7.1: endstream must be preceded by an EOL marker, and that
+    -- EOL is NOT counted in /Length (which equals the exact stream bytes).
+    blob_append_raw(g_docs(p_doc).pdf_doc, HEXTORAW('0A'));
     doc_write(p_doc, 'endstream');
     doc_write(p_doc, 'endobj');
 
@@ -327,6 +331,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     doc_write(p_doc, 'trailer');
     doc_write(p_doc, '<< /Root ' || TO_CHAR(p_catalogue_obj) || ' 0 R');
     doc_write(p_doc, '/Info '    || TO_CHAR(p_info_obj)      || ' 0 R');
+    -- /ID: required by PDF/A (ISO 19005 6.1.3); harmless otherwise.
+    -- Derived from the document bytes so far - both halves equal is valid
+    -- for a first-generation file.
+    DECLARE
+      l_id VARCHAR2(32) :=
+        UPPER(SUBSTR(rad_pdf_codec.sha256_hex(g_docs(p_doc).pdf_doc), 1, 32));
+    BEGIN
+      doc_write(p_doc, '/ID [<' || l_id || '> <' || l_id || '>]');
+    END;
     doc_write(p_doc, '/Size '    || TO_CHAR(l_obj_count));
     doc_write(p_doc, '>>');
     doc_write(p_doc, 'startxref');

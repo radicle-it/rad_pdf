@@ -51,6 +51,7 @@ PROMPT    @tests/phase13_barcode.sql       QR + 1D barcodes (v1.6.0)
 PROMPT    @tests/phase14_bookmark.sql      bookmarks / outline (v1.6.0)
 PROMPT    @tests/phase15_png.sql           PNG alpha / flate (v1.6.0)
 PROMPT    @tests/phase16_chart.sql         bar / line / pie charts (v1.7.0)
+PROMPT    @tests/phase17_pdfa.sql          PDF/A-2b conformance (v1.7.0)
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql

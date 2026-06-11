@@ -138,7 +138,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
 
   -- Shared axis frame for bar/line.  Computes the plot rectangle inside the
   -- chart box, draws title, gridlines, y labels and the axes.
+  -- Labels use the CURRENT document font (p_fidx) so charts stay
+  -- PDF/A-compatible when an embedded font is active (Helvetica would
+  -- violate the embedding requirement).  Title is drawn at size 9, labels
+  -- at size 7, in the current face (no bold variant is forced).
   PROCEDURE draw_frame(p_doc    IN rad_pdf_types.t_doc_handle,
+                       p_fidx   IN PLS_INTEGER,
                        p_x      IN NUMBER,  p_y IN NUMBER,
                        p_w      IN NUMBER,  p_h IN NUMBER,
                        p_title  IN VARCHAR2,
@@ -165,13 +170,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
     END IF;
 
     IF p_title IS NOT NULL THEN
-      rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'B', 9);
+      rad_pdf_canvas.set_font(p_doc, p_fidx, 9);
       rad_pdf_canvas.set_color(p_doc, '000000');
       centered_text(p_doc, p_title, o_px + o_pw / 2, p_y + p_h - 10);
     END IF;
 
     -- gridlines + y labels
-    rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', 7);
+    rad_pdf_canvas.set_font(p_doc, p_fidx, 7);
     rad_pdf_canvas.set_color(p_doc, '666666');
     l_v := p_lo;
     WHILE l_v <= p_hi + p_step / 1000 LOOP
@@ -232,7 +237,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
     nice_scale(0, l_max, l_lo, l_hi, l_step);
 
     save_font(p_doc, l_fidx, l_fsize);
-    draw_frame(p_doc, l_x, l_y, l_w, l_h, p_title,
+    draw_frame(p_doc, l_fidx, l_x, l_y, l_w, l_h, p_title,
                p_labels.COUNT > 0, l_lo, l_hi, l_step,
                l_px, l_py, l_pw, l_ph);
 
@@ -249,13 +254,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
                             p_unit       => 'pt');
       END IF;
       IF NVL(p_show_values, FALSE) THEN
-        rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', 7);
+        rad_pdf_canvas.set_font(p_doc, l_fidx, 7);
         rad_pdf_canvas.set_color(p_doc, '333333');
         centered_text(p_doc, rad_pdf_codec.fmt(p_values(i), 2),
                       l_bx + l_bw / 2, LEAST(l_py + l_bh + 2, l_py + l_ph - 7));
       END IF;
       IF p_labels.EXISTS(i) AND p_labels(i) IS NOT NULL THEN
-        rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', 7);
+        rad_pdf_canvas.set_font(p_doc, l_fidx, 7);
         rad_pdf_canvas.set_color(p_doc, '000000');
         l_txt := fit_text(p_doc, p_labels(i), l_slot);
         centered_text(p_doc, l_txt, l_bx + l_bw / 2, l_y + 2);
@@ -311,7 +316,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
     nice_scale(l_min, l_max, l_lo, l_hi, l_step);
 
     save_font(p_doc, l_fidx, l_fsize);
-    draw_frame(p_doc, l_x, l_y, l_w, l_h, p_title,
+    draw_frame(p_doc, l_fidx, l_x, l_y, l_w, l_h, p_title,
                p_labels.COUNT > 0, l_lo, l_hi, l_step,
                l_px, l_py, l_pw, l_ph);
 
@@ -344,7 +349,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
                             p_unit       => 'pt');
       END IF;
       IF p_labels.EXISTS(i) AND p_labels(i) IS NOT NULL THEN
-        rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', 7);
+        rad_pdf_canvas.set_font(p_doc, l_fidx, 7);
         rad_pdf_canvas.set_color(p_doc, '000000');
         l_txt := fit_text(p_doc, p_labels(i), l_slot);
         centered_text(p_doc, l_txt, l_cx, l_y + 2);
@@ -442,7 +447,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
     save_font(p_doc, l_fidx, l_fsize);
 
     IF p_title IS NOT NULL THEN
-      rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'B', 9);
+      rad_pdf_canvas.set_font(p_doc, l_fidx, 9);
       rad_pdf_canvas.set_color(p_doc, '000000');
       centered_text(p_doc, p_title, l_cx, l_cy + l_r + 8);
     END IF;
@@ -459,7 +464,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_chart IS
 
     -- legend at the right of the pie
     IF NVL(p_legend, FALSE) AND p_labels.COUNT > 0 THEN
-      rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', 7);
+      rad_pdf_canvas.set_font(p_doc, l_fidx, 7);
       l_ly := l_cy + l_r - 7;
       FOR i IN 1 .. l_n LOOP
         rad_pdf_canvas.rect(p_doc, l_cx + l_r + 12, l_ly, 7, 7,

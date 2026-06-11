@@ -29,9 +29,10 @@
 18. [1D Barcodes](#1d-barcodes)
 19. [Bookmarks (Document Outline)](#bookmarks-document-outline)
 20. [Charts](#charts)
-21. [API Reference](#api-reference)
-22. [Known Limitations](#known-limitations)
-23. [Examples Index](#examples-index)
+21. [PDF/A Conformance](#pdfa-conformance)
+22. [API Reference](#api-reference)
+23. [Known Limitations](#known-limitations)
+24. [Examples Index](#examples-index)
 
 ---
 
@@ -1252,6 +1253,39 @@ See [sample20.sql](sample20.sql) for a dashboard with all three types.
 
 ---
 
+## PDF/A Conformance
+
+*(v1.7.0)* `rad_pdf.set_conformance(l_doc, 'PDF/A-2B')` produces an
+**ISO 19005-2 (PDF/A-2b)** conformant document — the archival-grade format
+required for long-term preservation (and, in Italy, "conservazione
+sostitutiva"). Call it right after `new_document`, before adding content.
+
+At finalize the document gains:
+
+- **XMP metadata** synchronised with the Info dictionary (title, author,
+  subject, keywords share a single timestamp — validators check this);
+- an **sRGB OutputIntent** (embedded 456-byte CC0 ICC profile);
+- the **file `/ID`** in the trailer.
+
+### Rules
+
+- **Every used font must be embedded**: load a TrueType with
+  `rad_pdf_fonts.load_ttf(..., p_embed => TRUE)`. The standard 14 PDF
+  fonts are metrics-only and raise `c_err_font` (-20700) naming the
+  offending font.
+- Charts inherit the current document font — set the embedded font before
+  drawing them.
+- Vector content (charts, QR/barcodes) and images work as usual; watermark
+  transparency is allowed (PDF/A-2 permits it; PDF/A-1 would not).
+- Unsupported levels raise `c_err_validation`; only `'PDF/A-2B'` is
+  accepted in v1.7.
+
+**Validation**: outputs verified with [veraPDF](https://verapdf.org)
+(`verapdf -f 2b file.pdf` → `isCompliant="true"`, 144 rules). See
+[sample21.sql](sample21.sql).
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1277,6 +1311,7 @@ See [sample20.sql](sample20.sql) for a dashboard with all three types.
 | `bar_chart(p_doc, p_values, p_x, p_y, p_width, p_height, p_labels, p_colors, p_show_values, p_title, p_unit)` | Vertical bar chart. See [Charts](#charts). |
 | `line_chart(p_doc, p_values, p_x, p_y, p_width, p_height, p_labels, p_colors, p_show_markers, p_title, p_unit)` | Single-series line chart (negatives supported). |
 | `pie_chart(p_doc, p_values, p_cx, p_cy, p_radius, p_labels, p_colors, p_legend, p_title, p_unit)` | Pie chart with optional legend. |
+| `set_conformance(p_doc, p_level)` | Switch the document to PDF/A-2b mode. See [PDF/A Conformance](#pdfa-conformance). |
 | `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
@@ -1452,6 +1487,7 @@ See [sample20.sql](sample20.sql) for a dashboard with all three types.
 | [sample18.sql](sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
 | [sample19.sql](sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 | [sample20.sql](sample20.sql) | Native charts: bar, line and pie on a dashboard page |
+| [sample21.sql](sample21.sql) | PDF/A-2b: archival-grade conformant document with embedded font |
 
 ### Template engine examples (standalone PL/SQL)
 

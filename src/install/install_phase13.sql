@@ -1,6 +1,8 @@
 -- install_phase13.sql — Phase 13: v1.7.0 features
 --   rad_pdf_chart (bar / line / pie vector charts)
 --   <qrcode> template tag (QRCODE flowable in rad_pdf_layout)
+--   PDF/A-2b conformance (set_conformance; XMP + OutputIntent + /ID)
+--   TTF parser fixes (1-based offsets, dependency-ordered tables)
 --
 -- Used by install.sql for a fresh install (runs after phase 12, BEFORE
 -- phase 8 — the facade references rad_pdf_chart) AND as the UPGRADE
@@ -14,6 +16,28 @@ PROMPT === Phase 13 v1.7.0 (charts) ===
 PROMPT --- rad_pdf_types (adds t_text_list, t_rgb_list)
 @@../rad_pdf_types.pks
 SHOW ERRORS PACKAGE rad_pdf_types
+
+PROMPT --- rad_pdf_codec (adds srgb_icc, xml_escape)
+@@../rad_pdf_codec.pks
+SHOW ERRORS PACKAGE rad_pdf_codec
+@@../rad_pdf_codec.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_codec
+
+PROMPT --- rad_pdf_serial body (trailer /ID + PDF/A stream framing)
+@@../rad_pdf_serial.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_serial
+
+PROMPT --- rad_pdf_ctx (adds set_conformance / get_conformance)
+@@../rad_pdf_ctx.pks
+SHOW ERRORS PACKAGE rad_pdf_ctx
+@@../rad_pdf_ctx.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_ctx
+
+PROMPT --- rad_pdf_fonts (adds assert_all_embedded; TTF parser fixes)
+@@../rad_pdf_fonts.pks
+SHOW ERRORS PACKAGE rad_pdf_fonts
+@@../rad_pdf_fonts.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_fonts
 
 PROMPT --- rad_pdf_layout spec (adds qrcode flowable constructor) — spec-first
 @@../rad_pdf_layout.pks

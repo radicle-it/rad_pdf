@@ -57,6 +57,21 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
   PROCEDURE close_document(p_doc IN rad_pdf_types.t_doc_handle);
 
 -- ---------------------------------------------------------------------------
+-- PDF/A conformance (v1.7.0).
+--
+-- set_conformance(p_doc, 'PDF/A-2B') switches the document to PDF/A-2b
+-- mode.  Call it right after new_document, before adding content.
+-- At finalize the document gains: XMP metadata (synchronised with the
+-- Info dictionary), an sRGB OutputIntent, and a file /ID; every font used
+-- must be EMBEDDED (load TrueType fonts with p_embed => TRUE — the
+-- standard 14 PDF fonts raise c_err_font in this mode).
+-- The watermark transparency is allowed (PDF/A-2; not PDF/A-1).
+-- Validate the output with veraPDF (https://verapdf.org).
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_conformance(p_doc   IN rad_pdf_types.t_doc_handle,
+                            p_level IN VARCHAR2);
+
+-- ---------------------------------------------------------------------------
 -- Content — layout engine (delegates to rad_pdf_layout)
 -- ---------------------------------------------------------------------------
 

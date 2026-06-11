@@ -33,6 +33,38 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - Documented that `auto_width` in `<table>` needs no new syntax: it is a
   property of the registered column set.
 
+### Added - PDF/A-2b conformance
+
+- **`rad_pdf.set_conformance(p_doc, 'PDF/A-2B')`**: the finalized document
+  gains XMP metadata (synchronised with the Info dictionary, shared
+  timestamp), an sRGB OutputIntent (456-byte CC0 ICC profile from
+  Compact-ICC-Profiles), and the trailer `/ID`. Every used font must be
+  EMBEDDED: `c_err_font` names the offending fonts (the standard 14 PDF
+  fonts cannot be used in this mode). Charts inherit the current document
+  font instead of hardcoding Helvetica, so they work in PDF/A documents.
+- Validated with **veraPDF**: vector-only and embedded-TTF text + chart +
+  QR documents both report `isCompliant="true"` (144 rules, 0 failed).
+- Trailer `/ID` and the `endstream` EOL framing fix are applied to every
+  document (required by ISO 19005, harmless otherwise).
+- `tests/phase17_pdfa.sql` — 5 acceptance tests.
+
+### Fixed - TrueType loading was completely broken (latent)
+
+- **`parse_ttf_tables` read the table directory with 0-based offsets**, but
+  `DBMS_LOB` positions are 1-based: `numTables` always read as 0, so NO
+  table was ever parsed — font name, metrics, widths and cmap all stayed
+  NULL and embedded-font documents were invalid. Never caught because no
+  test loaded a TTF. Now fixed, with table processing in dependency order
+  ('loca' precedes 'maxp' alphabetically but needs its glyph count).
+- FontDescriptor metrics (Ascent/Descent/CapHeight/FontBBox) are now
+  normalised to 1000-units-per-em glyph space.
+- The page font resource pointed at the FontFile2 stream instead of the
+  font dictionary when embedding (non-CID branch).
+- The name-table read was off by one byte, producing garbage /BaseFont
+  values; names are also sanitised to clean PDF name tokens.
+- `load_ttf` on a document with no prior font usage raised ORA-01403
+  (NO_DATA_FOUND on collection-field access before entry creation).
+
 ## [1.6.0] - 2026-06-11
 
 ### Added - QR codes (`rad_pdf_barcode`, install Phase 12)

@@ -384,6 +384,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_tag        VARCHAR2(4);
     l_tbl_offset NUMBER;
     l_tbl_len    NUMBER;
+    TYPE t_dir_map IS TABLE OF NUMBER INDEX BY VARCHAR2(4);
+    l_dir_off    t_dir_map;
+    l_dir_len    t_dir_map;
+    TYPE t_tag_list IS VARRAY(9) OF VARCHAR2(4);
+    c_tag_order  CONSTANT t_tag_list := t_tag_list(
+      'head', 'hhea', 'maxp', 'OS/2', 'post',   -- metrics first
+      'loca', 'hmtx', 'cmap', 'name');          -- count-dependent after
     l_raw        RAW(32767);
     l_pos        NUMBER;
     l_loca_fmt   PLS_INTEGER;
@@ -397,31 +404,50 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_id_delta   DBMS_SQL.NUMBER_TABLE;
     l_id_rofs    DBMS_SQL.NUMBER_TABLE;
   BEGIN
-    l_n_tables := blob2num(p_font, 2, p_offset + 4);
+    -- DBMS_LOB positions are 1-BASED: byte at 0-based offset k of the file
+    -- is at LOB position p_offset + k + 1.  (A historical off-by-one here
+    -- made numTables read as 0, silently skipping the whole table loop.)
+    l_n_tables := blob2num(p_font, 2, p_offset + 5);
 
+    -- Pass 1: collect the table directory.  Tables are stored in
+    -- alphabetical order in the file ('loca' before 'maxp'), but parsing
+    -- has dependencies (loca needs numGlyphs from maxp, hmtx needs
+    -- numberOfHMetrics from hhea), so pass 2 processes them in dependency
+    -- order instead of file order.
     FOR i IN 1 .. l_n_tables LOOP
-      l_pos := p_offset + 12 + (i - 1) * 16;
+      l_pos := p_offset + 13 + (i - 1) * 16;
       l_tag := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(p_font, 4, l_pos));
-      l_tbl_offset := blob2num(p_font, 4, l_pos + 8) + 1;
-      l_tbl_len    := blob2num(p_font, 4, l_pos + 12);
+      l_dir_off(l_tag) := blob2num(p_font, 4, l_pos + 8) + 1;
+      l_dir_len(l_tag) := blob2num(p_font, 4, l_pos + 12);
+    END LOOP;
+
+    -- Pass 2: dependency-ordered processing of the tables we use.
+    FOR i IN 1 .. c_tag_order.COUNT LOOP
+      l_tag := c_tag_order(i);
+      CONTINUE WHEN NOT l_dir_off.EXISTS(l_tag);
+      l_tbl_offset := l_dir_off(l_tag);
+      l_tbl_len    := l_dir_len(l_tag);
 
       CASE l_tag
         WHEN 'head' THEN
           g_fonts(p_idx).unit_norm        := 1000 / blob2num(p_font, 2, l_tbl_offset + 18);
           g_fonts(p_idx).indexToLocFormat := blob2num(p_font, 2, l_tbl_offset + 50);
-          g_fonts(p_idx).bb_xmin          := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 36));
-          g_fonts(p_idx).bb_ymin          := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 38));
-          g_fonts(p_idx).bb_xmax          := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 40));
-          g_fonts(p_idx).bb_ymax          := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 42));
+          -- Descriptor metrics are expressed in 1000-units-per-em glyph
+          -- space; head is processed first, so unit_norm is available here
+          -- and in hhea / OS-2 below.
+          g_fonts(p_idx).bb_xmin          := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 36)) * g_fonts(p_idx).unit_norm);
+          g_fonts(p_idx).bb_ymin          := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 38)) * g_fonts(p_idx).unit_norm);
+          g_fonts(p_idx).bb_xmax          := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 40)) * g_fonts(p_idx).unit_norm);
+          g_fonts(p_idx).bb_ymax          := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 42)) * g_fonts(p_idx).unit_norm);
         WHEN 'hhea' THEN
-          g_fonts(p_idx).ascent           := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 4));
-          g_fonts(p_idx).descent          := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 6));
+          g_fonts(p_idx).ascent           := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 4)) * g_fonts(p_idx).unit_norm);
+          g_fonts(p_idx).descent          := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 6)) * g_fonts(p_idx).unit_norm);
           l_n_hmetrics := blob2num(p_font, 2, l_tbl_offset + 34);
         WHEN 'maxp' THEN
           l_n_glyphs := blob2num(p_font, 2, l_tbl_offset + 4);
           g_fonts(p_idx).numGlyphs := l_n_glyphs;
         WHEN 'OS/2' THEN
-          g_fonts(p_idx).capheight := to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 88));
+          g_fonts(p_idx).capheight := ROUND(to_short(DBMS_LOB.SUBSTR(p_font, 2, l_tbl_offset + 88)) * g_fonts(p_idx).unit_norm);
           g_fonts(p_idx).stemv     := TRUNC(10 + 220 * POWER((blob2num(p_font, 2, l_tbl_offset + 4) / 65536), 2));
           g_fonts(p_idx).flags     := CASE WHEN BITAND(blob2num(p_font, 2, l_tbl_offset + 62), 1) = 1 THEN 4 ELSE 32 END;
         WHEN 'post' THEN
@@ -490,15 +516,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
               l_nlen := blob2num(p_font, 2, l_pos + 8);
               l_nofs := blob2num(p_font, 2, l_pos + 10);
               IF l_nid = 6 AND l_plat = 3 THEN
+                -- l_str_off is already a 1-based LOB position
                 g_fonts(p_idx).name :=
                   UTL_I18N.RAW_TO_CHAR(
-                    DBMS_LOB.SUBSTR(p_font, l_nlen, l_str_off + l_nofs + 1),
+                    DBMS_LOB.SUBSTR(p_font, l_nlen, l_str_off + l_nofs),
                     'AL16UTF16');
                 EXIT;
               ELSIF l_nid = 6 AND l_plat = 1 AND g_fonts(p_idx).name IS NULL THEN
                 g_fonts(p_idx).name :=
                   UTL_RAW.CAST_TO_VARCHAR2(
-                    DBMS_LOB.SUBSTR(p_font, l_nlen, l_str_off + l_nofs + 1));
+                    DBMS_LOB.SUBSTR(p_font, l_nlen, l_str_off + l_nofs));
               END IF;
             END LOOP;
           END;
@@ -756,6 +783,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
     parse_ttf_tables(g_fonts(l_idx).fontfile2, NVL(p_offset, 1) - 1, l_idx);
 
+    -- /BaseFont must be a clean PDF name token: strip spaces/delimiters
+    -- and any non-ASCII byte that survived the name-table decode.
+    g_fonts(l_idx).name := REGEXP_REPLACE(g_fonts(l_idx).name,
+                                          '[^!-~]|[()<>\[\]{}/%#]', '');
     IF g_fonts(l_idx).name IS NULL THEN
       g_fonts(l_idx).name := 'Font' || l_idx;
     END IF;
@@ -764,10 +795,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
     -- Track in per-document state if this is a doc-scoped (non-preload) font
     IF NOT p_preload AND p_doc IS NOT NULL THEN
-      IF NOT g_doc_state.EXISTS(p_doc) THEN
-        g_doc_state(p_doc).doc_fonts.DELETE;
-        g_doc_state(p_doc).used_fonts.DELETE;
-      END IF;
+      -- Direct field assignment auto-creates the entry; calling .DELETE on
+      -- a field of a non-existent entry raises NO_DATA_FOUND instead.
       g_doc_state(p_doc).doc_fonts(l_idx) := 0;
     END IF;
 
@@ -1366,7 +1395,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
             IF l_flen > 0 THEN
               DBMS_LOB.COPY(l_tmp, g_fonts(l_fi).fontfile2, l_flen);
             END IF;
-            l_obj_nr := rad_pdf_serial.write_stream_obj(p_doc, l_tmp, l_extra,
+            -- l_dummy: the page resource must keep pointing at the FONT
+            -- DICT object (l_obj_nr), not at this FontFile2 stream.
+            l_dummy := rad_pdf_serial.write_stream_obj(p_doc, l_tmp, l_extra,
                                                     g_fonts(l_fi).compress_font);
             DBMS_LOB.FREETEMPORARY(l_tmp);
           END;
@@ -1443,6 +1474,30 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   BEGIN
     RETURN g_fonts(p_font_idx).name;
   END font_pdf_name;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE assert_all_embedded(p_doc IN rad_pdf_types.t_doc_handle) IS
+    l_idx  PLS_INTEGER;
+    l_bad  VARCHAR2(1000);
+  BEGIN
+    IF NOT g_doc_state.EXISTS(p_doc) THEN
+      RETURN;
+    END IF;
+    l_idx := g_doc_state(p_doc).used_fonts.FIRST;
+    WHILE l_idx IS NOT NULL LOOP
+      IF NOT NVL(g_fonts(l_idx).embed, FALSE) THEN
+        l_bad := l_bad || CASE WHEN l_bad IS NOT NULL THEN ', ' END
+                       || g_fonts(l_idx).name;
+      END IF;
+      l_idx := g_doc_state(p_doc).used_fonts.NEXT(l_idx);
+    END LOOP;
+    IF l_bad IS NOT NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,
+        'PDF/A requires every font to be embedded; not embedded: ' || l_bad
+        || '. Load a TrueType font with p_embed => TRUE'
+        || ' (the standard 14 PDF fonts cannot be used in PDF/A mode).', TRUE);
+    END IF;
+  END assert_all_embedded;
 
 END rad_pdf_fonts;
 /

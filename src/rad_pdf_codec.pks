@@ -57,5 +57,18 @@ CREATE OR REPLACE PACKAGE rad_pdf_codec AUTHID DEFINER IS
   -- e.g. 'ff8000' → '1 0.502 0'
   FUNCTION rgb_to_pdf(p_rgb IN rad_pdf_types.t_rgb) RETURN VARCHAR2;
 
+-- ---------------------------------------------------------------------------
+-- PDF/A support (v1.7.0)
+-- ---------------------------------------------------------------------------
+
+  -- Minimal sRGB ICC v2 profile (456 bytes) for the PDF/A OutputIntent.
+  -- Source: Compact-ICC-Profiles "sRGB-v2-micro" (CC0 / public domain,
+  -- https://github.com/saucecontrol/Compact-ICC-Profiles).
+  -- Returns a temporary SESSION BLOB; caller frees it.
+  FUNCTION srgb_icc RETURN BLOB;
+
+  -- Escape &, < and > for XML text nodes (XMP metadata).
+  FUNCTION xml_escape(p_str IN VARCHAR2) RETURN VARCHAR2;
+
 END rad_pdf_codec;
 /

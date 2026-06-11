@@ -122,5 +122,12 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
   FUNCTION  unit_norm    (p_font_idx IN PLS_INTEGER) RETURN NUMBER;
   FUNCTION  font_pdf_name(p_font_idx IN PLS_INTEGER) RETURN VARCHAR2;
 
+-- ---------------------------------------------------------------------------
+-- PDF/A support (v1.7.0): raise c_err_font when any font USED by p_doc is
+-- not embedded (the standard 14 fonts are metrics-only and never embedded).
+-- Call before write_font_objects.
+-- ---------------------------------------------------------------------------
+  PROCEDURE assert_all_embedded(p_doc IN rad_pdf_types.t_doc_handle);
+
 END rad_pdf_fonts;
 /
