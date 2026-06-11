@@ -52,6 +52,16 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
 
   FUNCTION page_break                                    RETURN rad_pdf_types.t_flowable;
 
+  -- QR code flowable (v1.7.0): a p_size × p_size square placed in the flow
+  -- at the current position; p_align positions it inside the frame (L/C/R).
+  -- p_size in POINTS.  Rendered via rad_pdf_barcode at finalize.
+  FUNCTION qrcode   (p_value IN VARCHAR2,
+                     p_size  IN NUMBER,
+                     p_ec    IN VARCHAR2                 DEFAULT 'M',
+                     p_color IN rad_pdf_types.t_rgb      DEFAULT '000000',
+                     p_align IN rad_pdf_types.t_align_h  DEFAULT 'L')
+                                                          RETURN rad_pdf_types.t_flowable;
+
   -- paragraph_runs: a paragraph whose text may contain inline bold / italic /
   -- colour changes.  p_runs is the pre-parsed list of inline segments; each
   -- segment carries its pre-computed style_name (from derive_style) and an

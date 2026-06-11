@@ -1,5 +1,6 @@
 -- install_phase13.sql — Phase 13: v1.7.0 features
 --   rad_pdf_chart (bar / line / pie vector charts)
+--   <qrcode> template tag (QRCODE flowable in rad_pdf_layout)
 --
 -- Used by install.sql for a fresh install (runs after phase 12, BEFORE
 -- phase 8 — the facade references rad_pdf_chart) AND as the UPGRADE
@@ -13,6 +14,31 @@ PROMPT === Phase 13 v1.7.0 (charts) ===
 PROMPT --- rad_pdf_types (adds t_text_list, t_rgb_list)
 @@../rad_pdf_types.pks
 SHOW ERRORS PACKAGE rad_pdf_types
+
+PROMPT --- rad_pdf_layout spec (adds qrcode flowable constructor) — spec-first
+@@../rad_pdf_layout.pks
+SHOW ERRORS PACKAGE rad_pdf_layout
+
+PROMPT --- rad_pdf_table spec (recompiled: circular dependency with layout)
+@@../rad_pdf_table.pks
+SHOW ERRORS PACKAGE rad_pdf_table
+
+PROMPT --- rad_pdf_layout body (QRCODE flowable measure + render)
+@@../rad_pdf_layout.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_layout
+
+PROMPT --- rad_pdf_table body (recompiled: circular dependency with layout)
+@@../rad_pdf_table.pkb
+SHOW ERRORS PACKAGE BODY rad_pdf_table
+
+PROMPT --- rad_pdf_template body (adds <qrcode> tag)
+SET DEFINE OFF
+@@../rad_pdf_template.pkb
+SET DEFINE ON
+SHOW ERRORS PACKAGE BODY rad_pdf_template
+
+PROMPT --- rad_pdf_ctx body (revalidate after t_flowable change)
+ALTER PACKAGE rad_pdf_ctx COMPILE BODY;
 
 PROMPT --- rad_pdf_chart spec
 @@../rad_pdf_chart.pks

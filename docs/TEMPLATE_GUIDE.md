@@ -111,6 +111,7 @@ Input CLOB
 | `<spacer/>` | `height="Xpt"` | Vertical gap (default 12 pt) |
 | `<hr/>` | `color="RRGGBB"` `width="N"` | Horizontal rule |
 | `<pagebreak/>` | - | Force a new page |
+| `<qrcode value="…" [size="40mm"] [ec="M"] [color="003366"] [align="C"]/>` | *(v1.7.0)* QR code placed in the flow; `value` supports `#BIND#` tokens; `size` includes the quiet zone; `align` = L/C/R |
 | `<img/>` | `id="N"` `width="Xmm"` `height="Ymm"` | Inline image (preloaded with `rad_pdf_images`) |
 | `<table/>` | `columns="NAME"` `query="SQL"` `allow_query="true"` `row_height` `max_rows` `header_bg` `alt_bg` `border_color` | Data table from a SQL query |
 
@@ -206,6 +207,33 @@ rad_pdf_template.render(l_doc,
   || '<if bind="STATUS" ne="DRAFT"><p>Documento definitivo.</p></if>',
   l_binds);
 ```
+
+---
+
+## `<qrcode>` *(v1.7.0)*
+
+```xml
+<qrcode value="https://pay.example.com/inv/#INV#" size="40mm" align="C"/>
+```
+
+| Attribute | Default | Notes |
+|---|---|---|
+| `value` | *(required)* | Text/URL to encode; `#BIND#` tokens are substituted first. Missing → ORA-20817 |
+| `size` | `40mm` | Side of the square, quiet zone included; any unit suffix (`mm`, `cm`, `pt`, `in`) |
+| `ec` | `M` | Error correction L / M / Q / H |
+| `color` | `000000` | 6-hex RGB; invalid values fall back to black |
+| `align` | `L` | `L` / `C` / `R` inside the content frame; other values → ORA-20817 |
+
+The QR participates in the flow like an image: content before it stays above,
+content after it continues below; page breaks are handled by the layout
+engine.
+
+### Auto-width columns in `<table>`
+
+`auto_width` needs no template syntax: it is a property of the registered
+column set. Set `l_cols(i).auto_width := TRUE` before
+`register_columns('NAME', l_cols)` and every `<table columns="NAME" …>`
+inherits it.
 
 ---
 

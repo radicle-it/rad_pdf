@@ -1395,6 +1395,56 @@ EXCEPTION WHEN OTHERS THEN
 END;
 /
 
+-- ===========================================================================
+-- Test 38: <qrcode> tag (v1.7.0) - flow placement, binds, validation
+-- ===========================================================================
+DECLARE
+  l_doc   rad_pdf_types.t_doc_handle;
+  l_pdf   BLOB;
+  l_binds rad_pdf_types.t_bind_array;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 38: <qrcode> tag');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  l_binds(1).key := 'INV'; l_binds(1).value := '2026-0042';
+  rad_pdf_template.render(l_doc,
+    '<h1>Fattura #INV#</h1>'
+ || '<qrcode value="https://pay.example.com/inv/#INV#" size="30mm" align="C"/>'
+ || '<p>Flow continues below.</p>',
+    l_binds);
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(DBMS_LOB.GETLENGTH(l_pdf) > 2000, 'BLOB too small');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- missing value attribute
+  l_doc := rad_pdf.new_document;
+  BEGIN
+    rad_pdf_template.render(l_doc, '<qrcode size="30mm"/>', l_binds);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: missing value accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = -20817, 'expected -20817, got ' || SQLCODE);
+  END;
+  -- invalid align
+  BEGIN
+    rad_pdf_template.render(l_doc, '<qrcode value="X" align="Z"/>', l_binds);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: bad align accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = -20817, 'expected -20817 for align, got ' || SQLCODE);
+  END;
+  rad_pdf.close_document(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 10 template engine tests complete.

@@ -22,6 +22,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `tests/phase16_chart.sql` — 5 acceptance tests.
 - `docs/sample20.sql` — dashboard with all three chart types.
 
+### Added - `<qrcode>` template tag
+
+- New `QRCODE` flowable in the layout engine (`rad_pdf_layout.qrcode`
+  constructor): a QR square that participates in the flow like an image,
+  with L/C/R alignment inside the frame. Rendered via a dynamic call to
+  `rad_pdf_barcode` (which compiles after the layout package).
+- Template tag `<qrcode value="…" [size="40mm"] [ec="M"] [color="…"]
+  [align="C"]/>`; `value` supports `#BIND#` tokens. (phase10 test 38)
+- Documented that `auto_width` in `<table>` needs no new syntax: it is a
+  property of the registered column set.
+
 ## [1.6.0] - 2026-06-11
 
 ### Added - QR codes (`rad_pdf_barcode`, install Phase 12)

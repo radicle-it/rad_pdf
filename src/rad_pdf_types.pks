@@ -211,6 +211,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   c_flow_hline     CONSTANT t_flowable_type := 'HLINE';
   c_flow_pagebreak CONSTANT t_flowable_type := 'PAGEBREAK';
   c_flow_para_runs CONSTANT t_flowable_type := 'PARA_RUNS';  -- multi-style inline runs
+  c_flow_qrcode    CONSTANT t_flowable_type := 'QRCODE';     -- v1.7.0
 
   -- Inline run: one styled segment inside a mixed-style paragraph.
   -- style_name is the pre-computed style (e.g. 'body', 'body__b', 'body__bi').
@@ -237,8 +238,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
     page_break_before BOOLEAN := FALSE,  -- set by measure pass
     measured_h        NUMBER  := 0,       -- set by measure pass
-    bookmark          BOOLEAN := FALSE    -- HEADING: register a PDF outline
+    bookmark          BOOLEAN := FALSE,   -- HEADING: register a PDF outline
                                           -- entry when rendered (v1.6.0)
+    qr_ec             VARCHAR2(1) := NULL,   -- QRCODE: EC level L/M/Q/H (v1.7.0)
+    qr_align          t_align_h   := NULL    -- QRCODE: L/C/R in the frame (v1.7.0)
   );
   TYPE t_flowable_list IS TABLE OF t_flowable INDEX BY PLS_INTEGER;
 
