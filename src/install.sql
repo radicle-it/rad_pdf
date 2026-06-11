@@ -4,7 +4,7 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF v1.5.2 — Full Suite Installer
+PROMPT  RAD_PDF v1.6.0 — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
@@ -24,9 +24,16 @@ PROMPT
 PROMPT
 @@install/install_phase7.sql
 PROMPT
-@@install/install_phase8.sql
-PROMPT
+-- Phases 9 (template) and 12 (barcode) compile BEFORE phase 8: the facade
+-- body references rad_pdf_template and rad_pdf_barcode, so on a fresh schema
+-- those specs must exist first.  Phase 12 also recompiles the facade (it
+-- doubles as the v1.5.x -> v1.6.0 upgrade script); phase 8 then recompiles
+-- it a final time — harmless and keeps the phase scripts self-contained.
 @@install/install_phase9.sql
+PROMPT
+@@install/install_phase12.sql
+PROMPT
+@@install/install_phase8.sql
 PROMPT
 
 PROMPT ================================================================
@@ -38,6 +45,9 @@ PROMPT    @tests/phase10_template.sql      template engine
 PROMPT    @tests/phase11_watermark.sql     watermark (v1.4.0)
 PROMPT    @tests/phase12_autowidth.sql     auto-width columns
 PROMPT    @tests/phase12_canvas_ext.sql    line-dash + justification (v1.5.0)
+PROMPT    @tests/phase13_barcode.sql       QR + 1D barcodes (v1.6.0)
+PROMPT    @tests/phase14_bookmark.sql      bookmarks / outline (v1.6.0)
+PROMPT    @tests/phase15_png.sql           PNG alpha / flate (v1.6.0)
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql

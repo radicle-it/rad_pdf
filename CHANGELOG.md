@@ -7,6 +7,120 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
+## [1.6.0] - 2026-06-11
+
+### Added - QR codes (`rad_pdf_barcode`, install Phase 12)
+
+- New package **`rad_pdf_barcode`** (stateless, no `close_doc` hook):
+  - `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` —
+    draws a QR code as **pure vector graphics** (filled PDF paths via
+    `rad_pdf_canvas.path`, one call per matrix row, run-length merged).
+    Automatic encoding mode (numeric / alphanumeric / byte / UTF-8 ECI) and
+    version selection (1–40); EC levels L/M/Q/H; 4-module quiet zone included
+    in `p_size`.
+  - `qrcode_modules(p_value, p_ec_level)` — modules per side without drawing,
+    for print-size calculations.
+  - QR encoding logic ported from
+    [as_barcode](https://github.com/antonscheffer/as_barcode) by Anton
+    Scheffer (MIT — notice in the package body header). Rendering layer is
+    RAD_PDF-native.
+- **1D barcodes**: `code128` (subsets B/C auto-selected, Latin-1 via FNC4),
+  `code39` (standard charset validated; `p_full_ascii` for extended mode),
+  `ean13` (check digit computed for 12 digits, **validated** for 13;
+  standard layout with descending guard bars and knockout digit zones).
+  Shared vector renderer: one filled path per symbol, human-readable line
+  with document font save/restore.
+- `rad_pdf.qrcode` facade shortcut and generic `rad_pdf.barcode(p_type, …)`
+  dispatcher (`CODE128` / `CODE39` / `EAN13`, separators tolerated).
+
+### Added - Template `<if>` comparisons and watermark page selection
+
+- **`<if bind="K" eq="V">` / `<if bind="K" ne="V">`** in the template engine:
+  case-insensitive value comparison; `ne` is the logical negation of `eq`
+  (TRUE for absent/NULL binds). Plain `<if bind="K">` behaviour unchanged;
+  `eq` + `ne` on the same tag raises ORA-20810. (phase10 test 37)
+- **`p_pages` on `set_watermark` / `set_watermark_image`** (canvas + facade):
+  1-based page selection `'1'`, `'2-5'`, `'3-'` (open range), combinations
+  `'1,3-5,8-'`. NULL = every page (default, unchanged). Malformed specs
+  raise ORA-20400 at registration time. (phase11 test 31)
+
+### Added - Bookmarks / document outline
+
+- `rad_pdf_canvas.add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` +
+  `rad_pdf.add_bookmark` shortcut: outline entries with automatic hierarchy
+  (an entry nests under the nearest previous lower level, 1–6).
+- `rad_pdf.heading(…, p_bookmark => TRUE)`: mirror headings into the outline
+  with one parameter. The destination is the exact heading position as
+  placed by the layout engine (page breaks included) — implemented via a
+  new `bookmark` field on `rad_pdf_types.t_flowable` and a hook in the
+  layout render pass.
+- Outline tree (`/Outlines`, First/Last/Next/Prev/Parent/Count) written at
+  finalize; `/PageMode /UseOutlines` opens the sidebar automatically.
+  Non-ASCII titles encoded as UTF-16BE (`<FEFF…>`), verified with accented
+  characters. No bookmarks → output byte-identical to previous behaviour.
+- `tests/phase14_bookmark.sql` — 8 acceptance tests.
+- `docs/sample19.sql` — navigable multi-chapter report.
+- `install_phase12.sql` extended to the complete v1.5.x → v1.6.0 upgrade
+  (types, canvas, layout+table, barcode, facade).
+- `rad_pdf.refcursor2table` facade shortcut (API gap: the `rad_pdf_table`
+  procedure existed but was not exposed on the facade).
+- `rad_pdf_types.c_err_barcode` (-20820).
+- `src/install/install_phase12.sql` — compiles the barcode package; doubles
+  as the v1.5.x → v1.6.0 upgrade script.
+- `tests/phase13_barcode.sql` — 15 acceptance tests (QR version selection,
+  error paths, all encoding modes, high-version content, watermark
+  coexistence, Code 128 subsets, Code 39 charset validation, EAN-13 check
+  digit handling, facade dispatcher, font-state restore).
+- `docs/sample17.sql` — payment-link QR, UTF-8 vCard, coloured QR at EC H.
+- `docs/sample18.sql` — 1D barcode label sheet (Code 128, EAN-13, Code 39).
+- `docs/apex/apex_sample13.sql` — payment QR from page items (demo app page 3).
+- `docs/apex/apex_sample14.sql` — barcode labels from a query (demo app page 4).
+
+### Fixed - PNG alpha channel (ORA-20710) and invalid Flate streams
+
+- **Every 8-bit PNG with an alpha channel failed to load** (`ORA-20710` /
+  `ORA-29294`): the alpha-strip path inflates the IDAT zlib stream, and
+  `UTL_COMPRESS` cannot do that — it only speaks gzip and validates the
+  trailer CRC32, which is computed over the uncompressed data and therefore
+  unavailable (zlib carries an Adler-32 instead; the code comment claiming
+  Oracle skips CRC validation was wrong). `rad_pdf_codec.flate_decode` is
+  now a **pure PL/SQL inflate** (RFC 1950/1951, puff.c-style canonical
+  Huffman; stored, fixed and dynamic blocks; multi-IDAT). RGBA and
+  grey+alpha PNGs now load correctly and produce a proper SMask —
+  verified by rasterizing and inspecting transparency over a coloured
+  background.
+- **`flate_encode` produced invalid zlib streams** (latent since v1.0):
+  `UTL_COMPRESS.LZ_COMPRESS` emits gzip, not zlib as the code assumed, so
+  every compressed PDF stream it produced (GIF pixels, stripped-alpha
+  pixels, embedded fonts) carried 8 bytes of gzip header garbage and
+  failed `FCHECK` in viewers. Never noticed because page content streams
+  are uncompressed and tests only checked `%PDF`/sizes. Now strips the
+  10-byte gzip envelope and rebuilds a valid `78 9C` zlib stream;
+  round-trip `flate_encode → flate_decode` is covered by tests.
+- **Interlaced (Adam7) PNGs are now rejected with a clear error** instead
+  of rendering silently corrupted output (neither the PDF Predictor-15
+  path nor the alpha-strip unfilter can handle Adam7 scanline order).
+- New `tests/phase15_png.sql` — 6 tests (flate round-trip, RGBA SMask,
+  grey+alpha, multi-IDAT + stored blocks, interlaced error, 16-bit error).
+
+### Fixed
+
+- **`install.sql` fresh-install ordering**: the facade (`rad_pdf`, Phase 8)
+  references `rad_pdf_template` (Phase 9) and now `rad_pdf_barcode`
+  (Phase 12); on a virgin schema Phase 8 compiled with errors. Phases 9 and
+  12 now run **before** Phase 8. Validated by dropping every RAD_PDF object
+  and reinstalling from scratch: 0 invalid objects, full test suite green
+  (129/129).
+
+### Verification
+
+- QR output validated end-to-end: PDF → 150-dpi raster → decoded with the
+  macOS Vision framework. URL, multi-line vCard and UTF-8 accented content
+  (via `UNISTR`, byte-perfect ECI round-trip) all decode correctly.
+- 1D output validated the same way: Code 128 subsets B and C, Code 39, and
+  EAN-13 (both computed and validated check digits) all decode; a full
+  16-symbol label sheet (8 × Code 128 + 8 × EAN-13) decodes completely.
+
 ## [1.5.2] - 2026-05-30
 
 ### Fixed

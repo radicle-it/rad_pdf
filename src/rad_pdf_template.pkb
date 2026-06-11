@@ -1253,16 +1253,23 @@ END apply_binds_clob;
 
 -- ---------------------------------------------------------------------------
 -- Private: evaluate <if bind="KEY">...</if> conditional blocks.
--- Copies p_src to p_dest, including block content only when the bind key
--- resolves to a non-NULL value in p_binds.  The <if>…</if> wrapper tags
--- are always removed; bind token substitution runs in the subsequent
--- apply_binds_clob pass.
+-- Copies p_src to p_dest, including block content only when the condition
+-- holds.  The <if>…</if> wrapper tags are always removed; bind token
+-- substitution runs in the subsequent apply_binds_clob pass.
+--
+-- Conditions (v1.6.0 adds eq / ne):
+--   <if bind="KEY">           TRUE when KEY exists with a non-NULL value.
+--   <if bind="KEY" eq="V">    TRUE when KEY's value equals V
+--                             (case-insensitive comparison).
+--   <if bind="KEY" ne="V">    TRUE when KEY is absent/NULL or differs from V
+--                             (logical negation of eq).
 --
 -- Rules:
---   - Condition TRUE  (key exists, value non-NULL): content is copied as-is.
---   - Condition FALSE (key absent or value NULL):   the entire block is skipped.
+--   - Condition TRUE:  content is copied as-is.
+--   - Condition FALSE: the entire block is skipped.
 --   - Nested <if> blocks are not supported (first </if> closes the block).
---   - Raises c_err_template when bind="KEY" is missing or </if> is absent.
+--   - Raises c_err_template when bind="KEY" is missing, when </if> is
+--     absent, or when eq and ne appear on the same tag.
 -- ---------------------------------------------------------------------------
 PROCEDURE apply_conditionals(
   p_src   IN CLOB,
@@ -1270,13 +1277,18 @@ PROCEDURE apply_conditionals(
   p_binds IN rad_pdf_types.t_bind_array
 ) IS
   TYPE t_cond_lookup IS TABLE OF BOOLEAN INDEX BY VARCHAR2(200);
+  TYPE t_val_lookup  IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(200);
   l_cond_lkp  t_cond_lookup;
+  l_val_lkp   t_val_lookup;
   l_src_len   PLS_INTEGER;
   l_pos       PLS_INTEGER;
   l_if_start  PLS_INTEGER;
   l_tag_end   PLS_INTEGER;
   l_tag_raw   VARCHAR2(32767);
   l_bind_key  VARCHAR2(200);
+  l_eq        VARCHAR2(4000);
+  l_ne        VARCHAR2(4000);
+  l_true      BOOLEAN;
   l_close_pos PLS_INTEGER;
   l_cnt_start PLS_INTEGER;
   l_cnt_len   PLS_INTEGER;
@@ -1292,12 +1304,20 @@ PROCEDURE apply_conditionals(
     END IF;
   END copy_src_slice;
 
+  -- TRUE when the bind exists with a value equal to p_cmp (case-insensitive)
+  FUNCTION value_equals(p_key IN VARCHAR2, p_cmp IN VARCHAR2) RETURN BOOLEAN IS
+  BEGIN
+    RETURN l_val_lkp.EXISTS(p_key)
+       AND UPPER(l_val_lkp(p_key)) = UPPER(p_cmp);
+  END value_equals;
+
 BEGIN
-  -- Build lookup: UPPER(key) present only when the value is non-NULL
+  -- Build lookups: presence (non-NULL value) and the value itself
   i := p_binds.FIRST;
   WHILE i IS NOT NULL LOOP
     IF p_binds(i).value IS NOT NULL THEN
       l_cond_lkp(UPPER(p_binds(i).key)) := TRUE;
+      l_val_lkp(UPPER(p_binds(i).key))  := p_binds(i).value;
     END IF;
     i := p_binds.NEXT(i);
   END LOOP;
@@ -1337,6 +1357,13 @@ BEGIN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
         '<if> tag missing required "bind" attribute at position ' || l_if_start);
     END IF;
+    l_eq := extract_attr(l_tag_raw, 'eq');
+    l_ne := extract_attr(l_tag_raw, 'ne');
+    IF l_eq IS NOT NULL AND l_ne IS NOT NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
+        '<if bind="' || l_bind_key || '"> has both eq and ne attributes'
+        || ' at position ' || l_if_start || ' - use one or the other');
+    END IF;
 
     -- Locate the matching </if>
     l_cnt_start := l_tag_end + 1;
@@ -1347,8 +1374,17 @@ BEGIN
         || '"> at position ' || l_if_start);
     END IF;
 
+    -- Evaluate the condition
+    IF l_eq IS NOT NULL THEN
+      l_true := value_equals(l_bind_key, l_eq);
+    ELSIF l_ne IS NOT NULL THEN
+      l_true := NOT value_equals(l_bind_key, l_ne);
+    ELSE
+      l_true := l_cond_lkp.EXISTS(l_bind_key);
+    END IF;
+
     -- Condition TRUE: copy the block content (between '>' and '</if>')
-    IF l_cond_lkp.EXISTS(l_bind_key) THEN
+    IF l_true THEN
       l_cnt_len := l_close_pos - l_cnt_start;
       IF l_cnt_len > 0 THEN
         copy_src_slice(l_cnt_start, l_close_pos - 1);

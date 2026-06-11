@@ -1005,6 +1005,93 @@ EXCEPTION WHEN OTHERS THEN
 END;
 /
 
+-- ===========================================================================
+-- Test 31: p_pages page selection (v1.6.0)
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+
+  FUNCTION array_contents_count(p_pdf BLOB) RETURN PLS_INTEGER IS
+    l_n   PLS_INTEGER := 0;
+    l_pos NUMBER := 1;
+  BEGIN
+    LOOP
+      l_pos := DBMS_LOB.INSTR(p_pdf, UTL_RAW.CAST_TO_RAW('/Contents ['), l_pos);
+      EXIT WHEN NVL(l_pos, 0) = 0;
+      l_n := l_n + 1; l_pos := l_pos + 1;
+    END LOOP;
+    RETURN l_n;
+  END;
+
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+
+  PROCEDURE three_pages IS
+  BEGIN
+    rad_pdf.write(l_doc, 'page one');
+    rad_pdf.new_page(l_doc);
+    rad_pdf.write(l_doc, 'page two');
+    rad_pdf.new_page(l_doc);
+    rad_pdf.write(l_doc, 'page three');
+  END;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 31: p_pages selection');
+  rad_pdf_styles.load_defaults;
+
+  -- single page: only page 2 carries the watermark (array /Contents)
+  l_doc := rad_pdf.new_document;
+  rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '2');
+  three_pages;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(array_contents_count(l_pdf) = 1, 'expected wm on exactly 1 page');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- open range '2-': pages 2 and 3
+  l_doc := rad_pdf.new_document;
+  rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '2-');
+  three_pages;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(array_contents_count(l_pdf) = 2, 'expected wm on 2 pages for "2-"');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- combination '1,3'
+  l_doc := rad_pdf.new_document;
+  rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '1,3');
+  three_pages;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(array_contents_count(l_pdf) = 2, 'expected wm on pages 1 and 3');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- default NULL: all pages (regression)
+  l_doc := rad_pdf.new_document;
+  rad_pdf.set_watermark(l_doc, 'DRAFT');
+  three_pages;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(array_contents_count(l_pdf) = 3, 'expected wm on all 3 pages');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- malformed spec raises c_err_validation
+  l_doc := rad_pdf.new_document;
+  BEGIN
+    rad_pdf.set_watermark(l_doc, 'X', p_pages => '1;3');
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: bad spec accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_validation,
+           'expected -20400 for bad spec, got ' || SQLCODE);
+  END;
+  rad_pdf.close_document(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 11 complete.

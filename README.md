@@ -1,6 +1,6 @@
 # RAD_PDF
 
-**Version 1.5.2** - Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
+**Version 1.6.0** - Native PL/SQL library for generating PDF documents from Oracle Database 19c+.  
 No Java, no external tools, no OS dependencies.
 
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
@@ -95,6 +95,8 @@ can be stored in a database table and updated without redeploying code.
 - **Images** — JPEG, PNG, GIF; SHA-256 session cache; load from BLOB, directory, or HTTPS URL
 - **Page templates** — header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
 - **Styles** — named, session-scoped style registry with built-in heading and table styles
+- **QR codes & barcodes** — vector QR codes (auto encoding mode, EC levels L/M/Q/H) plus Code 128, EAN-13 (check-digit validation) and Code 39
+- **Bookmarks** — navigable outline sidebar from headings (`p_bookmark => TRUE`) or manual anchors; automatic hierarchy
 - **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
 - **Document metadata** — title, author, subject, keywords in PDF Info dictionary
 - **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
@@ -127,6 +129,9 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample14.sql](docs/sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
 | [docs/sample15.sql](docs/sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [docs/sample16.sql](docs/sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
+| [docs/sample17.sql](docs/sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
+| [docs/sample18.sql](docs/sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
+| [docs/sample19.sql](docs/sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 
 ### Template engine examples
 
@@ -159,6 +164,8 @@ See **[docs/apex/README.md](docs/apex/README.md)** for APEX-specific streaming a
 | [docs/apex/apex_sample10.sql](docs/apex/apex_sample10.sql) | Image watermark loaded from application static files |
 | [docs/apex/apex_sample11.sql](docs/apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders |
 | [docs/apex/apex_sample12.sql](docs/apex/apex_sample12.sql) | Justified paragraph text with `write_wrapped 'J'` |
+| [docs/apex/apex_sample13.sql](docs/apex/apex_sample13.sql) | Payment QR code driven by page items (demo app page 3) |
+| [docs/apex/apex_sample14.sql](docs/apex/apex_sample14.sql) | 1D barcode label sheet from a query (demo app page 4) |
 
 Template engine examples for APEX (progressive curriculum — see [TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md)):
 
@@ -203,12 +210,17 @@ The v1.5 graphics-state API (`set_draw_color`, `set_fill_color`, `set_line_width
 was modeled on [PLFPDF](https://github.com/mczarski/plfpdf), a PL/SQL port of
 [FPDF](http://www.fpdf.org/) by **Olivier Plathey**.
 
+The v1.6 QR code encoding logic (`rad_pdf_barcode`) is ported from
+[as_barcode](https://github.com/antonscheffer/as_barcode) by **Anton Scheffer**
+(MIT license — full notice in `src/rad_pdf_barcode.pkb`).
+
 | Role | Name |
 |---|---|
 | Original author | Anton Scheffer |
 | AS_PDF contributors | Valerio Rossetti, Andreas Weiden, Lee Lindley, Javier Meza |
 | FPDF (PHP) | Olivier Plathey |
 | PLFPDF (PL/SQL port) | mczarski and contributors |
+| as_barcode (QR encoder, MIT) | Anton Scheffer |
 | RAD_PDF rewrite | Roberto Capancioni - Radicle S.r.l. |
 
 ---

@@ -178,6 +178,23 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   PROCEDURE add_page_proc(p_doc IN rad_pdf_types.t_doc_handle, p_src IN CLOB);
 
 -- ---------------------------------------------------------------------------
+-- Bookmarks / document outline (v1.6.0)
+--
+-- add_bookmark registers an outline entry pointing at the CURRENT page.
+-- p_level (1..6, clamped) drives the outline hierarchy: an entry nests under
+-- the nearest previous entry with a lower level.
+-- p_y: destination y (top of the target content). NULL = current cursor y
+-- plus the active font size.
+-- The outline tree is written automatically at finalize when at least one
+-- bookmark exists; all entries are created expanded.
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
 -- State queries
 -- ---------------------------------------------------------------------------
   FUNCTION get_x   (p_doc IN rad_pdf_types.t_doc_handle) RETURN NUMBER;
@@ -201,6 +218,13 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
                                p_font_res IN VARCHAR2,
                                p_img_res  IN VARCHAR2) RETURN NUMBER;
 
+  -- Write the /Outlines object tree for the registered bookmarks.
+  -- Must be called AFTER write_page_objects (page object numbers needed).
+  -- Returns the outline root object number, or NULL when no bookmarks exist
+  -- (caller then omits /Outlines from the Catalog).
+  FUNCTION write_outline_objects(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN NUMBER;
+
   -- Release per-document state (CLOBs in page_prcs + g_canvas entry).
   -- Called by rad_pdf_ctx.close_doc in reverse-dependency order.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
@@ -211,6 +235,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
 -- Replaces any previously registered watermark for p_doc.
 -- p_font_size is in points. p_angle is degrees counter-clockwise.
 -- p_layer: 'UNDER' (behind page content) or 'OVER' (in front).
+-- p_pages (v1.6.0): 1-based page selection like '1', '2-5', '3-' (open
+--   range) or combinations '1,3-5,8-'.  NULL = every page (default).
 -- ---------------------------------------------------------------------------
   PROCEDURE set_watermark(
     p_doc       IN rad_pdf_types.t_doc_handle,
@@ -220,7 +246,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
     p_color     IN rad_pdf_types.t_rgb     DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                  DEFAULT 0.3,
     p_angle     IN NUMBER                  DEFAULT 45,
-    p_layer     IN VARCHAR2                DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2                DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2                DEFAULT NULL);
 
 -- Set an image watermark drawn on every page at finalization.
 -- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
@@ -230,7 +257,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER  DEFAULT 0.3,
     p_width_pct IN NUMBER  DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
 -- Remove the watermark for p_doc. No-op if no watermark is set.
   PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);

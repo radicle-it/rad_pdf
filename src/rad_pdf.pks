@@ -67,9 +67,25 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                     p_text  IN VARCHAR2,
                     p_style IN VARCHAR2 DEFAULT 'body');
 
-  PROCEDURE heading(p_doc   IN rad_pdf_types.t_doc_handle,
-                    p_text  IN VARCHAR2,
-                    p_level IN PLS_INTEGER DEFAULT 1);
+  -- p_bookmark: also register a PDF outline (bookmark) entry for this
+  -- heading at the level p_level — documents become navigable in the
+  -- reader's sidebar with one parameter (v1.6.0).
+  PROCEDURE heading(p_doc      IN rad_pdf_types.t_doc_handle,
+                    p_text     IN VARCHAR2,
+                    p_level    IN PLS_INTEGER DEFAULT 1,
+                    p_bookmark IN BOOLEAN     DEFAULT FALSE);
+
+-- ---------------------------------------------------------------------------
+-- Bookmark / outline shortcut — delegates to rad_pdf_canvas.add_bookmark
+-- (v1.6.0).  Registers an outline entry pointing at the current page;
+-- p_level (1..6) nests the entry under the nearest previous lower level.
+-- p_y NULL = current cursor position.
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
 
   PROCEDURE spacer (p_doc    IN rad_pdf_types.t_doc_handle,
                     p_height IN NUMBER DEFAULT 12);
@@ -107,6 +123,39 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                   p_image_id IN PLS_INTEGER,
                   p_width    IN NUMBER DEFAULT NULL,
                   p_height   IN NUMBER DEFAULT NULL);
+
+-- ---------------------------------------------------------------------------
+-- QR code shortcut — delegates to rad_pdf_barcode.qrcode (v1.6.0).
+-- Draws a QR code with lower-left corner at (p_x, p_y), p_size per side
+-- (4-module quiet zone included).  See rad_pdf_barcode for details.
+-- ---------------------------------------------------------------------------
+  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
+                   p_value    IN VARCHAR2,
+                   p_x        IN NUMBER,
+                   p_y        IN NUMBER,
+                   p_size     IN NUMBER,
+                   p_ec_level IN VARCHAR2              DEFAULT 'M',
+                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
+-- 1D barcode shortcut — delegates to rad_pdf_barcode (v1.6.0).
+-- p_type: 'CODE128' | 'CODE39' | 'EAN13' (case-insensitive).
+-- The bars fill the p_width × p_height box (quiet zones included).
+-- For EAN13 the standard fixes the proportions: the module width is derived
+-- as p_width / 113 (use rad_pdf_barcode.ean13 directly to pass a module
+-- width instead).  Unknown p_type raises c_err_barcode.
+-- ---------------------------------------------------------------------------
+  PROCEDURE barcode(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_type      IN VARCHAR2,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt');
 
 -- ---------------------------------------------------------------------------
 -- Document state query
@@ -192,7 +241,8 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
     p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                DEFAULT 0.3,
     p_angle     IN NUMBER                DEFAULT 45,
-    p_layer     IN VARCHAR2              DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
   -- Register an image watermark drawn on every page at finalization.
   -- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
@@ -202,7 +252,8 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER   DEFAULT 0.3,
     p_width_pct IN NUMBER   DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
   -- Remove the watermark for p_doc. No-op if no watermark is set.
   PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);

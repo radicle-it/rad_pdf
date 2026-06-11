@@ -73,6 +73,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     l_font_res   VARCHAR2(32767);
     l_img_res    VARCHAR2(32767);
     l_pages_obj  NUMBER;
+    l_outline_obj NUMBER;
     l_cat_obj    NUMBER;
     l_info_obj   NUMBER;
     l_doc_info   rad_pdf_types.t_doc_info;
@@ -98,9 +99,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     -- 4. Page content streams + page dictionaries + Pages root
     l_pages_obj := rad_pdf_canvas.write_page_objects(p_doc, l_font_res, l_img_res);
 
-    -- 5. Catalog
+    -- 5. Outline tree (NULL when no bookmarks) + Catalog
+    l_outline_obj := rad_pdf_canvas.write_outline_objects(p_doc);
     l_cat_obj := rad_pdf_serial.begin_obj(p_doc,
-      ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R ');
+      ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R '
+      || CASE WHEN l_outline_obj IS NOT NULL THEN
+           '/Outlines ' || TO_CHAR(l_outline_obj) || ' 0 R '
+           || '/PageMode /UseOutlines '
+         END);
 
     -- 6. Info dictionary
     l_doc_info  := rad_pdf_ctx.get_info(p_doc);
@@ -200,12 +206,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END write;
 
 -- ---------------------------------------------------------------------------
-  PROCEDURE heading(p_doc   IN rad_pdf_types.t_doc_handle,
-                    p_text  IN VARCHAR2,
-                    p_level IN PLS_INTEGER DEFAULT 1) IS
+  PROCEDURE heading(p_doc      IN rad_pdf_types.t_doc_handle,
+                    p_text     IN VARCHAR2,
+                    p_level    IN PLS_INTEGER DEFAULT 1,
+                    p_bookmark IN BOOLEAN     DEFAULT FALSE) IS
   BEGIN
-    rad_pdf_layout.add(p_doc, rad_pdf_layout.heading(p_text, NVL(p_level, 1)));
+    rad_pdf_layout.add(p_doc,
+      rad_pdf_layout.heading(p_text, NVL(p_level, 1), NVL(p_bookmark, FALSE)));
   END heading;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.add_bookmark(p_doc, p_title, p_level, p_y, p_unit);
+  END add_bookmark;
 
 -- ---------------------------------------------------------------------------
   PROCEDURE spacer(p_doc    IN rad_pdf_types.t_doc_handle,
@@ -262,6 +280,52 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   BEGIN
     rad_pdf_layout.add(p_doc, rad_pdf_layout.image(p_image_id, p_width, p_height));
   END image;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
+                   p_value    IN VARCHAR2,
+                   p_x        IN NUMBER,
+                   p_y        IN NUMBER,
+                   p_size     IN NUMBER,
+                   p_ec_level IN VARCHAR2              DEFAULT 'M',
+                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_barcode.qrcode(p_doc, p_value, p_x, p_y, p_size,
+                           p_ec_level, p_color, p_unit);
+  END qrcode;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE barcode(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_type      IN VARCHAR2,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    CASE UPPER(REPLACE(REPLACE(p_type, '-'), ' '))
+      WHEN 'CODE128' THEN
+        rad_pdf_barcode.code128(p_doc, p_value, p_x, p_y, p_width, p_height,
+                                p_show_text, p_color, p_unit);
+      WHEN 'CODE39' THEN
+        rad_pdf_barcode.code39(p_doc, p_value, p_x, p_y, p_width, p_height,
+                               p_show_text, FALSE, p_color, p_unit);
+      WHEN 'EAN13' THEN
+        -- EAN-13 is 113 modules wide incl. quiet zones; derive the module.
+        rad_pdf_barcode.ean13(p_doc, p_value, p_x, p_y, p_height,
+                              p_module_w  => p_width / 113,
+                              p_show_text => p_show_text,
+                              p_unit      => p_unit);
+      ELSE
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+          'Unknown barcode type "' || p_type
+          || '" — use CODE128, CODE39 or EAN13');
+    END CASE;
+  END barcode;
 
 -- ---------------------------------------------------------------------------
   FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
@@ -373,10 +437,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                DEFAULT 0.3,
     p_angle     IN NUMBER                DEFAULT 45,
-    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2              DEFAULT NULL) IS
   BEGIN
     rad_pdf_canvas.set_watermark(p_doc, p_text, p_font_name, p_font_size,
-                                  p_color, p_opacity, p_angle, p_layer);
+                                  p_color, p_opacity, p_angle, p_layer,
+                                  p_pages);
   END set_watermark;
 
 -- ---------------------------------------------------------------------------
@@ -385,10 +451,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER   DEFAULT 0.3,
     p_width_pct IN NUMBER   DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL) IS
   BEGIN
     rad_pdf_canvas.set_watermark_image(p_doc, p_image_id, p_opacity,
-                                        p_width_pct, p_layer);
+                                        p_width_pct, p_layer, p_pages);
   END set_watermark_image;
 
 -- ---------------------------------------------------------------------------

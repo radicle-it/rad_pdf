@@ -34,8 +34,12 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
   FUNCTION paragraph(p_text  IN CLOB,
                      p_style IN VARCHAR2 DEFAULT 'body') RETURN rad_pdf_types.t_flowable;
 
-  FUNCTION heading  (p_text  IN VARCHAR2,
-                     p_level IN PLS_INTEGER DEFAULT 1)   RETURN rad_pdf_types.t_flowable;
+  -- p_bookmark: register a PDF outline entry (level = p_level) when the
+  -- heading is placed during the render pass (v1.6.0).
+  FUNCTION heading  (p_text     IN VARCHAR2,
+                     p_level    IN PLS_INTEGER DEFAULT 1,
+                     p_bookmark IN BOOLEAN     DEFAULT FALSE)
+                                                          RETURN rad_pdf_types.t_flowable;
 
   FUNCTION image    (p_image_id IN PLS_INTEGER,
                      p_width    IN NUMBER DEFAULT NULL,

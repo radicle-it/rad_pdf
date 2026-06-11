@@ -1,6 +1,6 @@
 # RAD_PDF - User Guide
 
-**Version:** 1.5.2  
+**Version:** 1.6.0  
 **Author:** Roberto Capancioni - [Radicle S.r.l.](https://radicle.it)  
 **Based on:** [AS_PDF](https://github.com/antonscheffer/as_pdf) by Anton Scheffer; v1.5 graphics-state API modeled on [PLFPDF](https://github.com/mczarski/plfpdf) / [FPDF](http://www.fpdf.org/) by Olivier Plathey  
 ← [Back to project README](../README.md)
@@ -25,9 +25,12 @@
 14. [Template Engine](#template-engine)
 15. [Watermarks](#watermarks)
 16. [Line Dash Patterns](#line-dash-patterns)
-17. [API Reference](#api-reference)
-18. [Known Limitations](#known-limitations)
-19. [Examples Index](#examples-index)
+17. [QR Codes](#qr-codes)
+18. [1D Barcodes](#1d-barcodes)
+19. [Bookmarks (Document Outline)](#bookmarks-document-outline)
+20. [API Reference](#api-reference)
+21. [Known Limitations](#known-limitations)
+22. [Examples Index](#examples-index)
 
 ---
 
@@ -874,6 +877,10 @@ l_binds(2).raw   := TRUE;              -- trusted markup from PL/SQL code
 '<if bind="COMM"><p>Commission: #COMM#</p></if>'
 ```
 
+Blocks are included when the bind exists with a non-NULL value. *(v1.6.0)*
+`eq="V"` / `ne="V"` compare the bind value (case-insensitive): see
+[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md#conditional-blocks) for the full rules.
+
 ### Data tables
 
 ```sql
@@ -942,6 +949,7 @@ rad_pdf.set_watermark(
 | `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
 | `p_angle` | `NUMBER` | `45` | Rotation in counter-clockwise degrees. Must be in [-360, 360] (ORA-20400 if not). 45 = default diagonal. |
 | `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+| `p_pages` | `VARCHAR2` | `NULL` | *(v1.6.0)* 1-based page selection: `'1'`, `'2-5'`, `'3-'` (open range) or combinations `'1,3-5,8-'`. `NULL` = every page. Malformed specs raise ORA-20400. |
 
 ### `set_watermark_image` - image watermark
 
@@ -961,6 +969,7 @@ rad_pdf.set_watermark_image(
 | `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
 | `p_width_pct` | `NUMBER` | `60` | Width of the watermark image as a percentage of the page width (1-100). Aspect ratio is preserved. Must be in [1, 100] (ORA-20400 if not). |
 | `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+| `p_pages` | `VARCHAR2` | `NULL` | *(v1.6.0)* 1-based page selection: `'1'`, `'2-5'`, `'3-'` (open range) or combinations `'1,3-5,8-'`. `NULL` = every page. Malformed specs raise ORA-20400. |
 
 ### `clear_watermark`
 
@@ -1074,6 +1083,136 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 
 ---
 
+## QR Codes
+
+*(v1.6.0)* `rad_pdf_barcode.qrcode` draws a QR code as **pure vector
+graphics** — filled PDF paths, no raster images — so it scales perfectly at
+any print resolution. The facade shortcut `rad_pdf.qrcode` delegates to it.
+
+```sql
+-- 40 mm payment QR at x=150mm, y=240mm (lower-left corner of the square)
+rad_pdf.qrcode(l_doc,
+  p_value => 'https://pay.example.com/invoice/2026-0042',
+  p_x     => 150, p_y => 240, p_size => 40,
+  p_unit  => 'mm');
+```
+
+### `qrcode` parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `p_value` | — | Text/URL to encode. Encoding mode (numeric, alphanumeric, byte, UTF-8 ECI) and QR version (1–40) are selected automatically. |
+| `p_x`, `p_y` | — | Lower-left corner of the QR square (canvas convention). |
+| `p_size` | — | Side of the square. **Includes** the mandatory 4-module quiet zone. |
+| `p_ec_level` | `'M'` | Error correction: `L` (7%), `M` (15%), `Q` (25%), `H` (30%). Unknown values fall back to `M`. |
+| `p_color` | `'000000'` | Module color (6-char hex RGB). Keep strong contrast against the background. |
+| `p_unit` | `'pt'` | Unit for `p_x`, `p_y`, `p_size`. |
+
+### Sizing for print
+
+`rad_pdf_barcode.qrcode_modules(p_value, p_ec_level)` returns the number of
+modules per side (quiet zone included) without drawing. For reliable scanning
+of printed documents keep the module size at or above ~0.8–1 mm:
+
+```sql
+l_modules := rad_pdf_barcode.qrcode_modules(l_url, 'M');  -- e.g. 37
+-- p_size = 40mm -> module = 40/37 = 1.08 mm -> OK for print
+```
+
+### Notes
+
+- Raises `c_err_barcode` (-20820) for NULL values, `p_size <= 0`, or content
+  exceeding QR version 40 capacity at the requested EC level.
+- UTF-8 content is encoded via ECI designator 26; accented characters
+  round-trip byte-perfect.
+- Higher EC levels produce denser codes but tolerate more damage — use `H`
+  when overlaying a logo or printing on low-quality media.
+- QR encoding logic ported from [as_barcode](https://github.com/antonscheffer/as_barcode)
+  by Anton Scheffer (MIT license).
+
+See [sample17.sql](sample17.sql) for payment-link, vCard and coloured-QR
+examples.
+
+---
+
+## 1D Barcodes
+
+*(v1.6.0)* Code 128, Code 39 and EAN-13, rendered as vector bars. The
+generic facade `rad_pdf.barcode` covers the common cases; the
+`rad_pdf_barcode` procedures expose symbology-specific options.
+
+```sql
+-- The bars fill the width × height box (quiet zones included)
+rad_pdf.barcode(l_doc, 'CODE128', 'RAD-PDF-2026',
+                p_x => 20, p_y => 240, p_width => 80, p_height => 18,
+                p_unit => 'mm');
+
+-- EAN-13 at nominal size: pass the module width instead of a total width
+rad_pdf_barcode.ean13(l_doc, '590123412345',     -- check digit computed
+                      p_x => 20, p_y => 190, p_height => 26, p_unit => 'mm');
+```
+
+### Symbologies
+
+| Type | Charset / input | Notes |
+|---|---|---|
+| `CODE128` | Any Latin-1 text | Subset C auto-selected for all-numeric values (digits pack two per symbol); subset B otherwise; high bytes via FNC4 |
+| `CODE39` | `A-Z 0-9 space - . $ / + %` | `p_full_ascii => TRUE` (direct API) enables extended Code 39 (full ASCII incl. lowercase); human-readable line shows the conventional `*…*` delimiters |
+| `EAN13` | 1–13 digits | < 13 digits → left-padded to 12, check digit computed. Exactly 13 → check digit **validated** (`c_err_barcode` on mismatch). Standard layout: lead digit in the quiet zone, guard bars descending through the digit line |
+
+### Notes
+
+- `p_show_text` (default `TRUE`) prints the human-readable line under the
+  bars; it is skipped automatically when the symbol is too short. The
+  current document font is saved and restored.
+- EAN-13 width is fixed by the standard at 113 modules including quiet
+  zones; the nominal module is 0.33 mm (symbol ≈ 37.3 mm). Through the
+  generic facade the module is derived as `p_width / 113`.
+- For reliable laser-scanner reading keep the Code 128 module
+  (`p_width / total modules`) at or above ~0.25 mm.
+
+See [sample18.sql](sample18.sql) for a label-sheet example and
+[apex/apex_sample14.sql](apex/apex_sample14.sql) for barcode labels from a
+query in APEX.
+
+---
+
+## Bookmarks (Document Outline)
+
+*(v1.6.0)* Bookmarks populate the PDF reader's outline sidebar; clicking an
+entry jumps to the exact position. When at least one bookmark exists the
+document opens with the sidebar visible (`/PageMode /UseOutlines`).
+
+The simplest path — mirror headings into the outline:
+
+```sql
+rad_pdf.heading(l_doc, 'Chapter 1',   1, p_bookmark => TRUE);
+rad_pdf.heading(l_doc, 'Section 1.1', 2, p_bookmark => TRUE);  -- nests under Chapter 1
+```
+
+Manual entries at any position (canvas mode included):
+
+```sql
+rad_pdf.add_bookmark(l_doc, 'Signature block', 1, p_y => 45, p_unit => 'mm');
+```
+
+### Rules
+
+- **Hierarchy**: an entry nests under the nearest previous entry with a
+  lower level (1–6, clamped). Level jumps are tolerated.
+- **Destination**: `p_y` is the y to scroll to (top of the content);
+  `NULL` = current cursor position plus the active font size. With
+  `heading(p_bookmark => TRUE)` the destination is the exact top of the
+  heading as placed by the layout engine — page breaks included.
+- **Titles**: up to 500 characters; non-ASCII titles are written as
+  UTF-16BE automatically (accents render correctly in every viewer).
+- All entries are created expanded. No bookmarks → no `/Outlines` entry,
+  output identical to previous versions.
+
+See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1086,12 +1225,16 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
 | `close_document(p_doc)` | Discard document without producing output. |
 | `write(p_doc, p_text, p_style)` | Add paragraph (layout mode). |
-| `heading(p_doc, p_text, p_level)` | Add heading h1–h6 (layout mode). |
+| `heading(p_doc, p_text, p_level, p_bookmark)` | Add heading h1–h6 (layout mode); `p_bookmark => TRUE` also registers an outline entry. |
+| `add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` | Register a PDF outline entry at the current page. See [Bookmarks](#bookmarks-document-outline). |
 | `spacer(p_doc, p_height)` | Add vertical gap in points (layout mode). |
 | `add(p_doc, p_flow)` | Add a pre-built flowable (layout mode). |
 | `new_page(p_doc)` | Page break (layout) or new page (canvas). |
 | `query2table(p_doc, p_query, p_columns, ...)` | Add table from SQL string or CLOB. |
+| `refcursor2table(p_doc, p_rc, p_columns, ...)` | Add table from an open `SYS_REFCURSOR`. |
 | `image(p_doc, p_image_id, p_width, p_height)` | Add image flowable (layout mode). |
+| `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a vector QR code. See [QR Codes](#qr-codes). |
+| `barcode(p_doc, p_type, p_value, p_x, p_y, p_width, p_height, p_show_text, p_color, p_unit)` | Draw a 1D barcode: `p_type` = `'CODE128'`, `'CODE39'` or `'EAN13'`. See [1D Barcodes](#1d-barcodes). |
 | `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
@@ -1151,6 +1294,7 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. |
 | `put_image(p_doc, p_image_id, p_x, p_y, p_width, p_height, p_align, p_valign, p_unit)` | Place image at absolute canvas coordinates. |
 | `add_page_proc(p_doc, p_src)` | Register an additional PL/SQL block to run on every page (VARCHAR2 or CLOB). Appended after the template's `header_proc`/`footer_proc`. Tokens: `#PAGE_NR#`, `#PAGE_COUNT#`, `#DOC_HANDLE#`. |
+| `add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` | Register a PDF outline entry at the current page. See [Bookmarks](#bookmarks-document-outline). |
 | `get_x(p_doc)` | Return current canvas X cursor in points. |
 | `get_y(p_doc)` | Return current canvas Y cursor in points. |
 | `get_info(p_doc, p_what)` | Return a numeric document property (same constants as `rad_pdf.get_info`). |
@@ -1175,6 +1319,16 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `get(p_name)` | Retrieve a `t_cell_format` by name. |
 | `default_scheme` | Return a `t_color_scheme` built from built-in table styles. |
 
+### `rad_pdf_barcode` package - QR codes and 1D barcodes (v1.6.0)
+
+| Subprogram | Description |
+|---|---|
+| `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a QR code as filled vector paths. See [QR Codes](#qr-codes). |
+| `qrcode_modules(p_value, p_ec_level)` | Return modules per side (quiet zone included) without drawing — for print-size calculations. |
+| `code128(p_doc, p_value, p_x, p_y, p_width, p_height, p_show_text, p_color, p_unit)` | Code 128, subsets B/C auto-selected. See [1D Barcodes](#1d-barcodes). |
+| `code39(p_doc, p_value, p_x, p_y, p_width, p_height, p_show_text, p_full_ascii, p_color, p_unit)` | Code 39; `p_full_ascii` enables extended ASCII. |
+| `ean13(p_doc, p_digits, p_x, p_y, p_height, p_module_w, p_show_text, p_unit)` | EAN-13; check digit computed (12 digits) or validated (13). Width = 113 × module. |
+
 ### Error codes (`rad_pdf_types` constants)
 
 | Constant | Code | When raised |
@@ -1186,6 +1340,7 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `c_err_image` | -20710 | Image load or format error |
 | `c_err_layout` | -20750 | Layout engine error |
 | `c_err_handle` | -20760 | Invalid document handle |
+| `c_err_barcode` | -20820 | QR/barcode encoding error (NULL value, size <= 0, capacity exceeded) |
 
 **Template engine error codes** (`rad_pdf_template`):
 
@@ -1215,6 +1370,11 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 
 4. **GIF animation** - only the first frame is used.
 
+5. **PNG**: interlaced (Adam7) files and 16-bit-per-channel files with alpha
+   are rejected with a clear error - re-save as non-interlaced / 8-bit.
+   8-bit alpha (RGBA and grey+alpha) is fully supported: the alpha channel
+   becomes a PDF SMask (v1.6.0).
+
 5. **Right-to-left text** (Arabic, Hebrew) is not supported; glyphs are placed left-to-right.
 
 ---
@@ -1239,6 +1399,9 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | [sample14.sql](sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
 | [sample15.sql](sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
+| [sample17.sql](sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
+| [sample18.sql](sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
+| [sample19.sql](sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 
 ### Template engine examples (standalone PL/SQL)
 
@@ -1274,6 +1437,8 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample10.sql](apex/apex_sample10.sql) | Image watermark loaded from application static files with graceful fallback |
 | [apex/apex_sample11.sql](apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders on reports |
 | [apex/apex_sample12.sql](apex/apex_sample12.sql) | Justified paragraph text using `write_wrapped` with `'J'` alignment |
+| [apex/apex_sample13.sql](apex/apex_sample13.sql) | Payment QR code driven by page items (demo app page 3) |
+| [apex/apex_sample14.sql](apex/apex_sample14.sql) | 1D barcode label sheet from a query (demo app page 4) |
 
 **Template engine (progressive curriculum - start at 01, work through to 14):**
 

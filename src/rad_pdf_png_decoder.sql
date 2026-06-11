@@ -66,6 +66,14 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
           l_height     := blob2num(p_blob, 4, l_pos + 12);
           l_cres       := blob2num(p_blob, 1, l_pos + 16);
           l_color_type := blob2num(p_blob, 1, l_pos + 17);
+          -- Interlaced (Adam7) scanline layout is incompatible with both the
+          -- PDF Predictor-15 path and the alpha-strip unfilter: rendering
+          -- would be silently corrupted.  Fail with a clear message instead.
+          IF blob2num(p_blob, 1, l_pos + 20) != 0 THEN
+            RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+              'rad_pdf_png_decoder.decode: interlaced (Adam7) PNG is not'
+              || ' supported - re-save the image as non-interlaced', TRUE);
+          END IF;
           l_grey       := CASE WHEN l_color_type IN (0, 4) THEN 1 ELSE 0 END;
           l_ncolors    := CASE l_color_type
                             WHEN 0 THEN 1   -- greyscale
