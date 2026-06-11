@@ -14,9 +14,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
 
   TYPE t_handle_set   IS TABLE OF BOOLEAN              INDEX BY PLS_INTEGER;
   TYPE t_doc_info_map IS TABLE OF rad_pdf_types.t_doc_info INDEX BY PLS_INTEGER;
+  TYPE t_conf_map     IS TABLE OF VARCHAR2(10)            INDEX BY PLS_INTEGER;
 
   g_active_docs  t_handle_set;
   g_doc_info     t_doc_info_map;
+  g_conformance t_conf_map;
   g_next_handle  PLS_INTEGER := 1;
 
 -- ---------------------------------------------------------------------------
@@ -49,6 +51,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
 -- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
   BEGIN
+    g_conformance.DELETE(p_doc);
     IF NOT is_valid(p_doc) THEN RETURN; END IF;
 
     -- Per-package cleanup in reverse dependency order (highest level first).
@@ -72,6 +75,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
       g_doc_info.DELETE(p_doc);
     END IF;
   END close_doc;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_conformance(p_doc   IN rad_pdf_types.t_doc_handle,
+                            p_level IN VARCHAR2) IS
+  BEGIN
+    assert_valid(p_doc);
+    IF UPPER(p_level) != 'PDF/A-2B' THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_ctx.set_conformance: unsupported level "' || p_level
+        || '" - only PDF/A-2B is supported', TRUE);
+    END IF;
+    g_conformance(p_doc) := 'PDF/A-2B';
+  END set_conformance;
+
+-- ---------------------------------------------------------------------------
+  FUNCTION get_conformance(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN VARCHAR2 IS
+  BEGIN
+    IF g_conformance.EXISTS(p_doc) THEN
+      RETURN g_conformance(p_doc);
+    END IF;
+    RETURN NULL;
+  END get_conformance;
 
 -- ---------------------------------------------------------------------------
   PROCEDURE set_info(p_doc  IN rad_pdf_types.t_doc_handle,

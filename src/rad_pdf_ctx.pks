@@ -31,5 +31,15 @@ CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
   FUNCTION  get_info(p_doc IN rad_pdf_types.t_doc_handle)
     RETURN rad_pdf_types.t_doc_info;
 
+-- ---------------------------------------------------------------------------
+-- Conformance level (v1.7.0).  NULL = plain PDF (default).
+-- Currently supported value: 'PDF/A-2B'.  Stored per document; finalize
+-- reads it to emit XMP metadata, OutputIntent and enforce font embedding.
+-- ---------------------------------------------------------------------------
+  PROCEDURE set_conformance(p_doc   IN rad_pdf_types.t_doc_handle,
+                            p_level IN VARCHAR2);
+  FUNCTION  get_conformance(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN VARCHAR2;
+
 END rad_pdf_ctx;
 /

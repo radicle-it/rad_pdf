@@ -445,6 +445,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
         RETURN rad_pdf_canvas.measure_wrapped(p_doc, l_text, p_frame.width);
       WHEN rad_pdf_types.c_flow_spacer THEN
         RETURN NVL(p_flow.spacer_h, 0);
+      WHEN rad_pdf_types.c_flow_qrcode THEN
+        RETURN NVL(p_flow.img_width, 0);
       WHEN rad_pdf_types.c_flow_hline THEN
         RETURN 2;
       WHEN rad_pdf_types.c_flow_image THEN
@@ -509,6 +511,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
                                  NVL(l_style.align_h, 'L'), 'pt');
       WHEN rad_pdf_types.c_flow_spacer THEN
         NULL;
+      WHEN rad_pdf_types.c_flow_qrcode THEN
+        -- Dynamic call: rad_pdf_barcode compiles AFTER this package (it is
+        -- install Phase 12, layout is Phase 7), so a static reference would
+        -- invert the dependency order.  One soft-parsed call per QR flowable.
+        DECLARE
+          l_sz NUMBER := NVL(p_flow.img_width, 0);
+          l_qx NUMBER;
+        BEGIN
+          l_qx := CASE p_flow.qr_align
+                    WHEN 'C' THEN p_frame.x + (p_frame.width - l_sz) / 2
+                    WHEN 'R' THEN p_frame.x + p_frame.width - l_sz
+                    ELSE p_frame.x
+                  END;
+          EXECUTE IMMEDIATE
+            'BEGIN rad_pdf_barcode.qrcode(:d, :v, :x, :y, :s, :e, :c, ''pt''); END;'
+            USING p_doc, DBMS_LOB.SUBSTR(p_flow.text, 4000, 1),
+                  l_qx, p_y - l_sz, l_sz,
+                  p_flow.qr_ec, p_flow.style_name;
+        END;
       WHEN rad_pdf_types.c_flow_hline THEN
         l_lc := NVL(p_flow.style_name, '000000');
         l_lw := NVL(p_flow.img_width, 0.5);
@@ -651,6 +672,35 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
     l_f.flow_type := rad_pdf_types.c_flow_pagebreak;
     RETURN l_f;
   END page_break;
+
+-- ---------------------------------------------------------------------------
+  FUNCTION qrcode(p_value IN VARCHAR2,
+                  p_size  IN NUMBER,
+                  p_ec    IN VARCHAR2                DEFAULT 'M',
+                  p_color IN rad_pdf_types.t_rgb     DEFAULT '000000',
+                  p_align IN rad_pdf_types.t_align_h DEFAULT 'L')
+    RETURN rad_pdf_types.t_flowable IS
+    l_f   rad_pdf_types.t_flowable;
+    l_len PLS_INTEGER := NVL(LENGTH(p_value), 0);
+  BEGIN
+    IF l_len = 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_layout.qrcode: p_value must not be NULL', TRUE);
+    END IF;
+    IF NVL(p_size, 0) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'rad_pdf_layout.qrcode: p_size must be > 0', TRUE);
+    END IF;
+    l_f.flow_type  := rad_pdf_types.c_flow_qrcode;
+    l_f.img_width  := p_size;
+    l_f.style_name := NVL(p_color, '000000');
+    l_f.qr_ec      := NVL(UPPER(p_ec), 'M');
+    l_f.qr_align   := CASE WHEN UPPER(p_align) IN ('L','C','R')
+                           THEN UPPER(p_align) ELSE 'L' END;
+    DBMS_LOB.CREATETEMPORARY(l_f.text, TRUE);
+    DBMS_LOB.WRITEAPPEND(l_f.text, l_len, p_value);
+    RETURN l_f;
+  END qrcode;
 
 -- ---------------------------------------------------------------------------
   FUNCTION paragraph_runs(

@@ -2,10 +2,10 @@
 --   rad_pdf_barcode (QR + Code128/EAN-13/Code39)
 --   bookmarks / document outline (rad_pdf_canvas + rad_pdf_layout hook)
 --
--- Used by install.sql for a fresh install (runs after phase 9, BEFORE
--- phase 8 — the facade body references rad_pdf_template and
--- rad_pdf_barcode) AND as the complete UPGRADE script for an existing
--- v1.5.x installation.
+-- Used by install.sql for a fresh install (runs after phase 9) AND as the
+-- first half of the UPGRADE from a v1.5.x installation: run
+-- install_phase13.sql immediately after (it compiles the facade, whose
+-- source references both rad_pdf_barcode and rad_pdf_chart).
 --
 -- Upgrade note: recompiling rad_pdf_types (t_flowable gains the bookmark
 -- field) invalidates dependents not recompiled here (serial, fonts, images,
@@ -65,12 +65,8 @@ PROMPT --- rad_pdf_barcode body
 @@../rad_pdf_barcode.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_barcode
 
-PROMPT --- rad_pdf spec (adds qrcode, barcode, add_bookmark, heading p_bookmark)
-@@../rad_pdf.pks
-SHOW ERRORS PACKAGE rad_pdf
-
-PROMPT --- rad_pdf body
-@@../rad_pdf.pkb
-SHOW ERRORS PACKAGE BODY rad_pdf
+-- NOTE (v1.7.0): the facade is NOT compiled here any more — its source now
+-- references rad_pdf_chart (Phase 13).  Always run install_phase13.sql
+-- after this script; it compiles the facade.
 
 PROMPT === Phase 12 install complete ===

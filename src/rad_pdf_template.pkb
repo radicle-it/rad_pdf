@@ -698,6 +698,32 @@ BEGIN
       l_img_h := parse_unit_attr(p_tag, 'height', NULL);
       rad_pdf_layout.add(p_doc, rad_pdf_layout.image(l_id, l_img_w, l_img_h));
 
+    -- <qrcode value="..." [size="40mm"] [ec="M"] [color="003366"]
+    --         [align="C"]/>  (v1.7.0) ---------------------------------------
+    WHEN 'qrcode' THEN
+      DECLARE
+        l_val   VARCHAR2(4000) := extract_attr(p_tag, 'value');
+        l_size  NUMBER;
+        l_ec    VARCHAR2(10);
+        l_align VARCHAR2(10);
+      BEGIN
+        IF l_val IS NULL THEN
+          RAISE_APPLICATION_ERROR(c_err_attr_val,
+            '<qrcode> missing required "value" attribute');
+        END IF;
+        l_size  := parse_unit_attr(p_tag, 'size', 113.39);  -- default 40 mm
+        l_ec    := NVL(UPPER(extract_attr(p_tag, 'ec')), 'M');
+        l_color := UPPER(NVL(extract_attr(p_tag, 'color'), '000000'));
+        IF NOT is_valid_rgb(l_color) THEN l_color := '000000'; END IF;
+        l_align := NVL(UPPER(extract_attr(p_tag, 'align')), 'L');
+        IF l_align NOT IN ('L', 'C', 'R') THEN
+          RAISE_APPLICATION_ERROR(c_err_attr_val,
+            '<qrcode> invalid align "' || l_align || '" - use L, C or R');
+        END IF;
+        rad_pdf_layout.add(p_doc,
+          rad_pdf_layout.qrcode(l_val, l_size, l_ec, l_color, l_align));
+      END;
+
     -- <table columns="NAME" query="SELECT ..." allow_query="true"/>  ---------
     WHEN 'table' THEN
       handle_table_tag(p_doc, p_tag, p_options);
@@ -1524,7 +1550,7 @@ BEGIN
       ELSE
         -- Determine if self-closing: tag ends with '/>' or is a known void element
         l_is_self := RTRIM(l_tag_raw) LIKE '%/>'
-                     OR l_tag_name IN ('spacer', 'hr', 'pagebreak', 'img', 'table');
+                     OR l_tag_name IN ('spacer', 'hr', 'pagebreak', 'img', 'table', 'qrcode');
 
         IF l_is_self THEN
           dispatch_self_close(p_doc, l_tag_name, l_tag_raw, l_opts);

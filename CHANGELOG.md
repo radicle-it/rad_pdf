@@ -7,6 +7,68 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 _No unreleased changes._
 
+## [1.7.0] - 2026-06-12
+
+### Added - Native charts (`rad_pdf_chart`, install Phase 13)
+
+- New stateless package **`rad_pdf_chart`**: single-series **bar**, **line**
+  and **pie** charts as pure vector graphics (axes, gridlines, bars,
+  cubic-Bézier pie slices — no images).
+  - "Nice numbers" y scale (1/2/5 × 10^k gridline steps).
+  - Line charts support negative values (zero axis drawn inside the plot).
+  - Built-in 10-colour palette; `p_colors` override with cycling.
+  - Pie legend with colour swatches and percentages.
+  - Document font saved/restored around every chart.
+- Facade shortcuts `rad_pdf.bar_chart` / `line_chart` / `pie_chart`.
+- `rad_pdf_types.t_text_list` and `t_rgb_list` collection types.
+- `src/install/install_phase13.sql` — fresh-install phase, doubles as the
+  v1.6.0 → v1.7.0 upgrade script.
+- `tests/phase16_chart.sql` — 5 acceptance tests.
+- `docs/sample20.sql` — dashboard with all three chart types.
+
+### Added - `<qrcode>` template tag
+
+- New `QRCODE` flowable in the layout engine (`rad_pdf_layout.qrcode`
+  constructor): a QR square that participates in the flow like an image,
+  with L/C/R alignment inside the frame. Rendered via a dynamic call to
+  `rad_pdf_barcode` (which compiles after the layout package).
+- Template tag `<qrcode value="…" [size="40mm"] [ec="M"] [color="…"]
+  [align="C"]/>`; `value` supports `#BIND#` tokens. (phase10 test 38)
+- Documented that `auto_width` in `<table>` needs no new syntax: it is a
+  property of the registered column set.
+
+### Added - PDF/A-2b conformance
+
+- **`rad_pdf.set_conformance(p_doc, 'PDF/A-2B')`**: the finalized document
+  gains XMP metadata (synchronised with the Info dictionary, shared
+  timestamp), an sRGB OutputIntent (456-byte CC0 ICC profile from
+  Compact-ICC-Profiles), and the trailer `/ID`. Every used font must be
+  EMBEDDED: `c_err_font` names the offending fonts (the standard 14 PDF
+  fonts cannot be used in this mode). Charts inherit the current document
+  font instead of hardcoding Helvetica, so they work in PDF/A documents.
+- Validated with **veraPDF**: vector-only and embedded-TTF text + chart +
+  QR documents both report `isCompliant="true"` (144 rules, 0 failed).
+- Trailer `/ID` and the `endstream` EOL framing fix are applied to every
+  document (required by ISO 19005, harmless otherwise).
+- `tests/phase17_pdfa.sql` — 5 acceptance tests.
+
+### Fixed - TrueType loading was completely broken (latent)
+
+- **`parse_ttf_tables` read the table directory with 0-based offsets**, but
+  `DBMS_LOB` positions are 1-based: `numTables` always read as 0, so NO
+  table was ever parsed — font name, metrics, widths and cmap all stayed
+  NULL and embedded-font documents were invalid. Never caught because no
+  test loaded a TTF. Now fixed, with table processing in dependency order
+  ('loca' precedes 'maxp' alphabetically but needs its glyph count).
+- FontDescriptor metrics (Ascent/Descent/CapHeight/FontBBox) are now
+  normalised to 1000-units-per-em glyph space.
+- The page font resource pointed at the FontFile2 stream instead of the
+  font dictionary when embedding (non-CID branch).
+- The name-table read was off by one byte, producing garbage /BaseFont
+  values; names are also sanitised to clean PDF name tokens.
+- `load_ttf` on a document with no prior font usage raised ORA-01403
+  (NO_DATA_FOUND on collection-field access before entry creation).
+
 ## [1.6.0] - 2026-06-11
 
 ### Added - QR codes (`rad_pdf_barcode`, install Phase 12)

@@ -69,6 +69,76 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END new_document;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE set_conformance(p_doc   IN rad_pdf_types.t_doc_handle,
+                            p_level IN VARCHAR2) IS
+  BEGIN
+    rad_pdf_ctx.set_conformance(p_doc, p_level);
+  END set_conformance;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: XMP metadata packet for PDF/A (UTF-8; BOM in the xpacket header).
+-- Values MUST stay consistent with the Info dictionary (veraPDF checks).
+-- ---------------------------------------------------------------------------
+  FUNCTION build_xmp(p_info     IN rad_pdf_types.t_doc_info,
+                     p_date_iso IN VARCHAR2) RETURN BLOB IS
+    l_b   BLOB;
+    l_xml VARCHAR2(32767);
+    PROCEDURE w(p_s IN VARCHAR2) IS
+    BEGIN
+      l_xml := l_xml || p_s || CHR(10);
+    END w;
+  BEGIN
+    w('<?xpacket begin="' || UTL_RAW.CAST_TO_VARCHAR2(HEXTORAW('EFBBBF'))
+      || '" id="W5M0MpCehiHzreSzNTczkc9d"?>');
+    w('<x:xmpmeta xmlns:x="adobe:ns:meta/">');
+    w(' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">');
+    w('  <rdf:Description rdf:about=""'
+      || ' xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">');
+    w('   <pdfaid:part>2</pdfaid:part>');
+    w('   <pdfaid:conformance>B</pdfaid:conformance>');
+    w('  </rdf:Description>');
+    w('  <rdf:Description rdf:about=""'
+      || ' xmlns:dc="http://purl.org/dc/elements/1.1/">');
+    IF p_info.title IS NOT NULL THEN
+      w('   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">'
+        || rad_pdf_codec.xml_escape(p_info.title)
+        || '</rdf:li></rdf:Alt></dc:title>');
+    END IF;
+    IF p_info.author IS NOT NULL THEN
+      w('   <dc:creator><rdf:Seq><rdf:li>'
+        || rad_pdf_codec.xml_escape(p_info.author)
+        || '</rdf:li></rdf:Seq></dc:creator>');
+    END IF;
+    IF p_info.subject IS NOT NULL THEN
+      w('   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">'
+        || rad_pdf_codec.xml_escape(p_info.subject)
+        || '</rdf:li></rdf:Alt></dc:description>');
+    END IF;
+    w('  </rdf:Description>');
+    w('  <rdf:Description rdf:about=""'
+      || ' xmlns:xmp="http://ns.adobe.com/xap/1.0/">');
+    w('   <xmp:CreatorTool>RAD_PDF</xmp:CreatorTool>');
+    w('   <xmp:CreateDate>' || p_date_iso || '</xmp:CreateDate>');
+    w('   <xmp:ModifyDate>' || p_date_iso || '</xmp:ModifyDate>');
+    w('  </rdf:Description>');
+    w('  <rdf:Description rdf:about=""'
+      || ' xmlns:pdf="http://ns.adobe.com/pdf/1.3/">');
+    w('   <pdf:Producer>Oracle Database 19c+</pdf:Producer>');
+    IF p_info.keywords IS NOT NULL THEN
+      w('   <pdf:Keywords>' || rad_pdf_codec.xml_escape(p_info.keywords)
+        || '</pdf:Keywords>');
+    END IF;
+    w('  </rdf:Description>');
+    w(' </rdf:RDF>');
+    w('</x:xmpmeta>');
+    w('<?xpacket end="w"?>');
+    DBMS_LOB.CREATETEMPORARY(l_b, TRUE, DBMS_LOB.SESSION);
+    DBMS_LOB.WRITEAPPEND(l_b, UTL_RAW.LENGTH(UTL_RAW.CAST_TO_RAW(l_xml)),
+                         UTL_RAW.CAST_TO_RAW(l_xml));
+    RETURN l_b;
+  END build_xmp;
+
+-- ---------------------------------------------------------------------------
   FUNCTION finalize(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
     l_font_res   VARCHAR2(32767);
     l_img_res    VARCHAR2(32767);
@@ -76,6 +146,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     l_outline_obj NUMBER;
     l_cat_obj    NUMBER;
     l_info_obj   NUMBER;
+    l_conf       VARCHAR2(10);
+    l_icc        BLOB;
+    l_icc_obj    NUMBER;
+    l_oi_obj     NUMBER;
+    l_xmp        BLOB;
+    l_xmp_obj    NUMBER;
+    l_ts         TIMESTAMP WITH TIME ZONE;
+    l_date_iso   VARCHAR2(30);
     l_doc_info   rad_pdf_types.t_doc_info;
     l_total_pgs  PLS_INTEGER;
     l_date_str   VARCHAR2(30);
@@ -89,8 +167,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     END IF;
 
     l_total_pgs := rad_pdf_serial.page_count(p_doc);
+    l_conf      := rad_pdf_ctx.get_conformance(p_doc);
 
-    -- 2. Font resource objects
+    -- 2. Font resource objects (PDF/A: every used font must be embedded)
+    IF l_conf IS NOT NULL THEN
+      rad_pdf_fonts.assert_all_embedded(p_doc);
+    END IF;
     l_font_res := rad_pdf_fonts.write_font_objects(p_doc);
 
     -- 3. Image resource objects
@@ -99,18 +181,52 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     -- 4. Page content streams + page dictionaries + Pages root
     l_pages_obj := rad_pdf_canvas.write_page_objects(p_doc, l_font_res, l_img_res);
 
-    -- 5. Outline tree (NULL when no bookmarks) + Catalog
+    -- 5. Outline tree (NULL when no bookmarks); PDF/A objects; Catalog
     l_outline_obj := rad_pdf_canvas.write_outline_objects(p_doc);
+
+    IF l_conf IS NOT NULL THEN
+      -- One timestamp for BOTH the XMP packet and the Info dictionary:
+      -- PDF/A validators check that they are consistent.
+      l_ts       := SYSTIMESTAMP AT TIME ZONE 'UTC';
+      l_date_iso := TO_CHAR(l_ts, 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+
+      -- sRGB OutputIntent (ICC profile stream + intent dictionary)
+      l_icc := rad_pdf_codec.srgb_icc;
+      l_icc_obj := rad_pdf_serial.write_stream_obj(p_doc, l_icc,
+                     ' /N 3', TRUE);
+      DBMS_LOB.FREETEMPORARY(l_icc);
+      l_oi_obj := rad_pdf_serial.begin_obj(p_doc,
+        '/Type /OutputIntent /S /GTS_PDFA1'
+        || ' /OutputConditionIdentifier (sRGB)'
+        || ' /Info (sRGB IEC61966-2.1)'
+        || ' /DestOutputProfile ' || TO_CHAR(l_icc_obj) || ' 0 R');
+
+      -- XMP metadata stream (must be UNCOMPRESSED per ISO 19005)
+      l_doc_info := rad_pdf_ctx.get_info(p_doc);
+      l_xmp := build_xmp(l_doc_info, l_date_iso);
+      l_xmp_obj := rad_pdf_serial.write_stream_obj(p_doc, l_xmp,
+                     ' /Type /Metadata /Subtype /XML', FALSE);
+      DBMS_LOB.FREETEMPORARY(l_xmp);
+    END IF;
+
     l_cat_obj := rad_pdf_serial.begin_obj(p_doc,
       ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R '
       || CASE WHEN l_outline_obj IS NOT NULL THEN
            '/Outlines ' || TO_CHAR(l_outline_obj) || ' 0 R '
            || '/PageMode /UseOutlines '
+         END
+      || CASE WHEN l_conf IS NOT NULL THEN
+           '/Metadata ' || TO_CHAR(l_xmp_obj) || ' 0 R '
+           || '/OutputIntents [' || TO_CHAR(l_oi_obj) || ' 0 R] '
          END);
 
-    -- 6. Info dictionary
+    -- 6. Info dictionary (PDF/A: dates and Producer/Creator must match XMP)
     l_doc_info  := rad_pdf_ctx.get_info(p_doc);
-    l_date_str  := pdf_date;
+    IF l_conf IS NOT NULL THEN
+      l_date_str := 'D:' || TO_CHAR(l_ts, 'YYYYMMDDHH24MISS') || 'Z';
+    ELSE
+      l_date_str := pdf_date;
+    END IF;
     l_info_obj  := rad_pdf_serial.begin_obj(p_doc);
     rad_pdf_serial.doc_write(p_doc, '<<');
     IF l_doc_info.title    IS NOT NULL THEN
@@ -326,6 +442,59 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
           || '" — use CODE128, CODE39 or EAN13');
     END CASE;
   END barcode;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE bar_chart(
+    p_doc         IN rad_pdf_types.t_doc_handle,
+    p_values      IN rad_pdf_types.t_number_list,
+    p_x           IN NUMBER,
+    p_y           IN NUMBER,
+    p_width       IN NUMBER,
+    p_height      IN NUMBER,
+    p_labels      IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors      IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_values IN BOOLEAN                   DEFAULT TRUE,
+    p_title       IN VARCHAR2                  DEFAULT NULL,
+    p_unit        IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.bar_chart(p_doc, p_values, p_x, p_y, p_width, p_height,
+                            p_labels, p_colors, p_show_values, p_title, p_unit);
+  END bar_chart;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE line_chart(
+    p_doc          IN rad_pdf_types.t_doc_handle,
+    p_values       IN rad_pdf_types.t_number_list,
+    p_x            IN NUMBER,
+    p_y            IN NUMBER,
+    p_width        IN NUMBER,
+    p_height       IN NUMBER,
+    p_labels       IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors       IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_markers IN BOOLEAN                   DEFAULT TRUE,
+    p_title        IN VARCHAR2                  DEFAULT NULL,
+    p_unit         IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.line_chart(p_doc, p_values, p_x, p_y, p_width, p_height,
+                             p_labels, p_colors, p_show_markers, p_title, p_unit);
+  END line_chart;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE pie_chart(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_values  IN rad_pdf_types.t_number_list,
+    p_cx      IN NUMBER,
+    p_cy      IN NUMBER,
+    p_radius  IN NUMBER,
+    p_labels  IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors  IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_legend  IN BOOLEAN                   DEFAULT TRUE,
+    p_title   IN VARCHAR2                  DEFAULT NULL,
+    p_unit    IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.pie_chart(p_doc, p_values, p_cx, p_cy, p_radius,
+                            p_labels, p_colors, p_legend, p_title, p_unit);
+  END pie_chart;
 
 -- ---------------------------------------------------------------------------
   FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
