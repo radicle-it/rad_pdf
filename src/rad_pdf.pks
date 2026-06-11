@@ -123,6 +123,25 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                    p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt');
 
 -- ---------------------------------------------------------------------------
+-- 1D barcode shortcut — delegates to rad_pdf_barcode (v1.6.0).
+-- p_type: 'CODE128' | 'CODE39' | 'EAN13' (case-insensitive).
+-- The bars fill the p_width × p_height box (quiet zones included).
+-- For EAN13 the standard fixes the proportions: the module width is derived
+-- as p_width / 113 (use rad_pdf_barcode.ean13 directly to pass a module
+-- width instead).  Unknown p_type raises c_err_barcode.
+-- ---------------------------------------------------------------------------
+  PROCEDURE barcode(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_type      IN VARCHAR2,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
 -- Document state query
 -- ---------------------------------------------------------------------------
 

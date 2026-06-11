@@ -20,15 +20,27 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
     [as_barcode](https://github.com/antonscheffer/as_barcode) by Anton
     Scheffer (MIT — notice in the package body header). Rendering layer is
     RAD_PDF-native.
-- `rad_pdf.qrcode` facade shortcut.
+- **1D barcodes**: `code128` (subsets B/C auto-selected, Latin-1 via FNC4),
+  `code39` (standard charset validated; `p_full_ascii` for extended mode),
+  `ean13` (check digit computed for 12 digits, **validated** for 13;
+  standard layout with descending guard bars and knockout digit zones).
+  Shared vector renderer: one filled path per symbol, human-readable line
+  with document font save/restore.
+- `rad_pdf.qrcode` facade shortcut and generic `rad_pdf.barcode(p_type, …)`
+  dispatcher (`CODE128` / `CODE39` / `EAN13`, separators tolerated).
 - `rad_pdf.refcursor2table` facade shortcut (API gap: the `rad_pdf_table`
   procedure existed but was not exposed on the facade).
 - `rad_pdf_types.c_err_barcode` (-20820).
 - `src/install/install_phase12.sql` — compiles the barcode package; doubles
   as the v1.5.x → v1.6.0 upgrade script.
-- `tests/phase13_barcode.sql` — 10 acceptance tests (version selection,
-  error paths, all encoding modes, high-version content, watermark coexistence).
+- `tests/phase13_barcode.sql` — 15 acceptance tests (QR version selection,
+  error paths, all encoding modes, high-version content, watermark
+  coexistence, Code 128 subsets, Code 39 charset validation, EAN-13 check
+  digit handling, facade dispatcher, font-state restore).
 - `docs/sample17.sql` — payment-link QR, UTF-8 vCard, coloured QR at EC H.
+- `docs/sample18.sql` — 1D barcode label sheet (Code 128, EAN-13, Code 39).
+- `docs/apex/apex_sample13.sql` — payment QR from page items (demo app page 3).
+- `docs/apex/apex_sample14.sql` — barcode labels from a query (demo app page 4).
 
 ### Fixed
 
@@ -44,6 +56,9 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - QR output validated end-to-end: PDF → 150-dpi raster → decoded with the
   macOS Vision framework. URL, multi-line vCard and UTF-8 accented content
   (via `UNISTR`, byte-perfect ECI round-trip) all decode correctly.
+- 1D output validated the same way: Code 128 subsets B and C, Code 39, and
+  EAN-13 (both computed and validated check digits) all decode; a full
+  16-symbol label sheet (8 × Code 128 + 8 × EAN-13) decodes completely.
 
 ## [1.5.2] - 2026-05-30
 

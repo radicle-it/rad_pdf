@@ -291,6 +291,185 @@ EXCEPTION WHEN OTHERS THEN
 END;
 /
 
+-- ===========================================================================
+-- Test 11: Code 128 - subsets B and C render into a valid PDF
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 11: Code 128 subsets B and C');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_barcode.code128(l_doc, 'RAD-PDF-2026', 60, 700, 220, 50);  -- subset B
+  rad_pdf_barcode.code128(l_doc, '0123456789',  60, 600, 180, 50);   -- subset C
+  rad_pdf_barcode.code128(l_doc, 'NoText', 60, 500, 150, 30,
+                          p_show_text => FALSE);
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(DBMS_LOB.GETLENGTH(l_pdf) > 1500, 'BLOB too small');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 12: Code 39 - charset validation and full-ASCII mode
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 12: Code 39 charset validation + full ASCII');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_barcode.code39(l_doc, 'ABC-1234', 60, 700, 260, 50);
+  -- lowercase rejected in standard mode
+  BEGIN
+    rad_pdf_barcode.code39(l_doc, 'abc', 60, 600, 200, 50);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: lowercase accepted in standard mode');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_barcode,
+           'expected -20820 for lowercase, got ' || SQLCODE);
+  END;
+  -- lowercase OK in full-ASCII mode
+  rad_pdf_barcode.code39(l_doc, 'abc', 60, 600, 200, 50, p_full_ascii => TRUE);
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(DBMS_LOB.GETLENGTH(l_pdf) > 1000, 'BLOB too small');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 13: EAN-13 - check digit computed, validated, and rejected
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 13: EAN-13 check digit handling');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  -- 12 digits: check digit computed (5901234123457)
+  rad_pdf_barcode.ean13(l_doc, '590123412345', 60, 700, 70);
+  -- 13 digits with correct check digit: accepted
+  rad_pdf_barcode.ean13(l_doc, '8001120008978', 60, 580, 70);
+  -- 13 digits with wrong check digit: rejected
+  BEGIN
+    rad_pdf_barcode.ean13(l_doc, '8001120008977', 60, 460, 70);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: wrong check digit accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_barcode,
+           'expected -20820 for bad check digit, got ' || SQLCODE);
+  END;
+  -- non-digits rejected
+  BEGIN
+    rad_pdf_barcode.ean13(l_doc, '12345A', 60, 340, 70);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: non-digit accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_barcode,
+           'expected -20820 for non-digits, got ' || SQLCODE);
+  END;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(DBMS_LOB.GETLENGTH(l_pdf) > 1500, 'BLOB too small');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 14: facade rad_pdf.barcode dispatcher (all types + unknown type)
+-- ===========================================================================
+DECLARE
+  l_doc rad_pdf_types.t_doc_handle;
+  l_pdf BLOB;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 14: facade barcode dispatcher');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf.barcode(l_doc, 'CODE128', 'FACADE-TEST', 20, 240, 80, 18, p_unit => 'mm');
+  rad_pdf.barcode(l_doc, 'code 39', 'FACADE39',    20, 210, 80, 18, p_unit => 'mm');
+  rad_pdf.barcode(l_doc, 'EAN-13',  '590123412345', 20, 175, 40, 25, p_unit => 'mm');
+  BEGIN
+    rad_pdf.barcode(l_doc, 'AZTEC', 'X', 20, 140, 40, 20, p_unit => 'mm');
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: unknown type accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_barcode,
+           'expected -20820 for unknown type, got ' || SQLCODE);
+  END;
+  l_pdf := rad_pdf.finalize(l_doc);
+  assert(DBMS_LOB.GETLENGTH(l_pdf) > 1500, 'BLOB too small');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
+-- ===========================================================================
+-- Test 15: 1D barcodes restore the document font state
+-- ===========================================================================
+DECLARE
+  l_doc  rad_pdf_types.t_doc_handle;
+  l_pdf  BLOB;
+  l_size NUMBER;
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 15: font state restored after human-readable text');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_canvas.set_font(l_doc, 'Times', 'B', 14);
+  rad_pdf_barcode.code128(l_doc, 'FONT-STATE', 60, 700, 200, 50);
+  l_size := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_font_size);
+  assert(l_size = 14, 'font size not restored: ' || l_size);
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 13 complete - all barcode tests passed.

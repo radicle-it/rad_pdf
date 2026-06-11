@@ -36,11 +36,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
 */
 
 -- ---------------------------------------------------------------------------
--- Private types (matrix of modules: 0 = light, 1 = dark)
--- matrix(outer)(inner) = (column, row-from-top) — see renderer mapping.
+-- Private types
+-- QR:  matrix of modules (0 = light, 1 = dark);
+--      matrix(outer)(inner) = (column, row-from-top) — see renderer mapping.
+-- 1D:  bar row = sequence of widths in modules; positive = dark bar,
+--      negative = light gap (quiet zones included by the encoders).
 -- ---------------------------------------------------------------------------
   type tp_bits is table of pls_integer index by pls_integer;
   type tp_matrix is table of tp_bits index by pls_integer;
+  type tp_bar_row is table of number;
+  type tp_mapping is table of tp_bar_row index by pls_integer;
 
 -- ===========================================================================
 -- PORTED FROM as_barcode (MIT) — begin
@@ -1005,6 +1010,269 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
     add_quiet( p_matrix, 4 );
     --
   end gen_qrcode_matrix;
+  function upc_checksum( p_val in varchar2 )
+  return varchar2
+  is
+    l_tmp pls_integer := 0;
+  begin
+    for i in 1 .. length( p_val )
+    loop
+      l_tmp := l_tmp + to_number( substr( p_val, - i, 1 ) )
+                       * ( 1 + 2 * mod( i, 2 ) );
+    end loop;
+    return to_char( ceil( l_tmp / 10 ) * 10 - l_tmp, 'fm0' );
+  end;
+  --
+  procedure gen_code128( p_val varchar2
+                       , p_row in out nocopy tp_bar_row
+                       , p_human out varchar2
+                       )
+  is
+    l_quiet tp_bar_row;
+    l_code pls_integer;
+    l_map varchar2(400);
+    l_mapping tp_mapping;
+    l_check number;
+    l_idx pls_integer;
+    l_buf raw(32767);
+    l_char pls_integer;
+    l_charset varchar2(100);
+  begin
+    p_human := null;
+    p_row := tp_bar_row();
+    --
+    l_map := '4555455541161252151521612515125216110591491580951851945905095184'
+          || '9158184881590591485194195044646464402620622406224226042260262004'
+          || 'A0682480860A42848844286084824A0488806824A04842860A408C0530E00017'
+          || '035107134305314053071143170341350710503C807012C001D10D11C0D11C11'
+          || 'D0C11D01D1044C4C4C4400E02C20C0C20E0C02C2008C0C880CC08431413419';
+    for i in 0 .. 105
+    loop
+      l_code := to_number( substr( l_map, 1 + i * 3, 3 ), 'XXX' );
+      l_mapping( i ) := tp_bar_row
+          ( 2 * sign( bitand( l_code, 2048 ) ) + sign( bitand( l_code, 1024 ) ) + 1
+          , - ( 2 * sign( bitand( l_code, 512 ) ) + sign( bitand( l_code, 256 ) ) + 1 )
+          , 2 * sign( bitand( l_code, 128 ) ) + sign( bitand( l_code, 64 ) ) + 1
+          , - ( 2 * sign( bitand( l_code, 32 ) ) + sign( bitand( l_code, 16 ) ) + 1 )
+          , 2 * sign( bitand( l_code, 8 ) ) + sign( bitand( l_code, 4 ) ) + 1
+          , - ( 2 * sign( bitand( l_code, 2 ) ) + sign( bitand( l_code, 1 ) ) + 1 )
+          );
+    end loop;
+    --
+    l_idx := 1;
+    l_quiet := tp_bar_row( -10 );
+    p_row := l_quiet;
+    if p_val is not null and ltrim( p_val, '1234567890' ) is null
+    then
+      l_check := 105; -- Start Code C
+      p_row := p_row multiset union l_mapping( l_check );
+      for c in 1 .. trunc( length( p_val ) / 2 )
+      loop
+        l_char := to_number( substr( p_val, 2 * c - 1, 2 ) );
+        p_row := p_row multiset union l_mapping( l_char );
+        l_check := l_check + l_char * l_idx;
+        l_idx := l_idx + 1;
+      end loop;
+      if mod( length( p_val ), 2 ) = 1
+      then
+        p_row := p_row multiset union l_mapping( 100 ); -- Switch B
+        l_check := l_check + 100 * l_idx;
+        l_idx := l_idx + 1;
+        l_char := ascii( substr( p_val, -1 ) ) - 32;
+        p_row := p_row multiset union l_mapping( l_char );
+        l_check := l_check + l_char * l_idx;
+      end if;
+      p_human := p_val;
+    else
+      l_charset := 'WE8ISO8859P1';
+      l_buf := utl_i18n.string_to_raw( p_val, l_charset );
+      --
+      l_check := 104; -- Start Code B
+      p_row := p_row multiset union l_mapping( l_check );
+      for c in 1 .. utl_raw.length( l_buf )
+      loop
+        l_char := to_number( utl_raw.substr( l_buf, c, 1 ), 'xx' );
+        if l_char > 127
+        then
+          p_human := p_human || utl_i18n.raw_to_char( to_char( l_char, 'fm0X' ), l_charset );
+          p_row := p_row multiset union l_mapping( 100 ); -- FNC 4
+          l_check := l_check + 100 * l_idx;
+          l_char := l_char - 128;
+          l_idx := l_idx + 1;
+        end if;
+        if l_char between 32 and 127
+        then
+          p_human := p_human || utl_i18n.raw_to_char( to_char( l_char, 'fm0X' ), l_charset );
+          p_row := p_row multiset union l_mapping( l_char - 32 );
+          l_check := l_check + ( l_char - 32 ) * l_idx;
+        elsif l_char < 32
+        then
+          p_row := p_row multiset union l_mapping( 98 ); -- Shift A
+          l_check := l_check + 98 * l_idx;
+          l_idx := l_idx + 1;
+          p_row := p_row multiset union l_mapping( l_char );
+          l_check := l_check + l_char * l_idx;
+        end if;
+        l_idx := l_idx + 1;
+      end loop;
+    end if;
+    p_row := p_row multiset union l_mapping( mod( l_check, 103 ) );
+    p_row := p_row multiset union tp_bar_row( 2, -3, 3, -1, 1, -1, 2 ); -- stop
+    p_row := p_row multiset union l_quiet;
+    l_quiet.delete;
+  end gen_code128;
+  --
+  procedure gen_code39( p_val varchar2
+                      , p_full boolean
+                      , p_row in out nocopy tp_bar_row
+                      , p_human out varchar2
+                      )
+  is
+    l_val varchar2(4000);
+    l_ascii pls_integer;
+    l_quiet tp_bar_row;
+    l_mapping tp_mapping;
+    --
+    procedure add2line( p_row in out nocopy tp_bar_row, p_val tp_bar_row )
+    is
+    begin
+      p_row := p_row multiset union tp_bar_row( -1 ) -- one separator
+                     multiset union p_val;
+    end;
+    --
+    procedure add2mapping( p_mapping in out nocopy tp_mapping
+                         , p_idx pls_integer
+                         , p_a pls_integer
+                         , p_b pls_integer
+                         )
+    is
+    begin
+      p_mapping( p_idx ) := p_mapping( p_a )
+             multiset union tp_bar_row( -1 )
+             multiset union p_mapping( p_b );
+    end;
+    --
+    procedure create_mapping( p_mapping in out nocopy tp_mapping
+                            , p_map varchar2
+                            )
+    is
+      l_entry pls_integer;
+      l_bits tp_bar_row;
+      function wide_narrow( p_bit pls_integer )
+      return number
+      is
+      begin
+        return case when p_bit = 0 then 1 else 2.4 end;
+      end;
+    begin
+      for i in 0 .. length( p_map ) / 4 - 1
+      loop
+        l_entry := to_number( substr( p_map, i * 4 + 1, 4 ), '0XXX' );
+        l_bits := tp_bar_row( wide_narrow( bitand( l_entry, 256 ) ) );
+        for i in reverse 0 .. 7
+        loop
+          l_bits := l_bits multiset union
+                 tp_bar_row( ( 1 - 2 * mod( i, 2 ) )
+                           * wide_narrow( bitand( l_entry, power( 2, i ) ) )
+                           );
+        end loop;
+        p_mapping( nvl( nullif( trunc( l_entry / 512 ), 0 ), 128 ) ) := l_bits;
+      end loop;
+      l_bits.delete;
+    end;
+  begin
+    p_human := null;
+    p_row := tp_bar_row();
+    l_val := p_val;
+    --
+    l_quiet := tp_bar_row( -10 );
+    create_mapping( l_mapping
+                  , '009440C448A84A2A568A5A855D845EA2603463216461676068316B306C70'
+                 || '6E257124726483098449874888198B188C588E0D910C924C941C97039843'
+                 || '9B429C139F12A052A207A506A646A816AB81ACC1AFC0B091B390B4D0'
+                  );
+    --
+    if p_full
+    then
+      for i in 97 .. 122 loop
+        add2mapping( l_mapping, i, 43, i - 32 ); -- +
+      end loop;
+      for i in 1 .. 26 loop
+        add2mapping( l_mapping, i, 36, i + 64 ); -- $
+      end loop;
+      for i in 1 .. 5 loop
+        add2mapping( l_mapping, 26 + i, 37, i + 64 ); -- %
+        add2mapping( l_mapping, 26 + i + 32, 37, i + 64 + 5 );  -- %
+        add2mapping( l_mapping, 26 + i + 64, 37, i + 64 + 10 ); -- %
+        add2mapping( l_mapping, 26 + i + 96, 37, i + 64 + 15 ); -- %
+      end loop;
+      add2mapping( l_mapping, 0, 37, 85 );   -- %U
+      add2mapping( l_mapping, 64, 37, 86 );  -- %V
+      add2mapping( l_mapping, 96, 37, 87 );  -- %W
+      for i in 33 .. 44 loop
+        add2mapping( l_mapping, i, 47, i + 32 ); -- /
+      end loop;
+      add2mapping( l_mapping, 47, 47, 79 ); -- /O
+    end if;
+    --
+    p_row := l_quiet;
+    add2line( p_row, l_mapping( 128 ) ); -- start character
+    for i in 1 .. length( l_val )
+    loop
+      -- characters not allowed for (extended) code39 will throw an error
+      -- either on ascii not fitting in a plsql_integer or an uninitialized mapping
+      l_ascii := ascii( substr( l_val, i, 1 ) );
+      add2line( p_row, l_mapping( l_ascii ) );
+      if l_ascii between 32 and 126
+      then
+        p_human := p_human || chr( l_ascii );
+      end if;
+    end loop;
+    add2line( p_row, l_mapping( 128 ) ); -- end character
+    add2line( p_row, l_quiet );
+    --
+    p_human := '*' || p_human || '*';
+    --
+    l_quiet.delete;
+    l_mapping.delete;
+  end gen_code39;
+  --
+  procedure init_ean_digits( p_mapping in out nocopy tp_mapping )
+  is
+    l_w1 number;
+    l_w2 number;
+    l_w3 number;
+    l_w4 number;
+  begin
+    -- number Set C
+    p_mapping( 20 ) := tp_bar_row( 3, -2, 1, -1 );
+    p_mapping( 21 ) := tp_bar_row( 2.0769, -1.9231, 2.0769, -0.9231 );
+    p_mapping( 22 ) := tp_bar_row( 2.0769, -0.9231, 2.0769, -1.9231 );
+    p_mapping( 23 ) := tp_bar_row( 1, -4, 1, -1 );
+    p_mapping( 24 ) := tp_bar_row( 1, -1, 3, -2 );
+    p_mapping( 25 ) := tp_bar_row( 1, -2, 3, -1 );
+    p_mapping( 26 ) := tp_bar_row( 1, -1, 1, -4 );
+    p_mapping( 27 ) := tp_bar_row( 1.0769, -2.9231, 1.0769, -1.9231 );
+    p_mapping( 28 ) := tp_bar_row( 1.0769, -1.9231, 1.0769, -2.9231 );
+    p_mapping( 29 ) := tp_bar_row( 3, -1, 1, -2 );
+    p_mapping( 30 ) := tp_bar_row( 1, -1, 1 );         -- left/right guard bar
+    p_mapping( 31 ) := tp_bar_row( -1, 1, -1, 1, -1 ); -- centre guard bar
+    p_mapping( 33 ) := tp_bar_row( 1, -1, 2 );         -- add-on guard bar
+    p_mapping( 34 ) := tp_bar_row( -1, 1 );            -- add-on delineator
+    --
+    for i in 0 .. 9
+    loop
+      l_w1 := p_mapping( 20 + i )(1);
+      l_w2 := p_mapping( 20 + i )(2);
+      l_w3 := p_mapping( 20 + i )(3);
+      l_w4 := p_mapping( 20 + i )(4);
+      -- number Set A
+      p_mapping( i ) := tp_bar_row( - l_w1, - l_w2, - l_w3, - l_w4 );
+      -- number Set B
+      p_mapping( 10 + i ) := tp_bar_row( l_w4, l_w3, l_w2, l_w1 );
+    end loop;
+  end;
+
 -- ===========================================================================
 -- PORTED FROM as_barcode (MIT) — end
 -- ===========================================================================
@@ -1124,6 +1392,356 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
     encode_qr(p_value, p_ec_level, l_matrix);
     RETURN l_matrix.COUNT;
   END qrcode_modules;
+
+-- ===========================================================================
+-- 1D barcodes (Code 128 / Code 39 / EAN-13)
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: EAN-13 bar row assembly (uses ported init_ean_digits + parity
+-- selection from the EAN standard).  p_val must be 1..13 digits; a 13th
+-- digit, when present, is validated as the check digit.
+-- ---------------------------------------------------------------------------
+  PROCEDURE gen_ean13(p_val   IN VARCHAR2,
+                      p_row   IN OUT NOCOPY tp_bar_row,
+                      p_human OUT VARCHAR2) IS
+    l_val     VARCHAR2(13);
+    l_mapping tp_mapping;
+    l_first   PLS_INTEGER;
+
+    PROCEDURE add_digit(p_pos IN PLS_INTEGER, p_set IN PLS_INTEGER) IS
+    BEGIN
+      p_row := p_row MULTISET UNION
+               l_mapping(p_set + TO_NUMBER(SUBSTR(l_val, p_pos, 1)));
+    END add_digit;
+  BEGIN
+    IF p_val IS NULL
+       OR LTRIM(p_val, '0123456789') IS NOT NULL
+       OR LENGTH(p_val) > 13 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'EAN-13 value must be 1..13 digits');
+    END IF;
+    IF LENGTH(p_val) = 13 THEN
+      IF SUBSTR(p_val, 13, 1) != upc_checksum(SUBSTR(p_val, 1, 12)) THEN
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+          'EAN-13 check digit mismatch: expected '
+          || upc_checksum(SUBSTR(p_val, 1, 12)) || ', got ' || SUBSTR(p_val, 13, 1));
+      END IF;
+      l_val := p_val;
+    ELSE
+      l_val := LPAD(p_val, 12, '0');
+      l_val := l_val || upc_checksum(l_val);
+    END IF;
+    p_human := l_val;
+
+    init_ean_digits(l_mapping);
+    l_first := TO_NUMBER(SUBSTR(l_val, 1, 1));
+
+    -- Left quiet (11) + guard + 6 left digits (parity set by first digit)
+    -- + centre guard + 6 right digits (set C) + guard + right quiet (7).
+    -- Sets: 0 = A, 10 = B, 20 = C.  Parity table per the EAN-13 standard.
+    p_row := tp_bar_row(-11);
+    p_row := p_row MULTISET UNION l_mapping(30);
+    add_digit(2, 0);
+    add_digit(3, CASE WHEN l_first < 4 THEN 0 ELSE 10 END);
+    add_digit(4, CASE WHEN l_first IN (0, 4, 7, 8) THEN 0 ELSE 10 END);
+    add_digit(5, CASE WHEN l_first IN (0, 1, 4, 5, 9) THEN 0 ELSE 10 END);
+    add_digit(6, CASE WHEN l_first IN (0, 2, 5, 6, 7) THEN 0 ELSE 10 END);
+    add_digit(7, CASE WHEN l_first IN (0, 3, 6, 8, 9) THEN 0 ELSE 10 END);
+    p_row := p_row MULTISET UNION l_mapping(31);
+    FOR i IN 8 .. 13 LOOP
+      add_digit(i, 20);
+    END LOOP;
+    p_row := p_row MULTISET UNION l_mapping(30);
+    p_row := p_row MULTISET UNION tp_bar_row(-7);
+  END gen_ean13;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: total width of a bar row in modules
+-- ---------------------------------------------------------------------------
+  FUNCTION row_modules(p_row IN tp_bar_row) RETURN NUMBER IS
+    l_w NUMBER := 0;
+  BEGIN
+    FOR i IN 1 .. p_row.COUNT LOOP
+      l_w := l_w + ABS(p_row(i));
+    END LOOP;
+    RETURN l_w;
+  END row_modules;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: append one bar rectangle to a path (same shape as the QR helper)
+-- ---------------------------------------------------------------------------
+  PROCEDURE path_add_bar(p_path IN OUT NOCOPY rad_pdf_types.t_path,
+                         p_x IN NUMBER, p_y IN NUMBER,
+                         p_w IN NUMBER, p_h IN NUMBER) IS
+    l_i PLS_INTEGER := p_path.COUNT;
+    l_e rad_pdf_types.t_path_element;
+  BEGIN
+    l_e.element_type := rad_pdf_types.c_move_to;
+    l_e.x1 := p_x;       l_e.y1 := p_y;       p_path(l_i)     := l_e;
+    l_e.element_type := rad_pdf_types.c_line_to;
+    l_e.x1 := p_x + p_w;                      p_path(l_i + 1) := l_e;
+    l_e.y1 := p_y + p_h;                      p_path(l_i + 2) := l_e;
+    l_e.x1 := p_x;                            p_path(l_i + 3) := l_e;
+    l_e.element_type := rad_pdf_types.c_close;
+    l_e.x1 := NULL;      l_e.y1 := NULL;      p_path(l_i + 4) := l_e;
+  END path_add_bar;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: draw a bar row as one filled path (all bars, single fill)
+-- ---------------------------------------------------------------------------
+  PROCEDURE draw_bar_row(p_doc    IN rad_pdf_types.t_doc_handle,
+                         p_row    IN tp_bar_row,
+                         p_x0     IN NUMBER,      -- pt
+                         p_y0     IN NUMBER,      -- pt, bottom of the bars
+                         p_module IN NUMBER,      -- pt per module
+                         p_height IN NUMBER,      -- pt
+                         p_color  IN rad_pdf_types.t_rgb) IS
+    l_path rad_pdf_types.t_path;
+    l_x    NUMBER := p_x0;
+  BEGIN
+    FOR i IN 1 .. p_row.COUNT LOOP
+      IF p_row(i) > 0 THEN
+        path_add_bar(l_path, l_x, p_y0, p_row(i) * p_module, p_height);
+      END IF;
+      l_x := l_x + ABS(p_row(i)) * p_module;
+    END LOOP;
+    IF l_path.COUNT > 0 THEN
+      rad_pdf_canvas.path(p_doc, l_path,
+                          p_line_color => NULL,
+                          p_fill_color => NVL(p_color, '000000'));
+    END IF;
+  END draw_bar_row;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: human-readable line under Code 128 / Code 39 bars.
+-- Saves and restores the document font; text colour follows p_color and is
+-- reset to black afterwards.
+-- ---------------------------------------------------------------------------
+  PROCEDURE draw_human_text(p_doc   IN rad_pdf_types.t_doc_handle,
+                            p_text  IN VARCHAR2,
+                            p_x0    IN NUMBER,    -- pt
+                            p_y0    IN NUMBER,    -- pt, text baseline
+                            p_width IN NUMBER,    -- pt, centring width
+                            p_size  IN NUMBER,
+                            p_color IN rad_pdf_types.t_rgb) IS
+    l_font_idx  PLS_INTEGER;
+    l_font_size NUMBER;
+    l_tw        NUMBER;
+  BEGIN
+    l_font_idx  := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_font_idx);
+    l_font_size := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_font_size);
+    rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', p_size);
+    rad_pdf_canvas.set_color(p_doc, NVL(p_color, '000000'));
+    l_tw := rad_pdf_canvas.text_width(p_doc, p_text);
+    rad_pdf_canvas.write_text(p_doc, p_text,
+                              p_x0 + GREATEST((p_width - l_tw) / 2, 0),
+                              p_y0, 'pt');
+    rad_pdf_canvas.set_color(p_doc, '000000');
+    IF l_font_idx IS NOT NULL THEN
+      rad_pdf_canvas.set_font(p_doc, l_font_idx, l_font_size);
+    END IF;
+  END draw_human_text;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: shared renderer for Code 128 / Code 39
+-- ---------------------------------------------------------------------------
+  PROCEDURE render_1d(p_doc       IN rad_pdf_types.t_doc_handle,
+                      p_row       IN tp_bar_row,
+                      p_human     IN VARCHAR2,
+                      p_x         IN NUMBER,
+                      p_y         IN NUMBER,
+                      p_width     IN NUMBER,
+                      p_height    IN NUMBER,
+                      p_show_text IN BOOLEAN,
+                      p_color     IN rad_pdf_types.t_rgb,
+                      p_unit      IN rad_pdf_types.t_unit) IS
+    c_text_strip CONSTANT NUMBER := 10;  -- pt reserved under the bars
+    c_font_size  CONSTANT NUMBER := 8;
+    l_x0     NUMBER := rad_pdf_units.to_pt(p_x,      p_unit);
+    l_y0     NUMBER := rad_pdf_units.to_pt(p_y,      p_unit);
+    l_w      NUMBER := rad_pdf_units.to_pt(p_width,  p_unit);
+    l_h      NUMBER := rad_pdf_units.to_pt(p_height, p_unit);
+    l_module NUMBER;
+    l_bar_y  NUMBER := l_y0;
+    l_bar_h  NUMBER := l_h;
+    l_text   BOOLEAN := NVL(p_show_text, FALSE);
+  BEGIN
+    IF NVL(p_width, 0) <= 0 OR NVL(p_height, 0) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'barcode width and height must be > 0');
+    END IF;
+    l_module := l_w / row_modules(p_row);
+    -- Text needs room: skip it (bars only) when the symbol is too short.
+    IF l_text AND l_h >= 2 * c_text_strip THEN
+      l_bar_y := l_y0 + c_text_strip;
+      l_bar_h := l_h - c_text_strip;
+    ELSE
+      l_text := FALSE;
+    END IF;
+    draw_bar_row(p_doc, p_row, l_x0, l_bar_y, l_module, l_bar_h, p_color);
+    IF l_text THEN
+      draw_human_text(p_doc, p_human, l_x0, l_y0 + 1, l_w, c_font_size, p_color);
+    END IF;
+  END render_1d;
+
+-- ---------------------------------------------------------------------------
+-- code128 — Code 128 (subsets B/C selected automatically; Latin-1 via FNC4)
+-- ---------------------------------------------------------------------------
+  PROCEDURE code128(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_row   tp_bar_row;
+    l_human VARCHAR2(4000);
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    IF p_value IS NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'Code 128 value must not be NULL');
+    END IF;
+    BEGIN
+      gen_code128(p_value, l_row, l_human);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'Code 128 encoding failed (' || SQLERRM || ')');
+    END;
+    render_1d(p_doc, l_row, l_human, p_x, p_y, p_width, p_height,
+              p_show_text, p_color, p_unit);
+  END code128;
+
+-- ---------------------------------------------------------------------------
+-- code39 — Code 39 (standard charset; p_full_ascii enables extended mode)
+-- ---------------------------------------------------------------------------
+  PROCEDURE code39(p_doc        IN rad_pdf_types.t_doc_handle,
+                   p_value      IN VARCHAR2,
+                   p_x          IN NUMBER,
+                   p_y          IN NUMBER,
+                   p_width      IN NUMBER,
+                   p_height     IN NUMBER,
+                   p_show_text  IN BOOLEAN               DEFAULT TRUE,
+                   p_full_ascii IN BOOLEAN               DEFAULT FALSE,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_row   tp_bar_row;
+    l_human VARCHAR2(4000);
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    IF p_value IS NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'Code 39 value must not be NULL');
+    END IF;
+    IF NOT NVL(p_full_ascii, FALSE)
+       AND LTRIM(p_value,
+                 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -.$/+%') IS NOT NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'Code 39 standard charset is A-Z 0-9 space - . $ / + % '
+        || '(use p_full_ascii => TRUE for lowercase/extended ASCII)');
+    END IF;
+    BEGIN
+      gen_code39(p_value, NVL(p_full_ascii, FALSE), l_row, l_human);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'Code 39 encoding failed — character not encodable ('
+        || SQLERRM || ')');
+    END;
+    render_1d(p_doc, l_row, l_human, p_x, p_y, p_width, p_height,
+              p_show_text, p_color, p_unit);
+  END code39;
+
+-- ---------------------------------------------------------------------------
+-- ean13 — EAN-13 retail barcode.
+-- Width is defined by the standard (113 modules incl. quiet zones); pass the
+-- module width (NULL = nominal 0.33 mm) and the symbol height.
+-- Guard bars run full height; digit bars stop above the human-readable line
+-- (white knockout strips, as in the printed standard).
+-- ---------------------------------------------------------------------------
+  PROCEDURE ean13(p_doc       IN rad_pdf_types.t_doc_handle,
+                  p_digits    IN VARCHAR2,
+                  p_x         IN NUMBER,
+                  p_y         IN NUMBER,
+                  p_height    IN NUMBER,
+                  p_module_w  IN NUMBER               DEFAULT NULL,
+                  p_show_text IN BOOLEAN              DEFAULT TRUE,
+                  p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_row    tp_bar_row;
+    l_human  VARCHAR2(13);
+    l_x0     NUMBER := rad_pdf_units.to_pt(p_x, p_unit);
+    l_y0     NUMBER := rad_pdf_units.to_pt(p_y, p_unit);
+    l_h      NUMBER := rad_pdf_units.to_pt(p_height, p_unit);
+    l_module NUMBER;
+    l_text_h NUMBER;
+    l_fsize  NUMBER;
+    l_font_idx  PLS_INTEGER;
+    l_font_size NUMBER;
+
+    PROCEDURE knockout(p_from_mod IN NUMBER, p_mods IN NUMBER) IS
+    BEGIN
+      rad_pdf_canvas.rect(p_doc,
+        l_x0 + p_from_mod * l_module, l_y0,
+        p_mods * l_module, l_text_h,
+        p_line_color => NULL, p_fill_color => 'FFFFFF');
+    END knockout;
+
+    PROCEDURE digit_at(p_chr IN VARCHAR2, p_cell_from IN NUMBER) IS
+      l_tw NUMBER := rad_pdf_canvas.text_width(p_doc, p_chr);
+    BEGIN
+      rad_pdf_canvas.write_text(p_doc, p_chr,
+        l_x0 + p_cell_from * l_module + (7 * l_module - l_tw) / 2,
+        l_y0 + 0.5, 'pt');
+    END digit_at;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    IF NVL(p_height, 0) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'EAN-13 height must be > 0');
+    END IF;
+    l_module := CASE
+                  WHEN p_module_w IS NULL THEN rad_pdf_units.to_pt(0.33, 'mm')
+                  ELSE rad_pdf_units.to_pt(p_module_w, p_unit)
+                END;
+    IF l_module <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'EAN-13 module width must be > 0');
+    END IF;
+    gen_ean13(p_digits, l_row, l_human);
+
+    IF NVL(p_show_text, FALSE) AND l_h > 12 * l_module THEN
+      l_text_h := 9 * l_module;
+    ELSE
+      l_text_h := 0;
+    END IF;
+
+    -- All bars full height; the digit zones are then knocked out at the
+    -- bottom so only the guard bars descend through the text line.
+    draw_bar_row(p_doc, l_row, l_x0, l_y0, l_module, l_h, '000000');
+
+    IF l_text_h > 0 THEN
+      knockout(14, 42);   -- left digit zone  (after 11 quiet + 3 guard)
+      knockout(61, 42);   -- right digit zone (after centre guard)
+
+      l_font_idx  := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_font_idx);
+      l_font_size := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_font_size);
+      l_fsize := 9 * l_module;
+      rad_pdf_canvas.set_font(p_doc, 'Helvetica', 'N', l_fsize);
+      rad_pdf_canvas.set_color(p_doc, '000000');
+      digit_at(SUBSTR(l_human, 1, 1), 2);          -- lead digit in quiet zone
+      FOR i IN 2 .. 7 LOOP
+        digit_at(SUBSTR(l_human, i, 1), 14 + (i - 2) * 7);
+      END LOOP;
+      FOR i IN 8 .. 13 LOOP
+        digit_at(SUBSTR(l_human, i, 1), 61 + (i - 8) * 7);
+      END LOOP;
+      IF l_font_idx IS NOT NULL THEN
+        rad_pdf_canvas.set_font(p_doc, l_font_idx, l_font_size);
+      END IF;
+    END IF;
+  END ean13;
 
 END rad_pdf_barcode;
 /

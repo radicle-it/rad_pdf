@@ -50,5 +50,74 @@ CREATE OR REPLACE PACKAGE rad_pdf_barcode AUTHID DEFINER IS
                           p_ec_level IN VARCHAR2 DEFAULT 'M')
     RETURN PLS_INTEGER;
 
+-- ---------------------------------------------------------------------------
+-- Code 128
+--
+-- Bars fill the p_width × p_height box at (p_x, p_y) lower-left, quiet zones
+-- (10 modules each side) included.  Subset C (digit pairs) is selected
+-- automatically for all-numeric values, subset B otherwise; Latin-1
+-- characters are encoded via FNC4.
+--
+-- p_show_text: human-readable value under the bars (10 pt strip, Helvetica
+-- 8 pt).  Skipped silently when p_height < 20 pt.  The current document
+-- font is saved and restored; text colour is reset to black afterwards.
+--
+-- Raises c_err_barcode for NULL values or non-positive dimensions.
+-- ---------------------------------------------------------------------------
+  PROCEDURE code128(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
+-- Code 39
+--
+-- Standard charset: A-Z 0-9 space - . $ / + %  (values outside it raise
+-- c_err_barcode with a clear message).  p_full_ascii => TRUE enables
+-- extended Code 39 (full ASCII 0-127, lowercase included).
+-- Geometry and p_show_text behave as in code128; the human-readable line
+-- is shown between the conventional '*' start/stop delimiters.
+-- ---------------------------------------------------------------------------
+  PROCEDURE code39(p_doc        IN rad_pdf_types.t_doc_handle,
+                   p_value      IN VARCHAR2,
+                   p_x          IN NUMBER,
+                   p_y          IN NUMBER,
+                   p_width      IN NUMBER,
+                   p_height     IN NUMBER,
+                   p_show_text  IN BOOLEAN               DEFAULT TRUE,
+                   p_full_ascii IN BOOLEAN               DEFAULT FALSE,
+                   p_color      IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit       IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
+-- EAN-13
+--
+-- The symbol width is fixed by the standard: 113 modules including quiet
+-- zones (95 + 11 left + 7 right).  Pass the module width instead of a total
+-- width; NULL = nominal 0.33 mm (total ≈ 37.3 mm).  Total width in pt =
+-- 113 × module.
+--
+-- p_digits: 1..13 digits.  Fewer than 13 → left-padded to 12, check digit
+-- computed.  Exactly 13 → the 13th digit is VALIDATED as the check digit
+-- (c_err_barcode on mismatch).
+--
+-- p_show_text: standard layout — lead digit in the left quiet zone, six
+-- digits per half, guard bars descending through the text line.  Digits are
+-- always black.  Skipped when p_height <= 12 modules.
+-- ---------------------------------------------------------------------------
+  PROCEDURE ean13(p_doc       IN rad_pdf_types.t_doc_handle,
+                  p_digits    IN VARCHAR2,
+                  p_x         IN NUMBER,
+                  p_y         IN NUMBER,
+                  p_height    IN NUMBER,
+                  p_module_w  IN NUMBER               DEFAULT NULL,
+                  p_show_text IN BOOLEAN              DEFAULT TRUE,
+                  p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt');
+
 END rad_pdf_barcode;
 /

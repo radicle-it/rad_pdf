@@ -278,6 +278,38 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END qrcode;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE barcode(p_doc       IN rad_pdf_types.t_doc_handle,
+                    p_type      IN VARCHAR2,
+                    p_value     IN VARCHAR2,
+                    p_x         IN NUMBER,
+                    p_y         IN NUMBER,
+                    p_width     IN NUMBER,
+                    p_height    IN NUMBER,
+                    p_show_text IN BOOLEAN               DEFAULT TRUE,
+                    p_color     IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                    p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    CASE UPPER(REPLACE(REPLACE(p_type, '-'), ' '))
+      WHEN 'CODE128' THEN
+        rad_pdf_barcode.code128(p_doc, p_value, p_x, p_y, p_width, p_height,
+                                p_show_text, p_color, p_unit);
+      WHEN 'CODE39' THEN
+        rad_pdf_barcode.code39(p_doc, p_value, p_x, p_y, p_width, p_height,
+                               p_show_text, FALSE, p_color, p_unit);
+      WHEN 'EAN13' THEN
+        -- EAN-13 is 113 modules wide incl. quiet zones; derive the module.
+        rad_pdf_barcode.ean13(p_doc, p_value, p_x, p_y, p_height,
+                              p_module_w  => p_width / 113,
+                              p_show_text => p_show_text,
+                              p_unit      => p_unit);
+      ELSE
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+          'Unknown barcode type "' || p_type
+          || '" — use CODE128, CODE39 or EAN13');
+    END CASE;
+  END barcode;
+
+-- ---------------------------------------------------------------------------
   FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
                     p_info IN PLS_INTEGER) RETURN NUMBER IS
   BEGIN

@@ -95,7 +95,7 @@ can be stored in a database table and updated without redeploying code.
 - **Images** — JPEG, PNG, GIF; SHA-256 session cache; load from BLOB, directory, or HTTPS URL
 - **Page templates** — header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
 - **Styles** — named, session-scoped style registry with built-in heading and table styles
-- **QR codes** — vector QR codes (no raster) with automatic encoding mode, EC levels L/M/Q/H, custom color
+- **QR codes & barcodes** — vector QR codes (auto encoding mode, EC levels L/M/Q/H) plus Code 128, EAN-13 (check-digit validation) and Code 39
 - **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
 - **Document metadata** — title, author, subject, keywords in PDF Info dictionary
 - **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
@@ -129,6 +129,7 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample15.sql](docs/sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [docs/sample16.sql](docs/sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 | [docs/sample17.sql](docs/sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
+| [docs/sample18.sql](docs/sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
 
 ### Template engine examples
 
@@ -161,6 +162,8 @@ See **[docs/apex/README.md](docs/apex/README.md)** for APEX-specific streaming a
 | [docs/apex/apex_sample10.sql](docs/apex/apex_sample10.sql) | Image watermark loaded from application static files |
 | [docs/apex/apex_sample11.sql](docs/apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders |
 | [docs/apex/apex_sample12.sql](docs/apex/apex_sample12.sql) | Justified paragraph text with `write_wrapped 'J'` |
+| [docs/apex/apex_sample13.sql](docs/apex/apex_sample13.sql) | Payment QR code driven by page items (demo app page 3) |
+| [docs/apex/apex_sample14.sql](docs/apex/apex_sample14.sql) | 1D barcode label sheet from a query (demo app page 4) |
 
 Template engine examples for APEX (progressive curriculum — see [TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md)):
 

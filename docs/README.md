@@ -26,9 +26,10 @@
 15. [Watermarks](#watermarks)
 16. [Line Dash Patterns](#line-dash-patterns)
 17. [QR Codes](#qr-codes)
-18. [API Reference](#api-reference)
-19. [Known Limitations](#known-limitations)
-20. [Examples Index](#examples-index)
+18. [1D Barcodes](#1d-barcodes)
+19. [API Reference](#api-reference)
+20. [Known Limitations](#known-limitations)
+21. [Examples Index](#examples-index)
 
 ---
 
@@ -1127,6 +1128,48 @@ examples.
 
 ---
 
+## 1D Barcodes
+
+*(v1.6.0)* Code 128, Code 39 and EAN-13, rendered as vector bars. The
+generic facade `rad_pdf.barcode` covers the common cases; the
+`rad_pdf_barcode` procedures expose symbology-specific options.
+
+```sql
+-- The bars fill the width × height box (quiet zones included)
+rad_pdf.barcode(l_doc, 'CODE128', 'RAD-PDF-2026',
+                p_x => 20, p_y => 240, p_width => 80, p_height => 18,
+                p_unit => 'mm');
+
+-- EAN-13 at nominal size: pass the module width instead of a total width
+rad_pdf_barcode.ean13(l_doc, '590123412345',     -- check digit computed
+                      p_x => 20, p_y => 190, p_height => 26, p_unit => 'mm');
+```
+
+### Symbologies
+
+| Type | Charset / input | Notes |
+|---|---|---|
+| `CODE128` | Any Latin-1 text | Subset C auto-selected for all-numeric values (digits pack two per symbol); subset B otherwise; high bytes via FNC4 |
+| `CODE39` | `A-Z 0-9 space - . $ / + %` | `p_full_ascii => TRUE` (direct API) enables extended Code 39 (full ASCII incl. lowercase); human-readable line shows the conventional `*…*` delimiters |
+| `EAN13` | 1–13 digits | < 13 digits → left-padded to 12, check digit computed. Exactly 13 → check digit **validated** (`c_err_barcode` on mismatch). Standard layout: lead digit in the quiet zone, guard bars descending through the digit line |
+
+### Notes
+
+- `p_show_text` (default `TRUE`) prints the human-readable line under the
+  bars; it is skipped automatically when the symbol is too short. The
+  current document font is saved and restored.
+- EAN-13 width is fixed by the standard at 113 modules including quiet
+  zones; the nominal module is 0.33 mm (symbol ≈ 37.3 mm). Through the
+  generic facade the module is derived as `p_width / 113`.
+- For reliable laser-scanner reading keep the Code 128 module
+  (`p_width / total modules`) at or above ~0.25 mm.
+
+See [sample18.sql](sample18.sql) for a label-sheet example and
+[apex/apex_sample14.sql](apex/apex_sample14.sql) for barcode labels from a
+query in APEX.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1147,6 +1190,7 @@ examples.
 | `refcursor2table(p_doc, p_rc, p_columns, ...)` | Add table from an open `SYS_REFCURSOR`. |
 | `image(p_doc, p_image_id, p_width, p_height)` | Add image flowable (layout mode). |
 | `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a vector QR code. See [QR Codes](#qr-codes). |
+| `barcode(p_doc, p_type, p_value, p_x, p_y, p_width, p_height, p_show_text, p_color, p_unit)` | Draw a 1D barcode: `p_type` = `'CODE128'`, `'CODE39'` or `'EAN13'`. See [1D Barcodes](#1d-barcodes). |
 | `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
@@ -1230,12 +1274,15 @@ examples.
 | `get(p_name)` | Retrieve a `t_cell_format` by name. |
 | `default_scheme` | Return a `t_color_scheme` built from built-in table styles. |
 
-### `rad_pdf_barcode` package - QR codes (v1.6.0)
+### `rad_pdf_barcode` package - QR codes and 1D barcodes (v1.6.0)
 
 | Subprogram | Description |
 |---|---|
 | `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a QR code as filled vector paths. See [QR Codes](#qr-codes). |
 | `qrcode_modules(p_value, p_ec_level)` | Return modules per side (quiet zone included) without drawing — for print-size calculations. |
+| `code128(p_doc, p_value, p_x, p_y, p_width, p_height, p_show_text, p_color, p_unit)` | Code 128, subsets B/C auto-selected. See [1D Barcodes](#1d-barcodes). |
+| `code39(p_doc, p_value, p_x, p_y, p_width, p_height, p_show_text, p_full_ascii, p_color, p_unit)` | Code 39; `p_full_ascii` enables extended ASCII. |
+| `ean13(p_doc, p_digits, p_x, p_y, p_height, p_module_w, p_show_text, p_unit)` | EAN-13; check digit computed (12 digits) or validated (13). Width = 113 × module. |
 
 ### Error codes (`rad_pdf_types` constants)
 
@@ -1303,6 +1350,7 @@ examples.
 | [sample15.sql](sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 | [sample17.sql](sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
+| [sample18.sql](sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
 
 ### Template engine examples (standalone PL/SQL)
 
@@ -1338,6 +1386,8 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample10.sql](apex/apex_sample10.sql) | Image watermark loaded from application static files with graceful fallback |
 | [apex/apex_sample11.sql](apex/apex_sample11.sql) | Line dash patterns: dashed rules and decorative borders on reports |
 | [apex/apex_sample12.sql](apex/apex_sample12.sql) | Justified paragraph text using `write_wrapped` with `'J'` alignment |
+| [apex/apex_sample13.sql](apex/apex_sample13.sql) | Payment QR code driven by page items (demo app page 3) |
+| [apex/apex_sample14.sql](apex/apex_sample14.sql) | 1D barcode label sheet from a query (demo app page 4) |
 
 **Template engine (progressive curriculum - start at 01, work through to 14):**
 
