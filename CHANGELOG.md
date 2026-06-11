@@ -29,6 +29,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `rad_pdf.qrcode` facade shortcut and generic `rad_pdf.barcode(p_type, …)`
   dispatcher (`CODE128` / `CODE39` / `EAN13`, separators tolerated).
 
+### Added - Template `<if>` comparisons and watermark page selection
+
+- **`<if bind="K" eq="V">` / `<if bind="K" ne="V">`** in the template engine:
+  case-insensitive value comparison; `ne` is the logical negation of `eq`
+  (TRUE for absent/NULL binds). Plain `<if bind="K">` behaviour unchanged;
+  `eq` + `ne` on the same tag raises ORA-20810. (phase10 test 37)
+- **`p_pages` on `set_watermark` / `set_watermark_image`** (canvas + facade):
+  1-based page selection `'1'`, `'2-5'`, `'3-'` (open range), combinations
+  `'1,3-5,8-'`. NULL = every page (default, unchanged). Malformed specs
+  raise ORA-20400 at registration time. (phase11 test 31)
+
 ### Added - Bookmarks / document outline
 
 - `rad_pdf_canvas.add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` +

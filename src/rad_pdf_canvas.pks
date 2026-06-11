@@ -235,6 +235,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
 -- Replaces any previously registered watermark for p_doc.
 -- p_font_size is in points. p_angle is degrees counter-clockwise.
 -- p_layer: 'UNDER' (behind page content) or 'OVER' (in front).
+-- p_pages (v1.6.0): 1-based page selection like '1', '2-5', '3-' (open
+--   range) or combinations '1,3-5,8-'.  NULL = every page (default).
 -- ---------------------------------------------------------------------------
   PROCEDURE set_watermark(
     p_doc       IN rad_pdf_types.t_doc_handle,
@@ -244,7 +246,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
     p_color     IN rad_pdf_types.t_rgb     DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                  DEFAULT 0.3,
     p_angle     IN NUMBER                  DEFAULT 45,
-    p_layer     IN VARCHAR2                DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2                DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2                DEFAULT NULL);
 
 -- Set an image watermark drawn on every page at finalization.
 -- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
@@ -254,7 +257,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER  DEFAULT 0.3,
     p_width_pct IN NUMBER  DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
 -- Remove the watermark for p_doc. No-op if no watermark is set.
   PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);

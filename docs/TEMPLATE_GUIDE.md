@@ -179,6 +179,34 @@ rad_pdf_template.render(l_doc,
 `<if>` and `</if>` are case-insensitive (Phase 0 normalises them).
 **Nested `<if>` blocks are not supported** - the first `</if>` closes the block.
 
+### Value comparisons: `eq` / `ne` *(v1.6.0)*
+
+```xml
+<if bind="STATUS" eq="ACTIVE">  ... shown when STATUS = 'ACTIVE'  ... </if>
+<if bind="STATUS" ne="CLOSED">  ... shown when STATUS ≠ 'CLOSED'  ... </if>
+```
+
+| Attribute | Condition is TRUE when |
+|---|---|
+| *(none)* | the bind exists with a non-NULL value (original behaviour) |
+| `eq="V"` | the bind exists **and** its value equals `V` (case-insensitive) |
+| `ne="V"` | the bind is absent/NULL **or** its value differs from `V` (logical negation of `eq`) |
+
+- Comparison is **case-insensitive** on both sides, consistent with the
+  engine's treatment of keys.
+- `eq` and `ne` on the same tag raise ORA-20810 — use one or the other.
+- The comparison uses the bind value as supplied by the caller (before any
+  escaping).
+
+```sql
+l_binds(1).key := 'STATUS'; l_binds(1).value := 'DRAFT';
+
+rad_pdf_template.render(l_doc,
+  '<if bind="STATUS" eq="DRAFT"><p><b>** BOZZA - NON DEFINITIVO **</b></p></if>'
+  || '<if bind="STATUS" ne="DRAFT"><p>Documento definitivo.</p></if>',
+  l_binds);
+```
+
 ---
 
 ## Types and options

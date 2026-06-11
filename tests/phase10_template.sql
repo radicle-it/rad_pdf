@@ -1333,6 +1333,68 @@ BEGIN
 END;
 /
 
+-- ===========================================================================
+-- Test 37: <if eq="..."> and <if ne="..."> comparison attributes (v1.6.0)
+-- ===========================================================================
+DECLARE
+  l_doc   rad_pdf_types.t_doc_handle;
+  l_pdf   BLOB;
+  l_binds rad_pdf_types.t_bind_array;
+
+  FUNCTION has_text(p_pdf BLOB, p_txt VARCHAR2) RETURN BOOLEAN IS
+  BEGIN
+    RETURN DBMS_LOB.INSTR(p_pdf, UTL_RAW.CAST_TO_RAW(p_txt)) > 0;
+  END;
+
+  PROCEDURE assert(p_cond BOOLEAN, p_msg VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_cond, FALSE) THEN
+      RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: ' || p_msg);
+    END IF;
+  END assert;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Test 37: <if eq/ne> comparison attributes');
+  rad_pdf_styles.load_defaults;
+  l_doc := rad_pdf.new_document;
+  l_binds(1).key := 'STATUS'; l_binds(1).value := 'ACTIVE';
+  rad_pdf_template.render(l_doc,
+    '<if bind="STATUS" eq="active"><p>EQMATCH</p></if>'
+ || '<if bind="STATUS" eq="CLOSED"><p>EQNOMATCH</p></if>'
+ || '<if bind="STATUS" ne="CLOSED"><p>NEMATCH</p></if>'
+ || '<if bind="STATUS" ne="active"><p>NENOMATCH</p></if>'
+ || '<if bind="MISSING" ne="X"><p>NEABSENT</p></if>'
+ || '<if bind="MISSING" eq="X"><p>EQABSENT</p></if>'
+ || '<if bind="STATUS"><p>PLAINOLD</p></if>',
+    l_binds);
+  l_pdf := rad_pdf.finalize(l_doc);
+  -- text is written uncompressed into the content stream: searchable
+  assert(has_text(l_pdf, 'EQMATCH'),       'eq match block missing');
+  assert(NOT has_text(l_pdf, 'EQNOMATCH'), 'eq no-match block rendered');
+  assert(has_text(l_pdf, 'NEMATCH'),       'ne match block missing');
+  assert(NOT has_text(l_pdf, 'NENOMATCH'), 'ne no-match block rendered');
+  assert(has_text(l_pdf, 'NEABSENT'),      'ne on absent bind should be TRUE');
+  assert(NOT has_text(l_pdf, 'EQABSENT'),  'eq on absent bind should be FALSE');
+  assert(has_text(l_pdf, 'PLAINOLD'),      'plain <if bind> regression');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+
+  -- eq + ne on the same tag raises c_err_template
+  l_doc := rad_pdf.new_document;
+  BEGIN
+    rad_pdf_template.render(l_doc,
+      '<if bind="A" eq="1" ne="2"><p>x</p></if>', l_binds);
+    RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: eq+ne accepted');
+  EXCEPTION WHEN OTHERS THEN
+    assert(SQLCODE = rad_pdf_types.c_err_template,
+           'expected -20810 for eq+ne, got ' || SQLCODE);
+  END;
+  rad_pdf.close_document(l_doc);
+  DBMS_OUTPUT.PUT_LINE('  PASS');
+EXCEPTION WHEN OTHERS THEN
+  BEGIN rad_pdf.close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+  RAISE;
+END;
+/
+
 PROMPT
 PROMPT ================================================================
 PROMPT  Phase 10 template engine tests complete.

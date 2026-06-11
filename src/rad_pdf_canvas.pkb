@@ -66,7 +66,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     angle       NUMBER               := 45,
     layer       VARCHAR2(5)          := 'UNDER',
     image_id    PLS_INTEGER          := NULL,
-    width_pct   NUMBER               := 60
+    width_pct   NUMBER               := 60,
+    pages       VARCHAR2(200)        := NULL     -- v1.6.0: '1,3-5,8-' (NULL = all)
   );
   TYPE t_watermark_map IS TABLE OF t_watermark INDEX BY PLS_INTEGER;
   g_watermarks t_watermark_map;
@@ -88,6 +89,57 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       g_canvas(p_doc) := l_s;
     END IF;
   END ensure_state;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: validate a watermark page-selection spec: 'N', 'N-M', 'N-' and
+-- comma-separated combinations ('1,3-5,8-').  Raises c_err_validation on
+-- malformed input; NULL is valid (= all pages).
+-- ---------------------------------------------------------------------------
+  PROCEDURE assert_pages_spec(p_spec IN VARCHAR2, p_caller IN VARCHAR2) IS
+  BEGIN
+    IF p_spec IS NOT NULL AND NOT REGEXP_LIKE(
+         REPLACE(p_spec, ' '),
+         '^[0-9]+(-[0-9]*)?(,[0-9]+(-[0-9]*)?)*$') THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        p_caller || ': p_pages must be like ''1,3-5,8-'' (got "'
+        || p_spec || '")', TRUE);
+    END IF;
+  END assert_pages_spec;
+
+-- ---------------------------------------------------------------------------
+-- PRIVATE: TRUE when 1-based page p_nr is selected by the spec.
+-- NULL spec selects every page.
+-- ---------------------------------------------------------------------------
+  FUNCTION page_in_spec(p_spec IN VARCHAR2, p_nr IN PLS_INTEGER)
+    RETURN BOOLEAN IS
+    l_spec VARCHAR2(200) := REPLACE(p_spec, ' ');
+    l_item VARCHAR2(40);
+    l_dash PLS_INTEGER;
+    l_from PLS_INTEGER;
+    l_to   PLS_INTEGER;
+    i      PLS_INTEGER := 1;
+  BEGIN
+    IF l_spec IS NULL THEN
+      RETURN TRUE;
+    END IF;
+    LOOP
+      l_item := REGEXP_SUBSTR(l_spec, '[^,]+', 1, i);
+      EXIT WHEN l_item IS NULL;
+      l_dash := INSTR(l_item, '-');
+      IF l_dash = 0 THEN
+        IF p_nr = TO_NUMBER(l_item) THEN RETURN TRUE; END IF;
+      ELSE
+        l_from := TO_NUMBER(SUBSTR(l_item, 1, l_dash - 1));
+        l_to   := TO_NUMBER(SUBSTR(l_item, l_dash + 1));  -- NULL for 'N-'
+        IF p_nr >= l_from AND (l_to IS NULL OR p_nr <= l_to) THEN
+          RETURN TRUE;
+        END IF;
+      END IF;
+      i := i + 1;
+    END LOOP;
+    RETURN FALSE;
+  END page_in_spec;
+
 
 -- ---------------------------------------------------------------------------
 -- PRIVATE: unit-to-pt conversion with NULL passthrough
@@ -1033,7 +1085,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       DECLARE
         l_contents VARCHAR2(200);
       BEGIN
-        IF l_have_wm THEN
+        IF l_have_wm
+           AND page_in_spec(g_watermarks(p_doc).pages, i + 1) THEN
           IF g_watermarks(p_doc).layer = 'OVER' THEN
             l_contents := '[' || TO_CHAR(l_c_nrs(i)) || ' 0 R ' ||
                           TO_CHAR(l_wm_nr) || ' 0 R]';
@@ -1269,11 +1322,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                DEFAULT 0.3,
     p_angle     IN NUMBER                DEFAULT 45,
-    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2              DEFAULT NULL) IS
     l_wm t_watermark;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
+    assert_pages_spec(p_pages, 'rad_pdf_canvas.set_watermark');
     IF p_text IS NULL OR LENGTH(p_text) = 0 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_canvas.set_watermark: p_text must not be NULL or empty', TRUE);
@@ -1303,6 +1358,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_wm.opacity   := p_opacity;
     l_wm.angle     := p_angle;
     l_wm.layer     := UPPER(p_layer);
+    l_wm.pages     := REPLACE(p_pages, ' ');
     g_watermarks(p_doc) := l_wm;
   END set_watermark;
 
@@ -1312,11 +1368,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER   DEFAULT 0.3,
     p_width_pct IN NUMBER   DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL) IS
     l_wm t_watermark;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
+    assert_pages_spec(p_pages, 'rad_pdf_canvas.set_watermark_image');
     IF p_opacity IS NULL OR p_opacity < 0 OR p_opacity > 1 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_canvas.set_watermark_image: p_opacity must be in [0.0, 1.0]', TRUE);
@@ -1341,6 +1399,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_wm.opacity   := p_opacity;
     l_wm.width_pct := p_width_pct;
     l_wm.layer     := UPPER(p_layer);
+    l_wm.pages     := REPLACE(p_pages, ' ');
     g_watermarks(p_doc) := l_wm;
   END set_watermark_image;
 

@@ -437,10 +437,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                DEFAULT 0.3,
     p_angle     IN NUMBER                DEFAULT 45,
-    p_layer     IN VARCHAR2              DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2              DEFAULT NULL) IS
   BEGIN
     rad_pdf_canvas.set_watermark(p_doc, p_text, p_font_name, p_font_size,
-                                  p_color, p_opacity, p_angle, p_layer);
+                                  p_color, p_opacity, p_angle, p_layer,
+                                  p_pages);
   END set_watermark;
 
 -- ---------------------------------------------------------------------------
@@ -449,10 +451,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER   DEFAULT 0.3,
     p_width_pct IN NUMBER   DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER') IS
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL) IS
   BEGIN
     rad_pdf_canvas.set_watermark_image(p_doc, p_image_id, p_opacity,
-                                        p_width_pct, p_layer);
+                                        p_width_pct, p_layer, p_pages);
   END set_watermark_image;
 
 -- ---------------------------------------------------------------------------

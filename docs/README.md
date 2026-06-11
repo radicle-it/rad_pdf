@@ -877,6 +877,10 @@ l_binds(2).raw   := TRUE;              -- trusted markup from PL/SQL code
 '<if bind="COMM"><p>Commission: #COMM#</p></if>'
 ```
 
+Blocks are included when the bind exists with a non-NULL value. *(v1.6.0)*
+`eq="V"` / `ne="V"` compare the bind value (case-insensitive): see
+[TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md#conditional-blocks) for the full rules.
+
 ### Data tables
 
 ```sql
@@ -945,6 +949,7 @@ rad_pdf.set_watermark(
 | `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
 | `p_angle` | `NUMBER` | `45` | Rotation in counter-clockwise degrees. Must be in [-360, 360] (ORA-20400 if not). 45 = default diagonal. |
 | `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+| `p_pages` | `VARCHAR2` | `NULL` | *(v1.6.0)* 1-based page selection: `'1'`, `'2-5'`, `'3-'` (open range) or combinations `'1,3-5,8-'`. `NULL` = every page. Malformed specs raise ORA-20400. |
 
 ### `set_watermark_image` - image watermark
 
@@ -964,6 +969,7 @@ rad_pdf.set_watermark_image(
 | `p_opacity` | `NUMBER` | `0.3` | Transparency: 0.0 = fully invisible, 1.0 = fully opaque. Must be in [0.0, 1.0] (ORA-20400 if not). |
 | `p_width_pct` | `NUMBER` | `60` | Width of the watermark image as a percentage of the page width (1-100). Aspect ratio is preserved. Must be in [1, 100] (ORA-20400 if not). |
 | `p_layer` | `VARCHAR2` | `'UNDER'` | `'UNDER'` draws the watermark behind page content; `'OVER'` draws it on top. Any other value raises ORA-20400. |
+| `p_pages` | `VARCHAR2` | `NULL` | *(v1.6.0)* 1-based page selection: `'1'`, `'2-5'`, `'3-'` (open range) or combinations `'1,3-5,8-'`. `NULL` = every page. Malformed specs raise ORA-20400. |
 
 ### `clear_watermark`
 

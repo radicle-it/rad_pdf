@@ -241,7 +241,8 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
     p_color     IN rad_pdf_types.t_rgb   DEFAULT 'C0C0C0',
     p_opacity   IN NUMBER                DEFAULT 0.3,
     p_angle     IN NUMBER                DEFAULT 45,
-    p_layer     IN VARCHAR2              DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2              DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
   -- Register an image watermark drawn on every page at finalization.
   -- p_image_id must be registered for p_doc via rad_pdf_images.load_image.
@@ -251,7 +252,8 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
     p_image_id  IN PLS_INTEGER,
     p_opacity   IN NUMBER   DEFAULT 0.3,
     p_width_pct IN NUMBER   DEFAULT 60,
-    p_layer     IN VARCHAR2 DEFAULT 'UNDER');
+    p_layer     IN VARCHAR2 DEFAULT 'UNDER',
+    p_pages     IN VARCHAR2 DEFAULT NULL);
 
   -- Remove the watermark for p_doc. No-op if no watermark is set.
   PROCEDURE clear_watermark(p_doc IN rad_pdf_types.t_doc_handle);
