@@ -3,9 +3,47 @@
 All notable changes to RAD_PDF are documented here.  
 Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](https://semver.org)
 
-## [Unreleased]
+## [Unreleased] - 1.6.0-dev
 
-_No unreleased changes._
+### Added - QR codes (`rad_pdf_barcode`, install Phase 12)
+
+- New package **`rad_pdf_barcode`** (stateless, no `close_doc` hook):
+  - `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` —
+    draws a QR code as **pure vector graphics** (filled PDF paths via
+    `rad_pdf_canvas.path`, one call per matrix row, run-length merged).
+    Automatic encoding mode (numeric / alphanumeric / byte / UTF-8 ECI) and
+    version selection (1–40); EC levels L/M/Q/H; 4-module quiet zone included
+    in `p_size`.
+  - `qrcode_modules(p_value, p_ec_level)` — modules per side without drawing,
+    for print-size calculations.
+  - QR encoding logic ported from
+    [as_barcode](https://github.com/antonscheffer/as_barcode) by Anton
+    Scheffer (MIT — notice in the package body header). Rendering layer is
+    RAD_PDF-native.
+- `rad_pdf.qrcode` facade shortcut.
+- `rad_pdf.refcursor2table` facade shortcut (API gap: the `rad_pdf_table`
+  procedure existed but was not exposed on the facade).
+- `rad_pdf_types.c_err_barcode` (-20820).
+- `src/install/install_phase12.sql` — compiles the barcode package; doubles
+  as the v1.5.x → v1.6.0 upgrade script.
+- `tests/phase13_barcode.sql` — 10 acceptance tests (version selection,
+  error paths, all encoding modes, high-version content, watermark coexistence).
+- `docs/sample17.sql` — payment-link QR, UTF-8 vCard, coloured QR at EC H.
+
+### Fixed
+
+- **`install.sql` fresh-install ordering**: the facade (`rad_pdf`, Phase 8)
+  references `rad_pdf_template` (Phase 9) and now `rad_pdf_barcode`
+  (Phase 12); on a virgin schema Phase 8 compiled with errors. Phases 9 and
+  12 now run **before** Phase 8. Validated by dropping every RAD_PDF object
+  and reinstalling from scratch: 0 invalid objects, full test suite green
+  (129/129).
+
+### Verification
+
+- QR output validated end-to-end: PDF → 150-dpi raster → decoded with the
+  macOS Vision framework. URL, multi-line vCard and UTF-8 accented content
+  (via `UNISTR`, byte-perfect ECI round-trip) all decode correctly.
 
 ## [1.5.2] - 2026-05-30
 

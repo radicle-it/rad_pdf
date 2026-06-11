@@ -25,9 +25,10 @@
 14. [Template Engine](#template-engine)
 15. [Watermarks](#watermarks)
 16. [Line Dash Patterns](#line-dash-patterns)
-17. [API Reference](#api-reference)
-18. [Known Limitations](#known-limitations)
-19. [Examples Index](#examples-index)
+17. [QR Codes](#qr-codes)
+18. [API Reference](#api-reference)
+19. [Known Limitations](#known-limitations)
+20. [Examples Index](#examples-index)
 
 ---
 
@@ -1074,6 +1075,58 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 
 ---
 
+## QR Codes
+
+*(v1.6.0)* `rad_pdf_barcode.qrcode` draws a QR code as **pure vector
+graphics** — filled PDF paths, no raster images — so it scales perfectly at
+any print resolution. The facade shortcut `rad_pdf.qrcode` delegates to it.
+
+```sql
+-- 40 mm payment QR at x=150mm, y=240mm (lower-left corner of the square)
+rad_pdf.qrcode(l_doc,
+  p_value => 'https://pay.example.com/invoice/2026-0042',
+  p_x     => 150, p_y => 240, p_size => 40,
+  p_unit  => 'mm');
+```
+
+### `qrcode` parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `p_value` | — | Text/URL to encode. Encoding mode (numeric, alphanumeric, byte, UTF-8 ECI) and QR version (1–40) are selected automatically. |
+| `p_x`, `p_y` | — | Lower-left corner of the QR square (canvas convention). |
+| `p_size` | — | Side of the square. **Includes** the mandatory 4-module quiet zone. |
+| `p_ec_level` | `'M'` | Error correction: `L` (7%), `M` (15%), `Q` (25%), `H` (30%). Unknown values fall back to `M`. |
+| `p_color` | `'000000'` | Module color (6-char hex RGB). Keep strong contrast against the background. |
+| `p_unit` | `'pt'` | Unit for `p_x`, `p_y`, `p_size`. |
+
+### Sizing for print
+
+`rad_pdf_barcode.qrcode_modules(p_value, p_ec_level)` returns the number of
+modules per side (quiet zone included) without drawing. For reliable scanning
+of printed documents keep the module size at or above ~0.8–1 mm:
+
+```sql
+l_modules := rad_pdf_barcode.qrcode_modules(l_url, 'M');  -- e.g. 37
+-- p_size = 40mm -> module = 40/37 = 1.08 mm -> OK for print
+```
+
+### Notes
+
+- Raises `c_err_barcode` (-20820) for NULL values, `p_size <= 0`, or content
+  exceeding QR version 40 capacity at the requested EC level.
+- UTF-8 content is encoded via ECI designator 26; accented characters
+  round-trip byte-perfect.
+- Higher EC levels produce denser codes but tolerate more damage — use `H`
+  when overlaying a logo or printing on low-quality media.
+- QR encoding logic ported from [as_barcode](https://github.com/antonscheffer/as_barcode)
+  by Anton Scheffer (MIT license).
+
+See [sample17.sql](sample17.sql) for payment-link, vCard and coloured-QR
+examples.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1091,7 +1144,9 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `add(p_doc, p_flow)` | Add a pre-built flowable (layout mode). |
 | `new_page(p_doc)` | Page break (layout) or new page (canvas). |
 | `query2table(p_doc, p_query, p_columns, ...)` | Add table from SQL string or CLOB. |
+| `refcursor2table(p_doc, p_rc, p_columns, ...)` | Add table from an open `SYS_REFCURSOR`. |
 | `image(p_doc, p_image_id, p_width, p_height)` | Add image flowable (layout mode). |
+| `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a vector QR code. See [QR Codes](#qr-codes). |
 | `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
@@ -1175,6 +1230,13 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `get(p_name)` | Retrieve a `t_cell_format` by name. |
 | `default_scheme` | Return a `t_color_scheme` built from built-in table styles. |
 
+### `rad_pdf_barcode` package - QR codes (v1.6.0)
+
+| Subprogram | Description |
+|---|---|
+| `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a QR code as filled vector paths. See [QR Codes](#qr-codes). |
+| `qrcode_modules(p_value, p_ec_level)` | Return modules per side (quiet zone included) without drawing — for print-size calculations. |
+
 ### Error codes (`rad_pdf_types` constants)
 
 | Constant | Code | When raised |
@@ -1186,6 +1248,7 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | `c_err_image` | -20710 | Image load or format error |
 | `c_err_layout` | -20750 | Layout engine error |
 | `c_err_handle` | -20760 | Invalid document handle |
+| `c_err_barcode` | -20820 | QR/barcode encoding error (NULL value, size <= 0, capacity exceeded) |
 
 **Template engine error codes** (`rad_pdf_template`):
 
@@ -1239,6 +1302,7 @@ rad_pdf.set_line_width(l_doc, 0.5, 'pt');
 | [sample14.sql](sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
 | [sample15.sql](sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
+| [sample17.sql](sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 
 ### Template engine examples (standalone PL/SQL)
 

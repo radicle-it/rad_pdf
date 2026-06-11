@@ -109,6 +109,20 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                   p_height   IN NUMBER DEFAULT NULL);
 
 -- ---------------------------------------------------------------------------
+-- QR code shortcut — delegates to rad_pdf_barcode.qrcode (v1.6.0).
+-- Draws a QR code with lower-left corner at (p_x, p_y), p_size per side
+-- (4-module quiet zone included).  See rad_pdf_barcode for details.
+-- ---------------------------------------------------------------------------
+  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
+                   p_value    IN VARCHAR2,
+                   p_x        IN NUMBER,
+                   p_y        IN NUMBER,
+                   p_size     IN NUMBER,
+                   p_ec_level IN VARCHAR2              DEFAULT 'M',
+                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
 -- Document state query
 -- ---------------------------------------------------------------------------
 

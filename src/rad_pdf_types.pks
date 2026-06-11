@@ -8,7 +8,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Version
 -- ---------------------------------------------------------------------------
-  c_version CONSTANT VARCHAR2(10) := '1.5.2';
+  c_version CONSTANT VARCHAR2(10) := '1.6.0-dev';
 
 -- ---------------------------------------------------------------------------
 -- Scalar subtypes
@@ -38,6 +38,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
   c_err_handle      CONSTANT PLS_INTEGER := -20760;
   c_err_internal    CONSTANT PLS_INTEGER := -20800;
   c_err_template    CONSTANT PLS_INTEGER := -20810;
+  c_err_barcode     CONSTANT PLS_INTEGER := -20820;
 
 -- ---------------------------------------------------------------------------
 -- Path element type constants

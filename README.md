@@ -95,6 +95,7 @@ can be stored in a database table and updated without redeploying code.
 - **Images** — JPEG, PNG, GIF; SHA-256 session cache; load from BLOB, directory, or HTTPS URL
 - **Page templates** — header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
 - **Styles** — named, session-scoped style registry with built-in heading and table styles
+- **QR codes** — vector QR codes (no raster) with automatic encoding mode, EC levels L/M/Q/H, custom color
 - **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
 - **Document metadata** — title, author, subject, keywords in PDF Info dictionary
 - **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
@@ -127,6 +128,7 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample14.sql](docs/sample14.sql) | Image watermark: logo centred on every page, 25% opacity |
 | [docs/sample15.sql](docs/sample15.sql) | Line dash patterns: dashed borders, asymmetric patterns, reset to solid |
 | [docs/sample16.sql](docs/sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
+| [docs/sample17.sql](docs/sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 
 ### Template engine examples
 
@@ -203,12 +205,17 @@ The v1.5 graphics-state API (`set_draw_color`, `set_fill_color`, `set_line_width
 was modeled on [PLFPDF](https://github.com/mczarski/plfpdf), a PL/SQL port of
 [FPDF](http://www.fpdf.org/) by **Olivier Plathey**.
 
+The v1.6 QR code encoding logic (`rad_pdf_barcode`) is ported from
+[as_barcode](https://github.com/antonscheffer/as_barcode) by **Anton Scheffer**
+(MIT license — full notice in `src/rad_pdf_barcode.pkb`).
+
 | Role | Name |
 |---|---|
 | Original author | Anton Scheffer |
 | AS_PDF contributors | Valerio Rossetti, Andreas Weiden, Lee Lindley, Javier Meza |
 | FPDF (PHP) | Olivier Plathey |
 | PLFPDF (PL/SQL port) | mczarski and contributors |
+| as_barcode (QR encoder, MIT) | Anton Scheffer |
 | RAD_PDF rewrite | Roberto Capancioni - Radicle S.r.l. |
 
 ---

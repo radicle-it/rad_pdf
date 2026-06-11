@@ -264,6 +264,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END image;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
+                   p_value    IN VARCHAR2,
+                   p_x        IN NUMBER,
+                   p_y        IN NUMBER,
+                   p_size     IN NUMBER,
+                   p_ec_level IN VARCHAR2              DEFAULT 'M',
+                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_barcode.qrcode(p_doc, p_value, p_x, p_y, p_size,
+                           p_ec_level, p_color, p_unit);
+  END qrcode;
+
+-- ---------------------------------------------------------------------------
   FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
                     p_info IN PLS_INTEGER) RETURN NUMBER IS
   BEGIN
