@@ -73,6 +73,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     l_font_res   VARCHAR2(32767);
     l_img_res    VARCHAR2(32767);
     l_pages_obj  NUMBER;
+    l_outline_obj NUMBER;
     l_cat_obj    NUMBER;
     l_info_obj   NUMBER;
     l_doc_info   rad_pdf_types.t_doc_info;
@@ -98,9 +99,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     -- 4. Page content streams + page dictionaries + Pages root
     l_pages_obj := rad_pdf_canvas.write_page_objects(p_doc, l_font_res, l_img_res);
 
-    -- 5. Catalog
+    -- 5. Outline tree (NULL when no bookmarks) + Catalog
+    l_outline_obj := rad_pdf_canvas.write_outline_objects(p_doc);
     l_cat_obj := rad_pdf_serial.begin_obj(p_doc,
-      ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R ');
+      ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R '
+      || CASE WHEN l_outline_obj IS NOT NULL THEN
+           '/Outlines ' || TO_CHAR(l_outline_obj) || ' 0 R '
+           || '/PageMode /UseOutlines '
+         END);
 
     -- 6. Info dictionary
     l_doc_info  := rad_pdf_ctx.get_info(p_doc);
@@ -200,12 +206,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END write;
 
 -- ---------------------------------------------------------------------------
-  PROCEDURE heading(p_doc   IN rad_pdf_types.t_doc_handle,
-                    p_text  IN VARCHAR2,
-                    p_level IN PLS_INTEGER DEFAULT 1) IS
+  PROCEDURE heading(p_doc      IN rad_pdf_types.t_doc_handle,
+                    p_text     IN VARCHAR2,
+                    p_level    IN PLS_INTEGER DEFAULT 1,
+                    p_bookmark IN BOOLEAN     DEFAULT FALSE) IS
   BEGIN
-    rad_pdf_layout.add(p_doc, rad_pdf_layout.heading(p_text, NVL(p_level, 1)));
+    rad_pdf_layout.add(p_doc,
+      rad_pdf_layout.heading(p_text, NVL(p_level, 1), NVL(p_bookmark, FALSE)));
   END heading;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_canvas.add_bookmark(p_doc, p_title, p_level, p_y, p_unit);
+  END add_bookmark;
 
 -- ---------------------------------------------------------------------------
   PROCEDURE spacer(p_doc    IN rad_pdf_types.t_doc_handle,

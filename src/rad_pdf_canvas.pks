@@ -178,6 +178,23 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   PROCEDURE add_page_proc(p_doc IN rad_pdf_types.t_doc_handle, p_src IN CLOB);
 
 -- ---------------------------------------------------------------------------
+-- Bookmarks / document outline (v1.6.0)
+--
+-- add_bookmark registers an outline entry pointing at the CURRENT page.
+-- p_level (1..6, clamped) drives the outline hierarchy: an entry nests under
+-- the nearest previous entry with a lower level.
+-- p_y: destination y (top of the target content). NULL = current cursor y
+-- plus the active font size.
+-- The outline tree is written automatically at finalize when at least one
+-- bookmark exists; all entries are created expanded.
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
 -- State queries
 -- ---------------------------------------------------------------------------
   FUNCTION get_x   (p_doc IN rad_pdf_types.t_doc_handle) RETURN NUMBER;
@@ -200,6 +217,13 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   FUNCTION write_page_objects(p_doc      IN rad_pdf_types.t_doc_handle,
                                p_font_res IN VARCHAR2,
                                p_img_res  IN VARCHAR2) RETURN NUMBER;
+
+  -- Write the /Outlines object tree for the registered bookmarks.
+  -- Must be called AFTER write_page_objects (page object numbers needed).
+  -- Returns the outline root object number, or NULL when no bookmarks exist
+  -- (caller then omits /Outlines from the Catalog).
+  FUNCTION write_outline_objects(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN NUMBER;
 
   -- Release per-document state (CLOBs in page_prcs + g_canvas entry).
   -- Called by rad_pdf_ctx.close_doc in reverse-dependency order.

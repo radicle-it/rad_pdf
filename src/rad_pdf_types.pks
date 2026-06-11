@@ -234,7 +234,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     table_ref_id     PLS_INTEGER,    -- TABLE: handle into rad_pdf_table's cache
     para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
     page_break_before BOOLEAN := FALSE,  -- set by measure pass
-    measured_h        NUMBER  := 0        -- set by measure pass
+    measured_h        NUMBER  := 0,       -- set by measure pass
+    bookmark          BOOLEAN := FALSE    -- HEADING: register a PDF outline
+                                          -- entry when rendered (v1.6.0)
   );
   TYPE t_flowable_list IS TABLE OF t_flowable INDEX BY PLS_INTEGER;
 

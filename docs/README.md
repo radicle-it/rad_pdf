@@ -27,9 +27,10 @@
 16. [Line Dash Patterns](#line-dash-patterns)
 17. [QR Codes](#qr-codes)
 18. [1D Barcodes](#1d-barcodes)
-19. [API Reference](#api-reference)
-20. [Known Limitations](#known-limitations)
-21. [Examples Index](#examples-index)
+19. [Bookmarks (Document Outline)](#bookmarks-document-outline)
+20. [API Reference](#api-reference)
+21. [Known Limitations](#known-limitations)
+22. [Examples Index](#examples-index)
 
 ---
 
@@ -1170,6 +1171,42 @@ query in APEX.
 
 ---
 
+## Bookmarks (Document Outline)
+
+*(v1.6.0)* Bookmarks populate the PDF reader's outline sidebar; clicking an
+entry jumps to the exact position. When at least one bookmark exists the
+document opens with the sidebar visible (`/PageMode /UseOutlines`).
+
+The simplest path — mirror headings into the outline:
+
+```sql
+rad_pdf.heading(l_doc, 'Chapter 1',   1, p_bookmark => TRUE);
+rad_pdf.heading(l_doc, 'Section 1.1', 2, p_bookmark => TRUE);  -- nests under Chapter 1
+```
+
+Manual entries at any position (canvas mode included):
+
+```sql
+rad_pdf.add_bookmark(l_doc, 'Signature block', 1, p_y => 45, p_unit => 'mm');
+```
+
+### Rules
+
+- **Hierarchy**: an entry nests under the nearest previous entry with a
+  lower level (1–6, clamped). Level jumps are tolerated.
+- **Destination**: `p_y` is the y to scroll to (top of the content);
+  `NULL` = current cursor position plus the active font size. With
+  `heading(p_bookmark => TRUE)` the destination is the exact top of the
+  heading as placed by the layout engine — page breaks included.
+- **Titles**: up to 500 characters; non-ASCII titles are written as
+  UTF-16BE automatically (accents render correctly in every viewer).
+- All entries are created expanded. No bookmarks → no `/Outlines` entry,
+  output identical to previous versions.
+
+See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1182,7 +1219,8 @@ query in APEX.
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
 | `close_document(p_doc)` | Discard document without producing output. |
 | `write(p_doc, p_text, p_style)` | Add paragraph (layout mode). |
-| `heading(p_doc, p_text, p_level)` | Add heading h1–h6 (layout mode). |
+| `heading(p_doc, p_text, p_level, p_bookmark)` | Add heading h1–h6 (layout mode); `p_bookmark => TRUE` also registers an outline entry. |
+| `add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` | Register a PDF outline entry at the current page. See [Bookmarks](#bookmarks-document-outline). |
 | `spacer(p_doc, p_height)` | Add vertical gap in points (layout mode). |
 | `add(p_doc, p_flow)` | Add a pre-built flowable (layout mode). |
 | `new_page(p_doc)` | Page break (layout) or new page (canvas). |
@@ -1250,6 +1288,7 @@ query in APEX.
 | `set_line_dash(p_doc, p_dash, p_gap, p_phase, p_unit)` | Set dash pattern for subsequent stroked paths. `p_dash=0` restores solid lines. |
 | `put_image(p_doc, p_image_id, p_x, p_y, p_width, p_height, p_align, p_valign, p_unit)` | Place image at absolute canvas coordinates. |
 | `add_page_proc(p_doc, p_src)` | Register an additional PL/SQL block to run on every page (VARCHAR2 or CLOB). Appended after the template's `header_proc`/`footer_proc`. Tokens: `#PAGE_NR#`, `#PAGE_COUNT#`, `#DOC_HANDLE#`. |
+| `add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` | Register a PDF outline entry at the current page. See [Bookmarks](#bookmarks-document-outline). |
 | `get_x(p_doc)` | Return current canvas X cursor in points. |
 | `get_y(p_doc)` | Return current canvas Y cursor in points. |
 | `get_info(p_doc, p_what)` | Return a numeric document property (same constants as `rad_pdf.get_info`). |
@@ -1351,6 +1390,7 @@ query in APEX.
 | [sample16.sql](sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 | [sample17.sql](sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 | [sample18.sql](sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
+| [sample19.sql](sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 
 ### Template engine examples (standalone PL/SQL)
 

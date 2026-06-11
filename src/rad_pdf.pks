@@ -67,9 +67,25 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                     p_text  IN VARCHAR2,
                     p_style IN VARCHAR2 DEFAULT 'body');
 
-  PROCEDURE heading(p_doc   IN rad_pdf_types.t_doc_handle,
-                    p_text  IN VARCHAR2,
-                    p_level IN PLS_INTEGER DEFAULT 1);
+  -- p_bookmark: also register a PDF outline (bookmark) entry for this
+  -- heading at the level p_level — documents become navigable in the
+  -- reader's sidebar with one parameter (v1.6.0).
+  PROCEDURE heading(p_doc      IN rad_pdf_types.t_doc_handle,
+                    p_text     IN VARCHAR2,
+                    p_level    IN PLS_INTEGER DEFAULT 1,
+                    p_bookmark IN BOOLEAN     DEFAULT FALSE);
+
+-- ---------------------------------------------------------------------------
+-- Bookmark / outline shortcut — delegates to rad_pdf_canvas.add_bookmark
+-- (v1.6.0).  Registers an outline entry pointing at the current page;
+-- p_level (1..6) nests the entry under the nearest previous lower level.
+-- p_y NULL = current cursor position.
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
 
   PROCEDURE spacer (p_doc    IN rad_pdf_types.t_doc_handle,
                     p_height IN NUMBER DEFAULT 12);

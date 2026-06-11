@@ -500,6 +500,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
         rad_pdf_canvas.set_font(p_doc, l_style.font_name, l_style.font_style, l_style.font_size);
         rad_pdf_canvas.set_color(p_doc, NVL(l_style.font_color, '000000'));
         l_text := DBMS_LOB.SUBSTR(p_flow.text, 32767, 1);
+        -- p_y is the top of the heading: the exact outline destination.
+        IF NVL(p_flow.bookmark, FALSE) THEN
+          rad_pdf_canvas.add_bookmark(p_doc, SUBSTR(l_text, 1, 500),
+                                      NVL(p_flow.level, 1), p_y => p_y);
+        END IF;
         rad_pdf_canvas.write_wrapped(p_doc, l_text, p_frame.x, p_y, p_frame.width,
                                  NVL(l_style.align_h, 'L'), 'pt');
       WHEN rad_pdf_types.c_flow_spacer THEN
@@ -584,13 +589,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
   END paragraph;
 
 -- ---------------------------------------------------------------------------
-  FUNCTION heading(p_text IN VARCHAR2, p_level IN PLS_INTEGER DEFAULT 1)
+  FUNCTION heading(p_text     IN VARCHAR2,
+                   p_level    IN PLS_INTEGER DEFAULT 1,
+                   p_bookmark IN BOOLEAN     DEFAULT FALSE)
     RETURN rad_pdf_types.t_flowable IS
     l_f   rad_pdf_types.t_flowable;
     l_len PLS_INTEGER;
   BEGIN
     l_f.flow_type := rad_pdf_types.c_flow_heading;
     l_f.level     := NVL(p_level, 1);
+    l_f.bookmark  := NVL(p_bookmark, FALSE);
     DBMS_LOB.CREATETEMPORARY(l_f.text, TRUE);
     l_len := NVL(LENGTH(p_text), 0);
     IF l_len > 0 THEN

@@ -28,6 +28,25 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   with document font save/restore.
 - `rad_pdf.qrcode` facade shortcut and generic `rad_pdf.barcode(p_type, …)`
   dispatcher (`CODE128` / `CODE39` / `EAN13`, separators tolerated).
+
+### Added - Bookmarks / document outline
+
+- `rad_pdf_canvas.add_bookmark(p_doc, p_title, p_level, p_y, p_unit)` +
+  `rad_pdf.add_bookmark` shortcut: outline entries with automatic hierarchy
+  (an entry nests under the nearest previous lower level, 1–6).
+- `rad_pdf.heading(…, p_bookmark => TRUE)`: mirror headings into the outline
+  with one parameter. The destination is the exact heading position as
+  placed by the layout engine (page breaks included) — implemented via a
+  new `bookmark` field on `rad_pdf_types.t_flowable` and a hook in the
+  layout render pass.
+- Outline tree (`/Outlines`, First/Last/Next/Prev/Parent/Count) written at
+  finalize; `/PageMode /UseOutlines` opens the sidebar automatically.
+  Non-ASCII titles encoded as UTF-16BE (`<FEFF…>`), verified with accented
+  characters. No bookmarks → output byte-identical to previous behaviour.
+- `tests/phase14_bookmark.sql` — 8 acceptance tests.
+- `docs/sample19.sql` — navigable multi-chapter report.
+- `install_phase12.sql` extended to the complete v1.5.x → v1.6.0 upgrade
+  (types, canvas, layout+table, barcode, facade).
 - `rad_pdf.refcursor2table` facade shortcut (API gap: the `rad_pdf_table`
   procedure existed but was not exposed on the facade).
 - `rad_pdf_types.c_err_barcode` (-20820).

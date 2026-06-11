@@ -34,6 +34,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   TYPE t_canvas_map IS TABLE OF t_canvas_state INDEX BY PLS_INTEGER;
   g_canvas t_canvas_map;
 
+  -- Bookmark / outline state (v1.6.0).  Flat list per document; the level
+  -- field drives the tree built in write_outline_objects.
+  TYPE t_bookmark IS RECORD (
+    title VARCHAR2(500),
+    lvl   PLS_INTEGER,
+    page  PLS_INTEGER,            -- 0-based page index
+    y     NUMBER                  -- dest y in pt (top of the target)
+  );
+  TYPE t_bookmark_tab IS TABLE OF t_bookmark INDEX BY PLS_INTEGER;
+  TYPE t_bookmark_map IS TABLE OF t_bookmark_tab INDEX BY PLS_INTEGER;
+  g_bookmarks t_bookmark_map;
+
+  -- Page dictionary object numbers captured by write_page_objects (needed
+  -- by write_outline_objects for /Dest page references).
+  TYPE t_num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+  TYPE t_num_map IS TABLE OF t_num_tab INDEX BY PLS_INTEGER;
+  g_page_objs t_num_map;
+
   -- Watermark state (v1.4.0). One watermark per document; private to this package.
   -- WM_GS is the only /ExtGState key written by this package; future keys must use
   -- a different name to avoid collisions.
@@ -957,7 +975,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_pages_nr NUMBER;
     l_wm_nr    NUMBER;
     l_have_wm  BOOLEAN := FALSE;
-    TYPE t_num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
     l_c_nrs  t_num_tab;  -- content stream obj numbers (0-indexed)
     l_p_nrs  t_num_tab;  -- page dict obj numbers (0-indexed)
   BEGIN
@@ -1048,15 +1065,184 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_dummy := rad_pdf_serial.begin_obj(p_doc,
       '/Type /Pages /Kids ' || l_kids || ' /Count ' || TO_CHAR(l_n));
 
+    -- Keep the page object numbers for write_outline_objects (bookmarks).
+    g_page_objs(p_doc) := l_p_nrs;
+
     RETURN l_dummy;  -- = l_pages_nr
   END write_page_objects;
 
 -- ---------------------------------------------------------------------------
 -- close_doc — free all per-document canvas state
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- add_bookmark — register a PDF outline entry (v1.6.0).
+-- Captures the CURRENT page; p_y NULL = current cursor y + font size (so the
+-- viewer scrolls the line itself to the top, not just below it).
+-- ---------------------------------------------------------------------------
+  PROCEDURE add_bookmark(p_doc   IN rad_pdf_types.t_doc_handle,
+                         p_title IN VARCHAR2,
+                         p_level IN PLS_INTEGER DEFAULT 1,
+                         p_y     IN NUMBER      DEFAULT NULL,
+                         p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_bm t_bookmark;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    IF p_title IS NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'Bookmark title must not be NULL');
+    END IF;
+    l_bm.title := SUBSTR(p_title, 1, 500);
+    l_bm.lvl   := LEAST(GREATEST(NVL(p_level, 1), 1), 6);
+    l_bm.page  := rad_pdf_serial.current_page(p_doc);
+    IF p_y IS NULL THEN
+      l_bm.y := g_canvas(p_doc).y + g_canvas(p_doc).font_size;
+    ELSE
+      l_bm.y := u2pt(p_y, p_unit);
+    END IF;
+    IF g_bookmarks.EXISTS(p_doc) THEN
+      g_bookmarks(p_doc)(g_bookmarks(p_doc).COUNT) := l_bm;
+    ELSE
+      g_bookmarks(p_doc)(0) := l_bm;
+    END IF;
+  END add_bookmark;
+
+-- ---------------------------------------------------------------------------
+-- write_outline_objects — write the /Outlines tree (v1.6.0).
+-- Call AFTER write_page_objects (page object numbers must be captured).
+-- Returns the outline root object number, or NULL when no bookmarks exist.
+-- Relies on rad_pdf_serial allocating object numbers sequentially (the same
+-- assumption write_page_objects makes): root = R, item i = R + 1 + i.
+-- ---------------------------------------------------------------------------
+  FUNCTION write_outline_objects(p_doc IN rad_pdf_types.t_doc_handle)
+    RETURN NUMBER IS
+    l_n       PLS_INTEGER;
+    l_root    NUMBER;
+    l_dummy   NUMBER;
+    l_parent  t_num_tab;   -- parent index (-1 = root)
+    l_prev    t_num_tab;   -- previous sibling index (-1 = none)
+    l_next    t_num_tab;   -- next sibling index (-1 = none)
+    l_first   t_num_tab;   -- first child index (-1 = none)
+    l_last    t_num_tab;   -- last child index (-1 = none)
+    l_count   t_num_tab;   -- descendant count
+    l_top_first PLS_INTEGER := -1;
+    l_top_last  PLS_INTEGER := -1;
+    l_dict    VARCHAR2(32767);
+
+    FUNCTION obj_of(p_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
+    BEGIN
+      RETURN TO_CHAR(l_root + 1 + p_idx) || ' 0 R';
+    END obj_of;
+
+    -- Outline /Title must be PDFDocEncoding or UTF-16BE: pure-ASCII titles
+    -- go out as literal strings, anything else as a <FEFF...> hex string
+    -- (UTF-16BE with BOM) so accented characters render in every viewer.
+    FUNCTION title_str(p_title IN VARCHAR2) RETURN VARCHAR2 IS
+    BEGIN
+      IF p_title = ASCIISTR(p_title) THEN
+        RETURN '(' || rad_pdf_codec.escape_pdf_str(p_title) || ')';
+      ELSE
+        RETURN '<FEFF'
+            || RAWTOHEX(UTL_I18N.STRING_TO_RAW(p_title, 'AL16UTF16')) || '>';
+      END IF;
+    END title_str;
+  BEGIN
+    IF NOT g_bookmarks.EXISTS(p_doc) OR g_bookmarks(p_doc).COUNT = 0 THEN
+      RETURN NULL;
+    END IF;
+    IF NOT g_page_objs.EXISTS(p_doc) THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_internal,
+        'write_outline_objects called before write_page_objects');
+    END IF;
+    l_n := g_bookmarks(p_doc).COUNT;
+
+    -- Build the tree from the flat level list (O(n^2); bookmark counts are
+    -- small).  Parent of i = nearest previous entry with a lower level.
+    FOR i IN 0 .. l_n - 1 LOOP
+      l_parent(i) := -1;
+      l_prev(i)   := -1;
+      l_next(i)   := -1;
+      l_first(i)  := -1;
+      l_last(i)   := -1;
+      l_count(i)  := 0;
+      FOR j IN REVERSE 0 .. i - 1 LOOP
+        IF g_bookmarks(p_doc)(j).lvl < g_bookmarks(p_doc)(i).lvl THEN
+          l_parent(i) := j;
+          EXIT;
+        END IF;
+      END LOOP;
+    END LOOP;
+    FOR i IN 0 .. l_n - 1 LOOP
+      -- siblings: nearest following entry with the same parent.  Parent
+      -- equality alone is sufficient — any later entry sharing the parent
+      -- is by construction the next sibling.
+      FOR j IN i + 1 .. l_n - 1 LOOP
+        IF l_parent(j) = l_parent(i) THEN
+          l_next(i) := j;
+          l_prev(j) := i;
+          EXIT;
+        END IF;
+      END LOOP;
+      -- children bounds + descendant counts up the parent chain
+      IF l_parent(i) >= 0 THEN
+        IF l_first(l_parent(i)) = -1 THEN
+          l_first(l_parent(i)) := i;
+        END IF;
+        l_last(l_parent(i)) := i;
+        DECLARE
+          l_p PLS_INTEGER := l_parent(i);
+        BEGIN
+          WHILE l_p >= 0 LOOP
+            l_count(l_p) := l_count(l_p) + 1;
+            l_p := l_parent(l_p);
+          END LOOP;
+        END;
+      ELSE
+        IF l_top_first = -1 THEN
+          l_top_first := i;
+        END IF;
+        l_top_last := i;
+      END IF;
+    END LOOP;
+
+    -- Root object first (own number known before writing the dict body).
+    l_root := rad_pdf_serial.begin_obj(p_doc);
+    rad_pdf_serial.doc_write(p_doc,
+      '<< /Type /Outlines'
+      || ' /First ' || obj_of(l_top_first)
+      || ' /Last '  || obj_of(l_top_last)
+      || ' /Count ' || TO_CHAR(l_n) || ' >>');
+    rad_pdf_serial.end_obj(p_doc);
+
+    -- Items in flat order: object numbers are root + 1 + i by construction.
+    FOR i IN 0 .. l_n - 1 LOOP
+      l_dict := '/Title ' || title_str(g_bookmarks(p_doc)(i).title)
+        || ' /Parent ' || CASE WHEN l_parent(i) = -1
+                            THEN TO_CHAR(l_root) || ' 0 R'
+                            ELSE obj_of(l_parent(i)) END
+        || ' /Dest ['
+        || TO_CHAR(g_page_objs(p_doc)(g_bookmarks(p_doc)(i).page)) || ' 0 R'
+        || ' /XYZ null ' || rad_pdf_codec.fmt(g_bookmarks(p_doc)(i).y, 2)
+        || ' null]';
+      IF l_prev(i)  != -1 THEN l_dict := l_dict || ' /Prev '  || obj_of(l_prev(i));  END IF;
+      IF l_next(i)  != -1 THEN l_dict := l_dict || ' /Next '  || obj_of(l_next(i));  END IF;
+      IF l_first(i) != -1 THEN
+        l_dict := l_dict || ' /First ' || obj_of(l_first(i))
+                         || ' /Last '  || obj_of(l_last(i))
+                         || ' /Count ' || TO_CHAR(l_count(i));
+      END IF;
+      l_dummy := rad_pdf_serial.begin_obj(p_doc, l_dict);
+    END LOOP;
+
+    RETURN l_root;
+  END write_outline_objects;
+
+-- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
     l_i PLS_INTEGER;
   BEGIN
+    g_bookmarks.DELETE(p_doc);
+    g_page_objs.DELETE(p_doc);
     IF NOT g_canvas.EXISTS(p_doc) THEN RETURN; END IF;
     l_i := g_canvas(p_doc).page_prcs.FIRST;
     WHILE l_i IS NOT NULL LOOP

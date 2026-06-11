@@ -96,6 +96,7 @@ can be stored in a database table and updated without redeploying code.
 - **Page templates** — header/footer PL/SQL blocks executed on every page; `#PAGE_NR#` / `#PAGE_COUNT#` tokens
 - **Styles** — named, session-scoped style registry with built-in heading and table styles
 - **QR codes & barcodes** — vector QR codes (auto encoding mode, EC levels L/M/Q/H) plus Code 128, EAN-13 (check-digit validation) and Code 39
+- **Bookmarks** — navigable outline sidebar from headings (`p_bookmark => TRUE`) or manual anchors; automatic hierarchy
 - **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
 - **Document metadata** — title, author, subject, keywords in PDF Info dictionary
 - **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
@@ -130,6 +131,7 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample16.sql](docs/sample16.sql) | Justified text: `write_wrapped` with `'J'` alignment, multi-paragraph layout |
 | [docs/sample17.sql](docs/sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 | [docs/sample18.sql](docs/sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
+| [docs/sample19.sql](docs/sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 
 ### Template engine examples
 
