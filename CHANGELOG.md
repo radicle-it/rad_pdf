@@ -3,7 +3,11 @@
 All notable changes to RAD_PDF are documented here.  
 Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](https://semver.org)
 
-## [Unreleased] - 1.7.0-dev
+## [Unreleased]
+
+_No unreleased changes._
+
+## [1.7.0] - 2026-06-12
 
 ### Added - Native charts (`rad_pdf_chart`, install Phase 13)
 
