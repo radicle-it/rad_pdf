@@ -28,9 +28,10 @@
 17. [QR Codes](#qr-codes)
 18. [1D Barcodes](#1d-barcodes)
 19. [Bookmarks (Document Outline)](#bookmarks-document-outline)
-20. [API Reference](#api-reference)
-21. [Known Limitations](#known-limitations)
-22. [Examples Index](#examples-index)
+20. [Charts](#charts)
+21. [API Reference](#api-reference)
+22. [Known Limitations](#known-limitations)
+23. [Examples Index](#examples-index)
 
 ---
 
@@ -1213,6 +1214,44 @@ See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
 
 ---
 
+## Charts
+
+*(v1.7.0)* `rad_pdf_chart` draws single-series **bar**, **line** and **pie**
+charts as pure vector graphics — axes, gridlines, bars and Bézier pie
+slices, no images. Facade shortcuts: `rad_pdf.bar_chart`,
+`rad_pdf.line_chart`, `rad_pdf.pie_chart`.
+
+```sql
+DECLARE
+  l_v rad_pdf_types.t_number_list;   -- dense 1..n values
+  l_l rad_pdf_types.t_text_list;     -- optional category labels
+BEGIN
+  l_v(1) := 120; l_v(2) := 340; l_v(3) := 90;
+  l_l(1) := 'Gen'; l_l(2) := 'Feb'; l_l(3) := 'Mar';
+  rad_pdf.bar_chart(l_doc, l_v,
+                    p_x => 15, p_y => 195, p_width => 85, p_height => 60,
+                    p_labels => l_l, p_title => 'Fatturato (k)', p_unit => 'mm');
+END;
+```
+
+### Rules
+
+- **Values** (`t_number_list`) must be dense `1..n` and non-NULL.
+  Bar and pie values must be `>= 0`; the pie total must be `> 0`.
+  Line charts accept negative values (the zero axis is drawn inside the plot).
+- **Y scale** uses "nice numbers" (1/2/5 × 10^k steps): gridline labels are
+  always round values.
+- **Colours**: built-in 10-colour palette by default; pass `p_colors`
+  (`t_rgb_list`) to override. Colours cycle when data points outnumber them.
+- **Pie**: slices start at 12 o'clock, clockwise; legend (swatch + label +
+  percentage) appears at the right when `p_labels` is supplied.
+- The current document font is saved and restored around every chart.
+- Validation failures raise `c_err_validation` (-20400).
+
+See [sample20.sql](sample20.sql) for a dashboard with all three types.
+
+---
+
 ## API Reference
 
 ### `rad_pdf` package - public facade
@@ -1235,6 +1274,9 @@ See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
 | `image(p_doc, p_image_id, p_width, p_height)` | Add image flowable (layout mode). |
 | `qrcode(p_doc, p_value, p_x, p_y, p_size, p_ec_level, p_color, p_unit)` | Draw a vector QR code. See [QR Codes](#qr-codes). |
 | `barcode(p_doc, p_type, p_value, p_x, p_y, p_width, p_height, p_show_text, p_color, p_unit)` | Draw a 1D barcode: `p_type` = `'CODE128'`, `'CODE39'` or `'EAN13'`. See [1D Barcodes](#1d-barcodes). |
+| `bar_chart(p_doc, p_values, p_x, p_y, p_width, p_height, p_labels, p_colors, p_show_values, p_title, p_unit)` | Vertical bar chart. See [Charts](#charts). |
+| `line_chart(p_doc, p_values, p_x, p_y, p_width, p_height, p_labels, p_colors, p_show_markers, p_title, p_unit)` | Single-series line chart (negatives supported). |
+| `pie_chart(p_doc, p_values, p_cx, p_cy, p_radius, p_labels, p_colors, p_legend, p_title, p_unit)` | Pie chart with optional legend. |
 | `get_info(p_doc, p_info)` | Query document state. Pass a `c_info_*` constant; returns NUMBER in pt. |
 | `set_page_format(p_doc, p_name_or_fmt)` | Set page size by name or `t_page_format`. |
 | `set_page_orientation(p_doc, p_orientation)` | `'PORTRAIT'` or `'LANDSCAPE'`. |
@@ -1329,6 +1371,13 @@ See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
 | `code39(p_doc, p_value, p_x, p_y, p_width, p_height, p_show_text, p_full_ascii, p_color, p_unit)` | Code 39; `p_full_ascii` enables extended ASCII. |
 | `ean13(p_doc, p_digits, p_x, p_y, p_height, p_module_w, p_show_text, p_unit)` | EAN-13; check digit computed (12 digits) or validated (13). Width = 113 × module. |
 
+### `rad_pdf_chart` package - vector charts (v1.7.0)
+
+| Subprogram | Description |
+|---|---|
+| `bar_chart(...)` / `line_chart(...)` / `pie_chart(...)` | Same signatures as the facade shortcuts. See [Charts](#charts). |
+| `no_labels()` / `no_colors()` | Empty-collection defaults (used in the parameter defaults; rarely called directly). |
+
 ### Error codes (`rad_pdf_types` constants)
 
 | Constant | Code | When raised |
@@ -1402,6 +1451,7 @@ See [sample19.sql](sample19.sql) for a navigable multi-chapter report.
 | [sample17.sql](sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 | [sample18.sql](sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
 | [sample19.sql](sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
+| [sample20.sql](sample20.sql) | Native charts: bar, line and pie on a dashboard page |
 
 ### Template engine examples (standalone PL/SQL)
 

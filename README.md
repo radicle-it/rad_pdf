@@ -97,6 +97,7 @@ can be stored in a database table and updated without redeploying code.
 - **Styles** — named, session-scoped style registry with built-in heading and table styles
 - **QR codes & barcodes** — vector QR codes (auto encoding mode, EC levels L/M/Q/H) plus Code 128, EAN-13 (check-digit validation) and Code 39
 - **Bookmarks** — navigable outline sidebar from headings (`p_bookmark => TRUE`) or manual anchors; automatic hierarchy
+- **Charts** — native vector bar, line and pie charts with nice-number scales, palettes and legends
 - **Canvas API** — absolute positioning, lines, rectangles, polygons, rotated text for advanced layouts
 - **Document metadata** — title, author, subject, keywords in PDF Info dictionary
 - **AUTHID CURRENT_USER** — runs with the caller's privileges; safe in shared schemas
@@ -132,6 +133,7 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample17.sql](docs/sample17.sql) | QR codes: payment link, UTF-8 vCard, coloured QR with EC level H |
 | [docs/sample18.sql](docs/sample18.sql) | 1D barcodes: Code 128, EAN-13, Code 39 product labels |
 | [docs/sample19.sql](docs/sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
+| [docs/sample20.sql](docs/sample20.sql) | Native charts: bar, line and pie on a dashboard page |
 
 ### Template engine examples
 

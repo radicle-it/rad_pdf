@@ -8,7 +8,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Version
 -- ---------------------------------------------------------------------------
-  c_version CONSTANT VARCHAR2(10) := '1.6.0';
+  c_version CONSTANT VARCHAR2(10) := '1.7.0-dev';
 
 -- ---------------------------------------------------------------------------
 -- Scalar subtypes
@@ -172,6 +172,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- Geometry helpers
 -- ---------------------------------------------------------------------------
   TYPE t_number_list IS TABLE OF NUMBER INDEX BY BINARY_INTEGER;
+  TYPE t_text_list   IS TABLE OF VARCHAR2(200) INDEX BY BINARY_INTEGER;  -- v1.7.0
+  TYPE t_rgb_list    IS TABLE OF t_rgb INDEX BY BINARY_INTEGER;          -- v1.7.0
 
   TYPE t_path_element IS RECORD (
     element_type NUMBER,

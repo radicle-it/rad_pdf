@@ -328,6 +328,59 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END barcode;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE bar_chart(
+    p_doc         IN rad_pdf_types.t_doc_handle,
+    p_values      IN rad_pdf_types.t_number_list,
+    p_x           IN NUMBER,
+    p_y           IN NUMBER,
+    p_width       IN NUMBER,
+    p_height      IN NUMBER,
+    p_labels      IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors      IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_values IN BOOLEAN                   DEFAULT TRUE,
+    p_title       IN VARCHAR2                  DEFAULT NULL,
+    p_unit        IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.bar_chart(p_doc, p_values, p_x, p_y, p_width, p_height,
+                            p_labels, p_colors, p_show_values, p_title, p_unit);
+  END bar_chart;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE line_chart(
+    p_doc          IN rad_pdf_types.t_doc_handle,
+    p_values       IN rad_pdf_types.t_number_list,
+    p_x            IN NUMBER,
+    p_y            IN NUMBER,
+    p_width        IN NUMBER,
+    p_height       IN NUMBER,
+    p_labels       IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors       IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_markers IN BOOLEAN                   DEFAULT TRUE,
+    p_title        IN VARCHAR2                  DEFAULT NULL,
+    p_unit         IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.line_chart(p_doc, p_values, p_x, p_y, p_width, p_height,
+                             p_labels, p_colors, p_show_markers, p_title, p_unit);
+  END line_chart;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE pie_chart(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_values  IN rad_pdf_types.t_number_list,
+    p_cx      IN NUMBER,
+    p_cy      IN NUMBER,
+    p_radius  IN NUMBER,
+    p_labels  IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors  IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_legend  IN BOOLEAN                   DEFAULT TRUE,
+    p_title   IN VARCHAR2                  DEFAULT NULL,
+    p_unit    IN rad_pdf_types.t_unit      DEFAULT 'pt') IS
+  BEGIN
+    rad_pdf_chart.pie_chart(p_doc, p_values, p_cx, p_cy, p_radius,
+                            p_labels, p_colors, p_legend, p_title, p_unit);
+  END pie_chart;
+
+-- ---------------------------------------------------------------------------
   FUNCTION get_info(p_doc  IN rad_pdf_types.t_doc_handle,
                     p_info IN PLS_INTEGER) RETURN NUMBER IS
   BEGIN

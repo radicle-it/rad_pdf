@@ -3,9 +3,24 @@
 All notable changes to RAD_PDF are documented here.  
 Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](https://semver.org)
 
-## [Unreleased]
+## [Unreleased] - 1.7.0-dev
 
-_No unreleased changes._
+### Added - Native charts (`rad_pdf_chart`, install Phase 13)
+
+- New stateless package **`rad_pdf_chart`**: single-series **bar**, **line**
+  and **pie** charts as pure vector graphics (axes, gridlines, bars,
+  cubic-Bézier pie slices — no images).
+  - "Nice numbers" y scale (1/2/5 × 10^k gridline steps).
+  - Line charts support negative values (zero axis drawn inside the plot).
+  - Built-in 10-colour palette; `p_colors` override with cycling.
+  - Pie legend with colour swatches and percentages.
+  - Document font saved/restored around every chart.
+- Facade shortcuts `rad_pdf.bar_chart` / `line_chart` / `pie_chart`.
+- `rad_pdf_types.t_text_list` and `t_rgb_list` collection types.
+- `src/install/install_phase13.sql` — fresh-install phase, doubles as the
+  v1.6.0 → v1.7.0 upgrade script.
+- `tests/phase16_chart.sql` — 5 acceptance tests.
+- `docs/sample20.sql` — dashboard with all three chart types.
 
 ## [1.6.0] - 2026-06-11
 

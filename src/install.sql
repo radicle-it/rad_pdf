@@ -4,7 +4,7 @@
 -- Requires Oracle 19c+. Run as the schema owner.
 
 PROMPT ================================================================
-PROMPT  RAD_PDF v1.6.0 — Full Suite Installer
+PROMPT  RAD_PDF v1.7.0-dev — Full Suite Installer
 PROMPT  Oracle 19c+  |  Run as the target schema owner
 PROMPT  Working directory src/
 PROMPT ================================================================
@@ -33,6 +33,8 @@ PROMPT
 PROMPT
 @@install/install_phase12.sql
 PROMPT
+@@install/install_phase13.sql
+PROMPT
 @@install/install_phase8.sql
 PROMPT
 
@@ -48,6 +50,7 @@ PROMPT    @tests/phase12_canvas_ext.sql    line-dash + justification (v1.5.0)
 PROMPT    @tests/phase13_barcode.sql       QR + 1D barcodes (v1.6.0)
 PROMPT    @tests/phase14_bookmark.sql      bookmarks / outline (v1.6.0)
 PROMPT    @tests/phase15_png.sql           PNG alpha / flate (v1.6.0)
+PROMPT    @tests/phase16_chart.sql         bar / line / pie charts (v1.7.0)
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql

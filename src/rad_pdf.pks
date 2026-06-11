@@ -158,6 +158,48 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                     p_unit      IN rad_pdf_types.t_unit DEFAULT 'pt');
 
 -- ---------------------------------------------------------------------------
+-- Chart shortcuts — delegate to rad_pdf_chart (v1.7.0).
+-- Pure vector charts; see rad_pdf_chart for layout rules and validation.
+-- ---------------------------------------------------------------------------
+  PROCEDURE bar_chart(
+    p_doc         IN rad_pdf_types.t_doc_handle,
+    p_values      IN rad_pdf_types.t_number_list,
+    p_x           IN NUMBER,
+    p_y           IN NUMBER,
+    p_width       IN NUMBER,
+    p_height      IN NUMBER,
+    p_labels      IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors      IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_values IN BOOLEAN                   DEFAULT TRUE,
+    p_title       IN VARCHAR2                  DEFAULT NULL,
+    p_unit        IN rad_pdf_types.t_unit      DEFAULT 'pt');
+
+  PROCEDURE line_chart(
+    p_doc          IN rad_pdf_types.t_doc_handle,
+    p_values       IN rad_pdf_types.t_number_list,
+    p_x            IN NUMBER,
+    p_y            IN NUMBER,
+    p_width        IN NUMBER,
+    p_height       IN NUMBER,
+    p_labels       IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors       IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_show_markers IN BOOLEAN                   DEFAULT TRUE,
+    p_title        IN VARCHAR2                  DEFAULT NULL,
+    p_unit         IN rad_pdf_types.t_unit      DEFAULT 'pt');
+
+  PROCEDURE pie_chart(
+    p_doc     IN rad_pdf_types.t_doc_handle,
+    p_values  IN rad_pdf_types.t_number_list,
+    p_cx      IN NUMBER,
+    p_cy      IN NUMBER,
+    p_radius  IN NUMBER,
+    p_labels  IN rad_pdf_types.t_text_list DEFAULT rad_pdf_chart.no_labels(),
+    p_colors  IN rad_pdf_types.t_rgb_list  DEFAULT rad_pdf_chart.no_colors(),
+    p_legend  IN BOOLEAN                   DEFAULT TRUE,
+    p_title   IN VARCHAR2                  DEFAULT NULL,
+    p_unit    IN rad_pdf_types.t_unit      DEFAULT 'pt');
+
+-- ---------------------------------------------------------------------------
 -- Document state query
 -- ---------------------------------------------------------------------------
 
