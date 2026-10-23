@@ -62,7 +62,7 @@ CREATE OR REPLACE TYPE BODY rad_pdf_jpeg_decoder AS
                               'FFD4','FFD5','FFD6','FFD7','FF01') THEN
         l_pos := l_pos + 2;
       ELSE
-        IF l_buf = HEXTORAW('FFC0') THEN  -- SOF0: baseline DCT
+        IF l_buf IN (HEXTORAW('FFC0'), HEXTORAW('FFC2')) THEN  -- SOF0: baseline DCT
           l_cres    := blob2num(p_blob, 1, l_pos + 4);
           l_height  := blob2num(p_blob, 2, l_pos + 5);
           l_width   := blob2num(p_blob, 2, l_pos + 7);

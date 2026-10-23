@@ -22,6 +22,10 @@ PROMPT --- rad_pdf_table spec
 @@../rad_pdf_table.pks
 SHOW ERRORS PACKAGE rad_pdf_table
 
+PROMPT --- rad_pdf_barcode interface (used by QR flowables)
+@@../rad_pdf_barcode.pks
+SHOW ERRORS PACKAGE rad_pdf_barcode
+
 PROMPT --- rad_pdf_layout body
 @@../rad_pdf_layout.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_layout

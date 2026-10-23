@@ -34,6 +34,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
   TYPE t_cache_entry IS RECORD (
     img        t_image,
     byte_size  NUMBER,
+    pin_count  PLS_INTEGER := 0,
     last_used  TIMESTAMP
   );
 
@@ -117,431 +118,42 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
   END raw2num;
 
 -- ---------------------------------------------------------------------------
--- PRIVATE: JPEG parser
+-- PRIVATE: dispatch to the shared schema-level decoders.
 -- ---------------------------------------------------------------------------
-  FUNCTION parse_jpg(p_blob IN BLOB) RETURN t_image IS
-    l_img     t_image;
-    l_len     NUMBER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
-    l_buf     RAW(2);
-    l_pos     PLS_INTEGER;
-    l_seg_len PLS_INTEGER;
+  FUNCTION parse_image(p_blob IN BLOB, p_sha256 IN VARCHAR2) RETURN t_image IS
+    l_decoder rad_pdf_img_decoder;
+    l_data rad_pdf_img_data;
+    l_img t_image;
+    l_header RAW(16);
   BEGIN
-    IF l_len < 4 THEN RETURN l_img; END IF;
-
-    -- Verify SOI (FFD8) and EOI (FFD9).
-    IF DBMS_LOB.SUBSTR(p_blob, 2, 1)          != HEXTORAW('FFD8')
-    OR DBMS_LOB.SUBSTR(p_blob, 2, l_len - 1)  != HEXTORAW('FFD9') THEN
-      RETURN l_img;
-    END IF;
-
-    l_img.img_type  := 'jpg';
-    l_img.nr_colors := 3;
-    l_img.greyscale := FALSE;
-    l_img.color_res := 8;
-    l_img.width     := 1;
-    l_img.height    := 1;
-
-    -- Scan segments to find SOF0 (FFC0) which contains actual dimensions.
-    l_pos := 3;
-    LOOP
-      l_buf := DBMS_LOB.SUBSTR(p_blob, 2, l_pos);
-      EXIT WHEN l_buf IS NULL OR l_pos >= l_len;
-      EXIT WHEN l_buf = HEXTORAW('FFDA');  -- SOS (Start of Scan)
-      EXIT WHEN l_buf = HEXTORAW('FFD9');  -- EOI (End of Image)
-      EXIT WHEN SUBSTR(RAWTOHEX(l_buf), 1, 2) != 'FF';
-
-      -- Marker-only segments (no length field).
-      IF RAWTOHEX(l_buf) IN ('FFD0','FFD1','FFD2','FFD3',
-                              'FFD4','FFD5','FFD6','FFD7','FF01') THEN
-        l_pos := l_pos + 2;
-      ELSE
-        IF l_buf = HEXTORAW('FFC0')        -- SOF0: baseline DCT
-        OR l_buf = HEXTORAW('FFC2') THEN  -- SOF2: progressive DCT
-          l_img.color_res := blob2num(p_blob, 1, l_pos + 4);
-          l_img.height    := blob2num(p_blob, 2, l_pos + 5);
-          l_img.width     := blob2num(p_blob, 2, l_pos + 7);
-          l_img.nr_colors := blob2num(p_blob, 1, l_pos + 9);
-          l_img.greyscale := (l_img.nr_colors = 1);
-        END IF;
-        l_seg_len := blob2num(p_blob, 2, l_pos + 2);
-        EXIT WHEN l_seg_len IS NULL;
-        l_pos := l_pos + 2 + l_seg_len;
-      END IF;
-    END LOOP;
-
-    -- For JPEG the pixels blob must be a copy — the caller may free p_blob.
-    DBMS_LOB.CREATETEMPORARY(l_img.pixels, TRUE, DBMS_LOB.SESSION);
-    IF l_len > 0 THEN
-      DBMS_LOB.COPY(l_img.pixels, p_blob, l_len);
-    END IF;
-
-    RETURN l_img;
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF l_img.pixels IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_img.pixels) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(l_img.pixels);
-      END IF;
-      RAISE;
-  END parse_jpg;
-
--- ---------------------------------------------------------------------------
--- PRIVATE: PNG parser
--- ---------------------------------------------------------------------------
-  FUNCTION parse_png(p_blob IN BLOB) RETURN t_image IS
-    l_img        t_image;
-    l_len        NUMBER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
-    l_pos        PLS_INTEGER := 9;
-    l_chunk_len  PLS_INTEGER;
-    l_chunk_typ  VARCHAR2(4);
-    l_color_type PLS_INTEGER;
-  BEGIN
-    IF l_len < 8 THEN RETURN l_img; END IF;
-    IF RAWTOHEX(DBMS_LOB.SUBSTR(p_blob, 8, 1)) != '89504E470D0A1A0A' THEN
-      RETURN l_img;
-    END IF;
-
-    l_img.img_type := 'png';
-    DBMS_LOB.CREATETEMPORARY(l_img.pixels, TRUE, DBMS_LOB.SESSION);
-
-    LOOP
-      EXIT WHEN l_pos > l_len;
-      l_chunk_len := blob2num(p_blob, 4, l_pos);
-      EXIT WHEN l_chunk_len IS NULL;
-      l_chunk_typ := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(p_blob, 4, l_pos + 4));
-
-      CASE l_chunk_typ
-        WHEN 'IHDR' THEN
-          l_img.width      := blob2num(p_blob, 4, l_pos + 8);
-          l_img.height     := blob2num(p_blob, 4, l_pos + 12);
-          l_img.color_res  := blob2num(p_blob, 1, l_pos + 16);
-          l_color_type     := blob2num(p_blob, 1, l_pos + 17);
-          -- Interlaced (Adam7) scanline layout is incompatible with both the
-          -- PDF Predictor-15 path and the alpha-strip unfilter: rendering
-          -- would be silently corrupted.  Fail with a clear message instead.
-          IF blob2num(p_blob, 1, l_pos + 20) != 0 THEN
-            RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
-              'rad_pdf_images: interlaced (Adam7) PNG is not supported'
-              || ' - re-save the image as non-interlaced', TRUE);
-          END IF;
-          l_img.greyscale  := l_color_type IN (0, 4);
-          l_img.nr_colors  := CASE l_color_type
-                                WHEN 0 THEN 1   -- greyscale
-                                WHEN 2 THEN 3   -- RGB
-                                WHEN 3 THEN 1   -- indexed
-                                WHEN 4 THEN 2   -- greyscale + alpha
-                                ELSE        4   -- RGBA
-                              END;
-        WHEN 'PLTE' THEN
-          l_img.color_tab := DBMS_LOB.SUBSTR(p_blob,
-                               LEAST(l_chunk_len, 768), l_pos + 8);
-        WHEN 'IDAT' THEN
-          IF l_chunk_len > 0 THEN
-            DBMS_LOB.COPY(l_img.pixels, p_blob, l_chunk_len,
-                          DBMS_LOB.GETLENGTH(l_img.pixels) + 1, l_pos + 8);
-          END IF;
-        WHEN 'IEND' THEN EXIT;
-        ELSE NULL;
-      END CASE;
-
-      l_pos := l_pos + 4 + 4 + l_chunk_len + 4;  -- length + type + data + CRC
-    END LOOP;
-
-    RETURN l_img;
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF l_img.pixels IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_img.pixels) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(l_img.pixels);
-      END IF;
-      RAISE;
-  END parse_png;
-
--- ---------------------------------------------------------------------------
--- PRIVATE: GIF LZW decompressor
--- ---------------------------------------------------------------------------
-  FUNCTION lzw_decompress(p_blob IN BLOB, p_bits IN PLS_INTEGER) RETURN BLOB IS
-    TYPE t_lzw_dict IS TABLE OF RAW(1000) INDEX BY PLS_INTEGER;
-    l_dict       t_lzw_dict;
-    l_result     BLOB;
-    l_clr_code   PLS_INTEGER;
-    l_nxt_code   PLS_INTEGER;
-    l_new_code   PLS_INTEGER;
-    l_old_code   PLS_INTEGER;
-    l_bits       PLS_INTEGER := p_bits;
-    l_ind        PLS_INTEGER := 0;
-    l_buf_val    PLS_INTEGER := 0;
-    l_buf_bits   PLS_INTEGER := 0;
-    l_blob_len   NUMBER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
-    l_powers     DBMS_SQL.NUMBER_TABLE;
-
-    FUNCTION get_code RETURN PLS_INTEGER IS
-      l_rv   PLS_INTEGER;
-      l_byte PLS_INTEGER;
-    BEGIN
-      WHILE l_buf_bits < l_bits LOOP
-        l_ind := l_ind + 1;
-        EXIT WHEN l_ind > l_blob_len;
-        l_byte     := raw2num(DBMS_LOB.SUBSTR(p_blob, 1, l_ind));
-        l_buf_val  := l_buf_val + l_byte * l_powers(l_buf_bits);
-        l_buf_bits := l_buf_bits + 8;
-      END LOOP;
-      l_rv       := MOD(l_buf_val, l_powers(l_bits));
-      l_buf_val  := TRUNC(l_buf_val / l_powers(l_bits));
-      l_buf_bits := l_buf_bits - l_bits;
-      RETURN l_rv;
-    END get_code;
-
-  BEGIN
-    FOR i IN 0 .. 30 LOOP
-      l_powers(i) := POWER(2, i);
-    END LOOP;
-
-    l_clr_code := l_powers(p_bits - 1);
-    l_nxt_code := l_clr_code + 2;
-
-    FOR i IN 0 .. LEAST(l_clr_code - 1, 255) LOOP
-      l_dict(i) := HEXTORAW(TO_CHAR(i, 'FM0X'));
-    END LOOP;
-
-    DBMS_LOB.CREATETEMPORARY(l_result, TRUE, DBMS_LOB.SESSION);
-
-    l_old_code := NULL;
-    l_new_code := get_code();
-
-    LOOP
-      CASE NVL(l_new_code, l_clr_code + 1)
-        WHEN l_clr_code + 1 THEN
-          EXIT;
-        WHEN l_clr_code THEN
-          l_new_code := NULL;
-          l_bits     := p_bits;
-          l_nxt_code := l_clr_code + 2;
-        ELSE
-          IF l_new_code = l_nxt_code THEN
-            l_dict(l_nxt_code) := UTL_RAW.CONCAT(
-              l_dict(l_old_code),
-              UTL_RAW.SUBSTR(l_dict(l_old_code), 1, 1));
-            blob_append_raw(l_result, l_dict(l_nxt_code));
-            l_nxt_code := l_nxt_code + 1;
-          ELSIF l_new_code > l_nxt_code THEN
-            EXIT;
-          ELSE
-            blob_append_raw(l_result, l_dict(l_new_code));
-            IF l_old_code IS NOT NULL THEN
-              l_dict(l_nxt_code) := UTL_RAW.CONCAT(
-                l_dict(l_old_code),
-                UTL_RAW.SUBSTR(l_dict(l_new_code), 1, 1));
-              l_nxt_code := l_nxt_code + 1;
-            END IF;
-          END IF;
-          IF l_bits < 12 AND MOD(l_nxt_code, l_powers(l_bits)) = 0 THEN
-            l_bits := l_bits + 1;
-          END IF;
-      END CASE;
-      l_old_code := l_new_code;
-      l_new_code := get_code();
-    END LOOP;
-
-    l_dict.DELETE;
-    RETURN l_result;
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF l_result IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_result) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(l_result);
-      END IF;
-      RAISE;
-  END lzw_decompress;
-
--- ---------------------------------------------------------------------------
--- PRIVATE: GIF parser
--- ---------------------------------------------------------------------------
-  FUNCTION parse_gif(p_blob IN BLOB) RETURN t_image IS
-    l_img    t_image;
-    l_len    NUMBER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
-    l_ind    PLS_INTEGER;
-    l_t_len  PLS_INTEGER;
-    l_byte1  RAW(1);
-    l_done   BOOLEAN := FALSE;
-  BEGIN
-    IF l_len < 6 THEN RETURN l_img; END IF;
-    IF DBMS_LOB.SUBSTR(p_blob, 3, 1) != UTL_RAW.CAST_TO_RAW('GIF') THEN
-      RETURN l_img;
-    END IF;
-
-    l_img.img_type  := 'gif';
-    l_img.color_res := 8;
-
-    -- Logical Screen Descriptor starts at byte 7 (6-byte header).
-    -- Packed field (byte 5 of LSD = byte 11 overall) contains GCT flag and size.
-    l_ind := 14;  -- first byte after the 13-byte header + LSD
-
-    IF raw2num(DBMS_LOB.SUBSTR(p_blob, 1, 11)) > 127 THEN
-      -- Global Color Table present; size = 2^(low3bits+1) entries * 3 bytes.
-      l_t_len := 3 * POWER(2,
-                   raw2num(UTL_RAW.BIT_AND(
-                     DBMS_LOB.SUBSTR(p_blob, 1, 11), HEXTORAW('07'))) + 1);
-      l_img.color_tab := DBMS_LOB.SUBSTR(p_blob, LEAST(l_t_len, 768), l_ind);
-      l_ind := l_ind + l_t_len;
-    END IF;
-
-    LOOP
-      EXIT WHEN l_ind > l_len OR l_done;
-      l_byte1 := DBMS_LOB.SUBSTR(p_blob, 1, l_ind);
-
-      IF l_byte1 = HEXTORAW('3B') THEN       -- Trailer
-        EXIT;
-
-      ELSIF l_byte1 = HEXTORAW('21') THEN    -- Extension block
-        IF DBMS_LOB.SUBSTR(p_blob, 1, l_ind + 1) = HEXTORAW('F9') THEN
-          -- Graphic Control Extension: check transparent colour flag.
-          IF UTL_RAW.BIT_AND(DBMS_LOB.SUBSTR(p_blob, 1, l_ind + 3),
-                              HEXTORAW('01')) = HEXTORAW('01') THEN
-            l_img.transp_idx := blob2num(p_blob, 1, l_ind + 6);
-          END IF;
-        END IF;
-        l_ind := l_ind + 2;  -- skip sentinel + label
-        LOOP
-          l_t_len := blob2num(p_blob, 1, l_ind);
-          EXIT WHEN l_t_len = 0;
-          l_ind := l_ind + 1 + l_t_len;
-        END LOOP;
-        l_ind := l_ind + 1;  -- skip terminal Block Size (0)
-
-      ELSIF l_byte1 = HEXTORAW('2C') THEN    -- Image Descriptor
-        DECLARE
-          l_img_blob    BLOB;
-          l_min_bits    PLS_INTEGER;
-          l_flags       RAW(1);
-        BEGIN
-          l_img.width  := UTL_RAW.CAST_TO_BINARY_INTEGER(
-                            DBMS_LOB.SUBSTR(p_blob, 2, l_ind + 5),
-                            UTL_RAW.LITTLE_ENDIAN);
-          l_img.height := UTL_RAW.CAST_TO_BINARY_INTEGER(
-                            DBMS_LOB.SUBSTR(p_blob, 2, l_ind + 7),
-                            UTL_RAW.LITTLE_ENDIAN);
-          l_img.greyscale := FALSE;
-          l_ind := l_ind + 1 + 8;  -- skip sentinel + 8 image descriptor bytes
-
-          l_flags := DBMS_LOB.SUBSTR(p_blob, 1, l_ind);
-
-          IF UTL_RAW.BIT_AND(l_flags, HEXTORAW('80')) = HEXTORAW('80') THEN
-            -- Local Color Table overrides global palette.
-            l_t_len := 3 * POWER(2,
-                         raw2num(UTL_RAW.BIT_AND(l_flags, HEXTORAW('07'))) + 1);
-            l_img.color_tab := DBMS_LOB.SUBSTR(
-                                  p_blob, LEAST(l_t_len, 768), l_ind + 1);
-          END IF;
-          l_ind := l_ind + 1;
-
-          l_min_bits := blob2num(p_blob, 1, l_ind);
-          l_ind := l_ind + 1;
-
-          -- Collect all LZW data sub-blocks into one BLOB.
-          DBMS_LOB.CREATETEMPORARY(l_img_blob, TRUE, DBMS_LOB.SESSION);
-          LOOP
-            l_t_len := blob2num(p_blob, 1, l_ind);
-            EXIT WHEN l_t_len = 0;
-            blob_append_raw(l_img_blob,
-                            DBMS_LOB.SUBSTR(p_blob, l_t_len, l_ind + 1));
-            l_ind := l_ind + 1 + l_t_len;
-          END LOOP;
-          l_ind := l_ind + 1;  -- skip terminal Block Size (0)
-
-          l_img.pixels := lzw_decompress(l_img_blob, l_min_bits + 1);
-          DBMS_LOB.FREETEMPORARY(l_img_blob);
-
-          -- De-interlace if the Interlace flag is set.
-          IF UTL_RAW.BIT_AND(l_flags, HEXTORAW('40')) = HEXTORAW('40') THEN
-            DECLARE
-              l_deint BLOB;
-              l_pass  PLS_INTEGER;
-              l_pi    DBMS_SQL.NUMBER_TABLE;
-            BEGIN
-              DBMS_LOB.CREATETEMPORARY(l_deint, TRUE, DBMS_LOB.SESSION);
-              l_pi(1) := 1;
-              l_pi(2) := TRUNC((l_img.height - 1) / 8) + 1;
-              l_pi(3) := l_pi(2) + TRUNC((l_img.height + 3) / 8);
-              l_pi(4) := l_pi(3) + TRUNC((l_img.height + 1) / 4);
-              l_pi(2) := l_pi(2) * l_img.width + 1;
-              l_pi(3) := l_pi(3) * l_img.width + 1;
-              l_pi(4) := l_pi(4) * l_img.width + 1;
-              FOR i IN 0 .. l_img.height - 1 LOOP
-                l_pass := CASE MOD(i, 8)
-                            WHEN 0 THEN 1
-                            WHEN 4 THEN 2
-                            WHEN 2 THEN 3
-                            WHEN 6 THEN 3
-                            ELSE        4
-                          END;
-                blob_append_raw(l_deint,
-                  DBMS_LOB.SUBSTR(l_img.pixels, l_img.width, l_pi(l_pass)));
-                l_pi(l_pass) := l_pi(l_pass) + l_img.width;
-              END LOOP;
-              IF DBMS_LOB.ISTEMPORARY(l_img.pixels) = 1 THEN
-                DBMS_LOB.FREETEMPORARY(l_img.pixels);
-              END IF;
-              l_img.pixels := l_deint;
-            END;
-          END IF;
-
-          l_done := TRUE;  -- Only the first image frame is embedded.
-        EXCEPTION
-          WHEN OTHERS THEN
-            BEGIN
-              IF l_img_blob IS NOT NULL
-                 AND DBMS_LOB.ISTEMPORARY(l_img_blob) = 1 THEN
-                DBMS_LOB.FREETEMPORARY(l_img_blob);
-              END IF;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
-            RAISE;
-        END;
-      ELSE
-        EXIT;
-      END IF;
-    END LOOP;
-
-    RETURN l_img;
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF l_img.pixels IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_img.pixels) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(l_img.pixels);
-      END IF;
-      RAISE;
-  END parse_gif;
-
--- ---------------------------------------------------------------------------
--- PRIVATE: Format detection and dispatch
--- ---------------------------------------------------------------------------
-  FUNCTION parse_image(p_blob   IN BLOB,
-                       p_sha256 IN VARCHAR2) RETURN t_image IS
-    l_img  t_image;
-    l_len  NUMBER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
-  BEGIN
-    IF l_len = 0 THEN
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
-        'rad_pdf_images.load_image: empty image data', TRUE);
-    END IF;
-
-    -- Detect format by magic bytes.
-    IF RAWTOHEX(DBMS_LOB.SUBSTR(p_blob, 8, 1)) = '89504E470D0A1A0A' THEN
-      l_img := parse_png(p_blob);
-    ELSIF DBMS_LOB.SUBSTR(p_blob, 3, 1) = UTL_RAW.CAST_TO_RAW('GIF') THEN
-      l_img := parse_gif(p_blob);
-    ELSIF RAWTOHEX(DBMS_LOB.SUBSTR(p_blob, 2, 1)) = 'FFD8' THEN
-      l_img := parse_jpg(p_blob);
+    l_header := DBMS_LOB.SUBSTR(p_blob,16,1);
+    IF UTL_RAW.LENGTH(l_header)>=8 AND RAWTOHEX(UTL_RAW.SUBSTR(l_header,1,8)) = '89504E470D0A1A0A' THEN
+      l_decoder := rad_pdf_png_decoder(NULL);
+    ELSIF UTL_RAW.LENGTH(l_header)>=3 AND UTL_RAW.SUBSTR(l_header,1,3) = UTL_RAW.CAST_TO_RAW('GIF') THEN
+      l_decoder := rad_pdf_gif_decoder(NULL);
+    ELSIF UTL_RAW.LENGTH(l_header)>=2 AND UTL_RAW.SUBSTR(l_header,1,2) = HEXTORAW('FFD8') THEN
+      l_decoder := rad_pdf_jpeg_decoder(NULL);
     ELSE
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
-        'rad_pdf_images.load_image: unsupported image format '
-        || '(expected PNG, GIF, or JPEG)', TRUE);
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image, 'Unsupported image format');
     END IF;
-
-    IF l_img.width IS NULL OR l_img.width = 0 THEN
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
-        'rad_pdf_images.load_image: could not determine image dimensions', TRUE);
-    END IF;
-
+    l_data := l_decoder.decode(p_blob);
+    l_img.img_type := LOWER(l_data.img_type);
+    l_img.width := l_data.width;
+    l_img.height := l_data.height;
+    l_img.color_res := l_data.color_res;
+    l_img.nr_colors := l_data.nr_colors;
+    l_img.greyscale := l_data.greyscale = 1;
+    l_img.transp_idx := l_data.transp_idx;
+    l_img.pixels := l_data.pixels;
+    l_img.color_tab := l_data.color_tab;
     l_img.sha256 := p_sha256;
+    IF NVL(l_img.width,0) <= 0 OR NVL(l_img.height,0) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image, 'Invalid image dimensions');
+    END IF;
     RETURN l_img;
+  EXCEPTION WHEN OTHERS THEN
+    IF DBMS_LOB.ISTEMPORARY(l_img.pixels)=1 THEN DBMS_LOB.FREETEMPORARY(l_img.pixels); END IF;
+    RAISE;
   END parse_image;
 
 -- ---------------------------------------------------------------------------
@@ -563,15 +175,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
     WHILE g_cache_bytes + p_new_bytes > g_cache_limit
           AND g_cache.COUNT > 0 LOOP
       l_key    := g_cache.FIRST;
-      l_oldest := l_key;
-      l_oldest_t := g_cache(l_key).last_used;
+      l_oldest := NULL;
+      l_oldest_t := NULL;
       WHILE l_key IS NOT NULL LOOP
-        IF g_cache(l_key).last_used < l_oldest_t THEN
+        IF g_cache(l_key).pin_count = 0 AND
+           (l_oldest IS NULL OR g_cache(l_key).last_used < l_oldest_t) THEN
           l_oldest   := l_key;
           l_oldest_t := g_cache(l_key).last_used;
         END IF;
         l_key := g_cache.NEXT(l_key);
       END LOOP;
+      EXIT WHEN l_oldest IS NULL; -- active documents may exceed the cache budget
       IF g_cache(l_oldest).img.pixels IS NOT NULL
          AND DBMS_LOB.ISTEMPORARY(g_cache(l_oldest).img.pixels) = 1 THEN
         DBMS_LOB.FREETEMPORARY(g_cache(l_oldest).img.pixels);
@@ -630,6 +244,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
     g_doc_state(p_doc).next_id    := l_id + 1;
     g_doc_state(p_doc).used_hash(l_id)   := p_sha256;
     g_doc_state(p_doc).used_id(p_sha256) := l_id;
+    g_cache(p_sha256).pin_count := g_cache(p_sha256).pin_count + 1;
     RETURN l_id;
   END register_image;
 
@@ -756,7 +371,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- ---------------------------------------------------------------------------
   PROCEDURE set_image_cache_limit(p_bytes IN NUMBER DEFAULT 52428800) IS
   BEGIN
+    IF NVL(p_bytes,52428800) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'Image cache limit must be positive');
+    END IF;
     g_cache_limit := NVL(p_bytes, 52428800);
+    evict_to_fit(0);
   END set_image_cache_limit;
 
 -- ---------------------------------------------------------------------------
@@ -766,6 +385,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
                       p_img IN BLOB) RETURN PLS_INTEGER IS
     l_sha256 VARCHAR2(64);
   BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
     IF p_img IS NULL OR NVL(DBMS_LOB.GETLENGTH(p_img), 0) = 0 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_images.load_image: NULL or empty BLOB', TRUE);
@@ -1057,10 +677,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
           p_doc, l_data, l_extra || ' /Filter /DCTDecode', FALSE);
 
       ELSIF l_img.img_type = 'png' THEN
-        IF l_img.nr_colors IN (2, 4) THEN
+        IF l_img.nr_colors IN (2, 4) AND NOT NVL(l_img.pixels_raw,FALSE) THEN
           -- Strip alpha channel (decompress IDAT, reverse filters, drop alpha).
           BEGIN
-            strip_png_alpha(l_img);
+            strip_png_alpha(g_cache(l_sha256).img);
+            g_cache_bytes := g_cache_bytes - g_cache(l_sha256).byte_size;
+            g_cache(l_sha256).byte_size := DBMS_LOB.GETLENGTH(g_cache(l_sha256).img.pixels)
+                                         + NVL(DBMS_LOB.GETLENGTH(g_cache(l_sha256).img.smask),0);
+            g_cache_bytes := g_cache_bytes + g_cache(l_sha256).byte_size;
+            l_img := g_cache(l_sha256).img;
             l_data := l_img.pixels;
           EXCEPTION
             WHEN OTHERS THEN
@@ -1130,9 +755,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- Public: close_doc — release per-document tracking state
 -- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
+    l_id PLS_INTEGER;
+    l_hash VARCHAR2(64);
   BEGIN
     IF g_doc_state.EXISTS(p_doc) THEN
+      l_id := g_doc_state(p_doc).used_hash.FIRST;
+      WHILE l_id IS NOT NULL LOOP
+        l_hash := g_doc_state(p_doc).used_hash(l_id);
+        IF g_cache.EXISTS(l_hash) THEN
+          g_cache(l_hash).pin_count := GREATEST(g_cache(l_hash).pin_count-1,0);
+        END IF;
+        l_id := g_doc_state(p_doc).used_hash.NEXT(l_id);
+      END LOOP;
       g_doc_state.DELETE(p_doc);
+      evict_to_fit(0);
     END IF;
   END close_doc;
 
@@ -1140,22 +776,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- Public: clear_image_cache
 -- ---------------------------------------------------------------------------
   PROCEDURE clear_image_cache IS
-    l_key VARCHAR2(64);
+    l_limit NUMBER := g_cache_limit;
   BEGIN
-    l_key := g_cache.FIRST;
-    WHILE l_key IS NOT NULL LOOP
-      IF g_cache(l_key).img.pixels IS NOT NULL
-         AND DBMS_LOB.ISTEMPORARY(g_cache(l_key).img.pixels) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(g_cache(l_key).img.pixels);
-      END IF;
-      IF g_cache(l_key).img.smask IS NOT NULL
-         AND DBMS_LOB.ISTEMPORARY(g_cache(l_key).img.smask) = 1 THEN
-        DBMS_LOB.FREETEMPORARY(g_cache(l_key).img.smask);
-      END IF;
-      l_key := g_cache.NEXT(l_key);
-    END LOOP;
-    g_cache.DELETE;
-    g_cache_bytes := 0;
+    -- Keep pinned resources alive; clear all idle entries.
+    g_cache_limit := 0;
+    evict_to_fit(0);
+    g_cache_limit := l_limit;
+  EXCEPTION WHEN OTHERS THEN
+    g_cache_limit := l_limit;
+    RAISE;
   END clear_image_cache;
 
 -- ---------------------------------------------------------------------------

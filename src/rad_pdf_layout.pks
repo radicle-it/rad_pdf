@@ -86,7 +86,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
   FUNCTION get_table_def(p_doc       IN rad_pdf_types.t_doc_handle,
                          p_table_ref IN PLS_INTEGER) RETURN rad_pdf_types.t_table_def;
 
-  -- Execute measure pass + render pass + run_page_procs.
+  -- Prepare data, render with actual cursor positions, then run_page_procs.
   -- Called once by rad_pdf.finalize; do not invoke directly.
   PROCEDURE render(p_doc IN rad_pdf_types.t_doc_handle);
 

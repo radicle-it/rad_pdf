@@ -54,6 +54,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_dummy  INTEGER;
     l_row_nr PLS_INTEGER := 0;
   BEGIN
+    IF p_max_rows IS NOT NULL AND p_max_rows <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'max_rows must be positive');
+    END IF;
     DBMS_SQL.DESCRIBE_COLUMNS2(p_cursor, l_ncols, l_desc);
     g_table_cache(p_doc)(p_table_ref).col_count := l_ncols;
     FOR c IN 1..l_ncols LOOP
@@ -650,11 +653,26 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                          p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
                          p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options()) IS
   BEGIN
-    -- For CLOB queries: convert to VARCHAR2 if short, else not supported
-    IF DBMS_LOB.GETLENGTH(p_query) <= 32767 THEN
-      query2labels(p_doc, DBMS_LOB.SUBSTR(p_query, 32767, 1),
-                   p_columns, p_label, p_colors, p_options);
-    END IF;
+    DECLARE
+      l_cursor INTEGER;
+      l_dummy INTEGER;
+      l_x NUMBER;
+      l_y NUMBER;
+    BEGIN
+      l_x := rad_pdf_canvas.get_info(p_doc,rad_pdf_types.c_info_margin_left);
+      l_y := rad_pdf_canvas.get_info(p_doc,rad_pdf_types.c_info_page_height)
+             -rad_pdf_canvas.get_info(p_doc,rad_pdf_types.c_info_margin_top);
+      l_cursor := DBMS_SQL.OPEN_CURSOR;
+      BEGIN
+        DBMS_SQL.PARSE(l_cursor,p_query,DBMS_SQL.NATIVE);
+        l_dummy := DBMS_SQL.EXECUTE(l_cursor);
+        draw_labels_from_cursor(p_doc,l_cursor,p_columns,p_label,p_colors,p_options,l_x,l_y);
+        DBMS_SQL.CLOSE_CURSOR(l_cursor);
+      EXCEPTION WHEN OTHERS THEN
+        IF DBMS_SQL.IS_OPEN(l_cursor) THEN DBMS_SQL.CLOSE_CURSOR(l_cursor); END IF;
+        RAISE;
+      END;
+    END;
   END query2labels;
 
 -- ---------------------------------------------------------------------------
@@ -695,16 +713,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_hdr_h  NUMBER;
     l_row_h  NUMBER;
     l_ws     rad_pdf_types.t_number_list;
+    l_bind VARCHAR2(30);
   BEGIN
     l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
     ensure_cache(p_doc, p_table_ref);
 
-    -- Streaming tables: skip fetch in measure pass
-    IF l_def.streaming THEN
-      RETURN 0;
-    END IF;
-
-    -- Open and execute the query
+    -- Refcursors are already cached; other sources execute once here.
+    IF NOT l_def.streaming THEN
     l_cursor := DBMS_SQL.OPEN_CURSOR;
     BEGIN
       IF l_def.query_clob IS NOT NULL THEN
@@ -712,6 +727,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
       ELSE
         DBMS_SQL.PARSE(l_cursor, l_def.query_txt, DBMS_SQL.NATIVE);
       END IF;
+      l_bind := l_def.query_binds.FIRST;
+      WHILE l_bind IS NOT NULL LOOP
+        DBMS_SQL.BIND_VARIABLE(l_cursor,':'||l_bind,l_def.query_binds(l_bind));
+        l_bind := l_def.query_binds.NEXT(l_bind);
+      END LOOP;
       fetch_into_cache(p_doc, p_table_ref, l_cursor, l_def.options.max_rows, p_execute => TRUE);
       DBMS_SQL.CLOSE_CURSOR(l_cursor);
     EXCEPTION
@@ -719,6 +739,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
         BEGIN DBMS_SQL.CLOSE_CURSOR(l_cursor); EXCEPTION WHEN OTHERS THEN NULL; END;
         RAISE;
     END;
+    END IF;
     l_row_nr := g_table_cache(p_doc)(p_table_ref).row_count;
 
     -- Resolve auto-width columns from cache before any height measurement
@@ -762,7 +783,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                        p_table_ref IN PLS_INTEGER,
                        p_x         IN NUMBER,
                        p_y         IN NUMBER,
-                       p_width     IN NUMBER) IS
+                       p_width     IN NUMBER,
+                       p_end_y     OUT NUMBER) IS
     l_def        rad_pdf_types.t_table_def;
     l_ws         rad_pdf_types.t_number_list;
     l_cur_y      NUMBER := p_y;
@@ -772,7 +794,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_frame_y    NUMBER;
     l_margin_bot NUMBER;
     l_do_wrap    BOOLEAN;
+    l_hdr_h NUMBER;
+    l_first_h NUMBER := 0;
   BEGIN
+    p_end_y := p_y;
     l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
     IF l_def.col_defs IS NULL OR l_def.col_defs.COUNT = 0 THEN RETURN; END IF;
     IF NOT g_table_cache.EXISTS(p_doc) THEN RETURN; END IF;
@@ -790,6 +815,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_margin_bot := rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_bot);
     l_do_wrap    := has_wrap_cols(l_def);
 
+    l_hdr_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).header_fmt,
+                           l_def.options.h_row_height);
+    IF g_table_cache(p_doc)(p_table_ref).row_count > 0 THEN
+      IF l_do_wrap THEN
+        l_first_h := wrapped_row_height(p_doc,l_def,l_ws,
+                         g_table_cache(p_doc)(p_table_ref).data(1));
+      ELSE
+        l_first_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
+                                l_def.options.t_row_height);
+      END IF;
+    END IF;
+    IF l_hdr_h+l_first_h > l_frame_y-l_margin_bot THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_layout,
+        'Table header and row exceed content frame height');
+    END IF;
+    IF l_cur_y-l_hdr_h-l_first_h < l_margin_bot THEN
+      rad_pdf_canvas.new_page(p_doc);
+      l_cur_y := l_frame_y;
+    END IF;
     -- Header row
     l_h     := draw_header_row(p_doc, l_def, l_ws, p_x, l_cur_y);
     l_cur_y := l_cur_y - l_h;
@@ -804,6 +848,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
       ELSE
         l_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
                           l_def.options.t_row_height);
+      END IF;
+      IF l_h+l_hdr_h > l_frame_y-l_margin_bot THEN
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_layout,
+          'Table row exceeds content frame height; split the cell content');
       END IF;
       -- Page break if row doesn't fit
       IF l_cur_y - l_h < l_margin_bot THEN
@@ -824,6 +872,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
       l_cur_y  := l_cur_y - l_h;
       l_row_nr := l_row_nr + 1;
     END LOOP;
+    p_end_y := l_cur_y;
+  END draw_table;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE draw_table(p_doc IN rad_pdf_types.t_doc_handle,
+                       p_table_ref IN PLS_INTEGER,
+                       p_x IN NUMBER, p_y IN NUMBER, p_width IN NUMBER) IS
+    l_end_y NUMBER;
+  BEGIN
+    draw_table(p_doc,p_table_ref,p_x,p_y,p_width,l_end_y);
   END draw_table;
 
 -- ---------------------------------------------------------------------------

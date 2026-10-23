@@ -5,7 +5,46 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- Render complete CLOB paragraphs across pages; measure and draw inline text with
+  the same line metrics, including mixed font sizes and explicit line breaks.
+- Continue content at the actual end of SQL/refcursor tables and apply headers and
+  footers to every physical page with the final page count.
+- Preserve caller-owned temporary CLOBs and clean up owned resources on failures.
+- Enforce positive template row limits, using the smaller global/tag cap, and
+  execute template query tokens through real SQL bind variables.
+- Handle mixed-case tags, exact attribute names, quoted bind values and long
+  multibyte plain paragraphs without silent truncation.
+- Keep images referenced by open documents alive during LRU eviction/cache clears;
+  retain decoded PNG alpha data safely across documents.
+- Encode simple-font text in its declared character set; use glyph IDs and actual
+  ToUnicode mappings for BMP CID text. Read all cmap format-4 segments and BMP groups in format-12 tables.
+- Preserve complete derived style formats, fractional sizes and base revisions.
+- Fail explicitly on rows taller than a content frame and unsupported multi-column
+  layouts, instead of silently drawing outside the page or ignoring the option.
+
+### Changed
+
+- The full installer declares all package interfaces before bodies, avoids phase
+  stubs and repeated facade compilation, and fails if compilation errors remain.
+  QR flowables now call the barcode API directly.
+- Image parsing uses the shared JPEG/PNG/GIF SQL decoders, removing duplicate code.
+- `clear_image_cache` clears idle entries; the memory budget is soft while active
+  documents pin resources, and is reapplied when those documents close.
+- Correct the legacy foundation test to expect the zlib header required by PDF.
+
+### Added
+
+- `t_flowable.keep_with_next` for keeping the next text line with a block; plain
+  headings enable it by default.
+- `rad_pdf_styles.define_format` to register a complete cell-format record.
+- `t_table_def.query_binds` and a table renderer overload returning the final Y.
+- `tests/phase19_fonts_unicode.sql` with original synthetic fonts covering cmap
+  formats 4/12, non-linear glyph IDs, ToUnicode maps and WinAnsi metrics.
+- `tests/phase18_robustness.sql` with assertions for full content, actual page
+  counts, CLOB ownership, SQL binds/limits, encodings, image lifetime and styles.
+
 
 ## [1.7.0] - 2026-06-12
 

@@ -58,6 +58,9 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
       EXIT WHEN l_pos > l_len;
       l_chunk_len := blob2num(p_blob, 4, l_pos);
       EXIT WHEN l_chunk_len IS NULL;
+      IF l_chunk_len < 0 OR l_pos+11+l_chunk_len > l_len THEN
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image, 'Invalid PNG chunk length');
+      END IF;
       l_chunk_typ := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(p_blob, 4, l_pos + 4));
 
       CASE l_chunk_typ
@@ -86,8 +89,10 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
           l_color_tab := DBMS_LOB.SUBSTR(p_blob, LEAST(l_chunk_len, 768), l_pos + 8);
         WHEN 'IDAT' THEN
           -- Concatenate all IDAT chunks; the result is the raw FlateDecode stream.
-          DBMS_LOB.COPY(l_pixels, p_blob, l_chunk_len,
-                        DBMS_LOB.GETLENGTH(l_pixels) + 1, l_pos + 8);
+          IF l_chunk_len > 0 THEN
+            DBMS_LOB.COPY(l_pixels, p_blob, l_chunk_len,
+                          DBMS_LOB.GETLENGTH(l_pixels) + 1, l_pos + 8);
+          END IF;
         WHEN 'IEND' THEN EXIT;
         ELSE NULL;
       END CASE;

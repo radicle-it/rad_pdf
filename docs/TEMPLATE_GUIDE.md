@@ -272,7 +272,7 @@ TYPE t_template_options IS RECORD (
 | `default_style` | `'body'` | Base style name for `<p>` tags without a `style=""` attribute. |
 | `strict_tags` | TRUE | When TRUE, an unknown block tag raises ORA-20811. Set FALSE to silently skip unrecognised tags. |
 | `allow_queries` | FALSE | Must be TRUE to execute `<table query="…">` tags. Acts as a second opt-in alongside `allow_query="true"` on the tag itself. |
-| `max_rows` | NULL | Global row cap applied to every `<table>` in this `render()` call when the tag itself does not specify `max_rows="N"`. NULL = no limit. Use to protect against runaway queries without editing every template. |
+| `max_rows` | NULL | Global row cap applied to every `<table>` in this `render()` call. The effective limit is the smaller of this cap and the tag limit; both must be positive integers. NULL = no global limit. Use to protect against runaway queries without editing every template. |
 
 All fields default to safe, conservative values.  Passing an uninitialised record is
 always safe.  Pass `NULL` (no record) to use all defaults.
@@ -356,41 +356,25 @@ l_binds(3).value := NVL(TO_CHAR(:P1_SAL, '999,990.00'), '-');
 
 Or use `<if bind="SAL">` to suppress the entire section when the value is absent.
 
-### `#TOKEN#` inside `<table query>` - automatic safe quoting
+### `#TOKEN#` inside `<table query>` — SQL bind variables
 
-When a `#TOKEN#` placeholder appears inside a `<table query="...">` attribute,
-`render()` automatically protects it against SQL injection **before** bind
-substitution runs (Phase 0b → `shield_query_attrs`):
-
-1. The token is replaced with a CHR(1)/CHR(2) sentinel pair in the CLOB.
-2. The raw bind value is stored in an internal session map.
-3. When the table tag is dispatched, the sentinel is resolved to a
-   properly single-quoted SQL string literal:
-   `'` + value (with embedded `'` doubled to `''`) + `'`.
-
-**No manual validation is needed** - any value, including strings with
-single quotes or SQL metacharacters, is safe.  Oracle performs its normal
-implicit type coercion on the resulting literal (e.g. `'10'` → NUMBER 10).
+Query tokens become named SQL bind variables. Their values are retained with the
+table and bound through `DBMS_SQL.BIND_VARIABLE` immediately before execution;
+values containing quotes never become SQL text. Do not add SQL quotes around a
+token, and use tokens for values rather than table names, column names or SQL
+fragments. Template SQL remains trusted application code; both query opt-in
+flags are still required.
 
 ```sql
--- Safe: the engine wraps the value in a SQL string literal automatically.
-l_binds(2).key   := 'DEPTNO';
-l_binds(2).value := :P1_DEPTNO;  -- any string; injection is blocked
-
--- Template:
--- <table columns="EMP_ROSTER"
---        query="SELECT empno, ename, job, TO_CHAR(hiredate,'DD-Mon-YYYY'), sal
---                 FROM emp WHERE deptno = #DEPTNO# ORDER BY ename"
---        allow_query="true"/>
---
--- Rendered query (DEPTNO = '10'):
---   ... WHERE deptno = '10' ORDER BY ename   <- valid; Oracle coerces '10' to 10
+l_binds(2).key := 'DEPTNO';
+l_binds(2).value := :P1_DEPTNO;
+-- query="SELECT ename FROM emp WHERE deptno = #DEPTNO#"
+-- Executes: SELECT ename FROM emp WHERE deptno = :radpdf_1
 ```
 
-> **Note**: if you need strict type validation (e.g. to surface a user
-> error rather than an ORA-01722 from Oracle's implicit coercion),
-> validate with `TO_NUMBER` before assigning the bind value:
-> `l_binds(2).value := TO_CHAR(TO_NUMBER(:P1_DEPTNO));`
+Values are currently bound as VARCHAR2. Use explicit `TO_NUMBER` / `TO_DATE`
+with a format in the query when the data contract requires typed conversion.
+The smaller of the global `max_rows` and tag `max_rows` is enforced.
 
 ### Multiple render() calls for a multi-section document
 

@@ -51,7 +51,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
        p_template.margin_left      IS NOT NULL OR
        p_template.margin_right     IS NOT NULL OR
        p_template.header_proc      IS NOT NULL OR
-       p_template.footer_proc      IS NOT NULL THEN
+       p_template.footer_proc      IS NOT NULL OR
+       NVL(p_template.n_columns,1) != 1 THEN
       rad_pdf_layout.set_template(l_doc, p_template);
     END IF;
     -- Store document metadata
@@ -159,12 +160,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     l_date_str   VARCHAR2(30);
     l_result     BLOB;
   BEGIN
-    -- 1. Layout pass or page-proc pass
-    IF rad_pdf_layout.has_flowables(p_doc) THEN
-      rad_pdf_layout.render(p_doc);
-    ELSE
-      rad_pdf_canvas.run_page_procs(p_doc, rad_pdf_serial.page_count(p_doc));
-    END IF;
+    -- Layout also applies page templates for canvas-only documents.
+    rad_pdf_layout.render(p_doc);
 
     l_total_pgs := rad_pdf_serial.page_count(p_doc);
     l_conf      := rad_pdf_ctx.get_conformance(p_doc);
@@ -261,7 +258,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     RETURN l_result;
   EXCEPTION
     WHEN OTHERS THEN
-      rad_pdf_ctx.close_doc(p_doc);
+      IF DBMS_LOB.ISTEMPORARY(l_icc)=1 THEN DBMS_LOB.FREETEMPORARY(l_icc); END IF;
+      IF DBMS_LOB.ISTEMPORARY(l_xmp)=1 THEN DBMS_LOB.FREETEMPORARY(l_xmp); END IF;
+      IF DBMS_LOB.ISTEMPORARY(l_result)=1 THEN DBMS_LOB.FREETEMPORARY(l_result); END IF;
+      BEGIN rad_pdf_ctx.close_doc(p_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
       RAISE;
   END finalize;
 

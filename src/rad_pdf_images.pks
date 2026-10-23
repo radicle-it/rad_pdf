@@ -5,7 +5,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_images AUTHID DEFINER IS
 
   Supported formats: JPEG, PNG, GIF.
   Images are cached per-session by SHA-256 hash (computed once at load time).
-  Cache limit is configurable (default 50 MB). Older entries are evicted LRU.
+  Cache budget is configurable (default 50 MB). Idle entries are evicted LRU.
+  Images in open documents are pinned and may temporarily exceed the budget.
 
   Session-scoped state (shared across documents):
     g_cache / g_cache_bytes / g_cache_limit : parsed image data (pixels).
@@ -18,7 +19,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_images AUTHID DEFINER IS
   Batch pattern:
     Call set_image_cache_limit() once before the loop.
     Call clear_image_cache() after the loop to release session memory.
-    Do NOT call clear_image_cache() inside the loop unless memory is critical.
+    clear_image_cache() preserves images used by open documents.
 */
 
 -- Configure the session-level image cache size limit.

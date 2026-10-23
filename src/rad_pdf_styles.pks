@@ -39,6 +39,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_styles AUTHID DEFINER IS
   -- Calls load_defaults if the registry is empty.
   FUNCTION get(p_name IN VARCHAR2) RETURN rad_pdf_types.t_cell_format;
 
+  -- Full format copy for derived styles, preserving margins, borders and alignment.
+  PROCEDURE define_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format);
+  FUNCTION revision(p_name IN VARCHAR2) RETURN NUMBER;
+
   FUNCTION  exists_style(p_name IN VARCHAR2) RETURN BOOLEAN;
   PROCEDURE drop_style  (p_name IN VARCHAR2);
   PROCEDURE clear_all;

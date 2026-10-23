@@ -51,6 +51,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     char_width_tab    t_pls_tab,
     used_chars        t_pls_tab,
     code2glyph        t_pls_tab,
+    glyph_unicode     t_pls_tab,
     hmetrics          t_pls_tab,
     loca              t_pls_tab,
     numGlyphs         PLS_INTEGER,
@@ -484,18 +485,49 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
                   l_id_rofs(s)    := blob2num(p_font, 2, l_pos + 16 + l_seg_count*6 + (s-1)*2);
                 END LOOP;
                 FOR s IN 1 .. l_seg_count LOOP
-                  IF l_id_rofs(s) = 0 THEN
-                    FOR code IN l_start_code(s) .. l_end_code(s) LOOP
-                      IF code != 65535 THEN
-                        g_fonts(p_idx).code2glyph(code) := MOD(code + l_id_delta(s), 65536);
-                        g_fonts(p_idx).char_width_tab(code) :=
-                          TRUNC(g_fonts(p_idx).hmetrics(
-                            LEAST(g_fonts(p_idx).code2glyph(code), l_n_hmetrics - 1))
-                          * g_fonts(p_idx).unit_norm);
-                      END IF;
-                    END LOOP;
-                  END IF;
+                  FOR code IN l_start_code(s) .. l_end_code(s) LOOP
+                    IF code != 65535 THEN
+                      DECLARE
+                        l_gid PLS_INTEGER;
+                      BEGIN
+                        IF l_id_rofs(s)=0 THEN
+                          l_gid := MOD(code+l_id_delta(s),65536);
+                        ELSE
+                          l_gid := blob2num(p_font,2,
+                            l_pos+16+l_seg_count*6+(s-1)*2+l_id_rofs(s)
+                            +(code-l_start_code(s))*2);
+                          IF l_gid != 0 THEN l_gid := MOD(l_gid+l_id_delta(s),65536); END IF;
+                        END IF;
+                        g_fonts(p_idx).code2glyph(code) := l_gid;
+                        g_fonts(p_idx).char_width_tab(code) := TRUNC(
+                          g_fonts(p_idx).hmetrics(LEAST(l_gid,l_n_hmetrics-1))
+                          *g_fonts(p_idx).unit_norm);
+                      END;
+                    END IF;
+                  END LOOP;
                 END LOOP;
+                EXIT;
+              ELSIF blob2num(p_font,2,l_pos)=12 THEN
+                -- Format 12 is also common in BMP-only fonts (e.g. macOS fonts).
+                -- This renderer currently emits BMP text; ignore supplementary groups.
+                DECLARE
+                  l_groups PLS_INTEGER := blob2num(p_font,4,l_pos+12);
+                  l_first PLS_INTEGER;
+                  l_last PLS_INTEGER;
+                  l_gid PLS_INTEGER;
+                BEGIN
+                  FOR grp IN 0..l_groups-1 LOOP
+                    l_first := blob2num(p_font,4,l_pos+16+grp*12);
+                    l_last := LEAST(blob2num(p_font,4,l_pos+20+grp*12),65535);
+                    l_gid := blob2num(p_font,4,l_pos+24+grp*12);
+                    FOR code IN l_first..l_last LOOP
+                      g_fonts(p_idx).code2glyph(code) := l_gid+code-l_first;
+                      g_fonts(p_idx).char_width_tab(code) := TRUNC(
+                        g_fonts(p_idx).hmetrics(LEAST(l_gid+code-l_first,l_n_hmetrics-1))
+                        *g_fonts(p_idx).unit_norm);
+                    END LOOP;
+                  END LOOP;
+                END;
                 EXIT;
               END IF;
             END IF;
@@ -754,12 +786,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_magic RAW(4);
     l_len   NUMBER;
   BEGIN
+    IF NOT p_preload THEN rad_pdf_ctx.assert_valid(p_doc); END IF;
     -- Validate TTF magic bytes
     l_magic := DBMS_LOB.SUBSTR(p_font, 4, NVL(p_offset, 1));
-    IF l_magic NOT IN (HEXTORAW('00010000'), UTL_RAW.CAST_TO_RAW('true'),
-                       UTL_RAW.CAST_TO_RAW('OTTO')) THEN
+    IF l_magic NOT IN (HEXTORAW('00010000'), UTL_RAW.CAST_TO_RAW('true')) THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,
-        'rad_pdf_fonts.load_ttf: not a valid TTF/OTF file (bad magic bytes)', TRUE);
+        'rad_pdf_fonts.load_ttf: unsupported font signature (TrueType outlines required)', TRUE);
     END IF;
 
     g_fonts(l_idx).standard      := FALSE;
@@ -782,6 +814,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     END IF;
 
     parse_ttf_tables(g_fonts(l_idx).fontfile2, NVL(p_offset, 1) - 1, l_idx);
+    IF g_fonts(l_idx).code2glyph.COUNT=0 OR g_fonts(l_idx).loca.COUNT=0
+       OR g_fonts(l_idx).hmetrics.COUNT=0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,
+        'Font requires TrueType outlines and a Unicode cmap format 4 or 12');
+    END IF;
 
     -- /BaseFont must be a clean PDF name token: strip spaces/delimiters
     -- and any non-ASCII byte that survived the name-table decode.
@@ -801,6 +838,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     END IF;
 
     RETURN l_idx;
+  EXCEPTION WHEN OTHERS THEN
+    IF g_fonts.EXISTS(l_idx) THEN
+      IF DBMS_LOB.ISTEMPORARY(g_fonts(l_idx).fontfile2)=1 THEN
+        DBMS_LOB.FREETEMPORARY(g_fonts(l_idx).fontfile2);
+      END IF;
+      g_fonts.DELETE(l_idx);
+    END IF;
+    RAISE;
   END load_ttf_from_blob;
 
 -- ---------------------------------------------------------------------------
@@ -1090,21 +1135,36 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- ---------------------------------------------------------------------------
 -- Public: text_width
 -- ---------------------------------------------------------------------------
-  FUNCTION text_width(p_text     IN VARCHAR2,
-                      p_font_idx IN PLS_INTEGER,
-                      p_size_pt  IN NUMBER) RETURN NUMBER IS
-    l_w   NUMBER := 0;
-    l_len PLS_INTEGER := NVL(LENGTH(p_text), 0);
-    l_c   PLS_INTEGER;
+  FUNCTION encoded_text(p_text IN VARCHAR2, p_idx IN PLS_INTEGER) RETURN RAW IS
+    l_raw RAW(32767);
   BEGIN
-    IF l_len = 0 OR NOT g_fonts.EXISTS(p_font_idx) THEN RETURN 0; END IF;
-    FOR i IN 1 .. l_len LOOP
-      l_c := ASCII(SUBSTR(p_text, i, 1));
+    l_raw := UTL_I18N.STRING_TO_RAW(p_text,
+                  CASE WHEN g_fonts(p_idx).cid THEN 'AL16UTF16' ELSE g_fonts(p_idx).encoding END);
+    RETURN l_raw;
+  END encoded_text;
+
+  FUNCTION text_width(p_text IN VARCHAR2, p_font_idx IN PLS_INTEGER,
+                      p_size_pt IN NUMBER) RETURN NUMBER IS
+    l_raw RAW(32767);
+    l_w NUMBER := 0;
+    l_c PLS_INTEGER;
+    l_step PLS_INTEGER := CASE WHEN g_fonts(p_font_idx).cid THEN 2 ELSE 1 END;
+    l_unicode RAW(4);
+  BEGIN
+    IF p_text IS NULL THEN RETURN 0; END IF;
+    l_raw := encoded_text(p_text,p_font_idx);
+    FOR i IN 0..UTL_RAW.LENGTH(l_raw)/l_step-1 LOOP
+      l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i*l_step+1,l_step)),'XXXX');
+      IF NOT g_fonts(p_font_idx).standard AND NOT g_fonts(p_font_idx).cid THEN
+        l_unicode := UTL_I18N.STRING_TO_RAW(
+          UTL_I18N.RAW_TO_CHAR(UTL_RAW.SUBSTR(l_raw,i+1,1),g_fonts(p_font_idx).encoding),'AL16UTF16');
+        l_c := TO_NUMBER(RAWTOHEX(l_unicode),'XXXX');
+      END IF;
       IF g_fonts(p_font_idx).char_width_tab.EXISTS(l_c) THEN
-        l_w := l_w + g_fonts(p_font_idx).char_width_tab(l_c);
+        l_w := l_w+g_fonts(p_font_idx).char_width_tab(l_c);
       END IF;
     END LOOP;
-    RETURN l_w * p_size_pt / 1000;
+    RETURN l_w*p_size_pt/1000;
   END text_width;
 
 -- ---------------------------------------------------------------------------
@@ -1129,45 +1189,42 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- ---------------------------------------------------------------------------
 -- Public: text_to_pdf_string
 -- ---------------------------------------------------------------------------
-  FUNCTION text_to_pdf_string(p_text     IN VARCHAR2,
-                              p_font_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
-    l_rv  VARCHAR2(32767);
-    l_len PLS_INTEGER := NVL(LENGTH(p_text), 0);
-    l_c   PLS_INTEGER;
+  FUNCTION text_to_pdf_string(p_text IN VARCHAR2,
+                               p_font_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
+    l_raw RAW(32767);
+    l_result VARCHAR2(32767);
+    l_c PLS_INTEGER;
+    l_gid PLS_INTEGER;
   BEGIN
-    IF l_len = 0 THEN RETURN '()'; END IF;
-
+    IF p_text IS NULL THEN RETURN '()'; END IF;
+    l_raw := encoded_text(p_text,p_font_idx);
     IF g_fonts(p_font_idx).cid THEN
-      DECLARE
-        l_raw RAW(32767);
-      BEGIN
-        l_raw := UTL_I18N.STRING_TO_RAW(p_text, 'AL16UTF16');
-        FOR i IN 0 .. UTL_RAW.LENGTH(l_raw) / 2 - 1 LOOP
-          l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw, i*2+1, 2)), 'XXXX');
-          IF g_fonts(p_font_idx).code2glyph.EXISTS(l_c) THEN
-            g_fonts(p_font_idx).used_chars(g_fonts(p_font_idx).code2glyph(l_c)) := 0;
-          END IF;
-        END LOOP;
-        RETURN '<' || RAWTOHEX(l_raw) || '>';
-      END;
-    ELSE
-      DECLARE
-        l_ch VARCHAR2(4);
-      BEGIN
-        FOR i IN 1 .. l_len LOOP
-          l_ch := SUBSTR(p_text, i, 1);
-          l_c  := ASCII(l_ch);
-          mark_char_used(p_font_idx, l_c);
-          l_rv := l_rv || CASE l_ch
-                            WHEN '\' THEN '\\'
-                            WHEN '(' THEN '\('
-                            WHEN ')' THEN '\)'
-                            ELSE l_ch
-                          END;
-        END LOOP;
-        RETURN '(' || l_rv || ')';
-      END;
+      FOR i IN 0..UTL_RAW.LENGTH(l_raw)/2-1 LOOP
+        l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i*2+1,2)),'XXXX');
+        IF l_c BETWEEN 55296 AND 57343 THEN
+          RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,
+            'Supplementary Unicode characters are not supported by the text renderer');
+        END IF;
+        l_gid := CASE WHEN g_fonts(p_font_idx).code2glyph.EXISTS(l_c)
+                      THEN g_fonts(p_font_idx).code2glyph(l_c) ELSE 0 END;
+        g_fonts(p_font_idx).used_chars(l_gid) := 0;
+        g_fonts(p_font_idx).glyph_unicode(l_gid) := l_c;
+        l_result := l_result||TO_CHAR(l_gid,'FM000X');
+      END LOOP;
+      RETURN '<'||l_result||'>';
     END IF;
+    -- Escape encoded bytes, using octal for bytes outside printable ASCII.
+    FOR i IN 1..UTL_RAW.LENGTH(l_raw) LOOP
+      l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i,1)),'XX');
+      mark_char_used(p_font_idx,l_c);
+      IF l_c IN (40,41,92) THEN
+        l_result := l_result||CHR(92)||CHR(l_c);
+      ELSIF l_c < 32 OR l_c > 126 THEN
+        l_result := l_result||CHR(92)||TRUNC(l_c/64)||MOD(TRUNC(l_c/8),8)||MOD(l_c,8);
+      ELSE l_result := l_result||CHR(l_c);
+      END IF;
+    END LOOP;
+    RETURN '('||l_result||')';
   END text_to_pdf_string;
 
 -- ---------------------------------------------------------------------------
@@ -1308,6 +1365,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
           l_cmap     BLOB;
           l_raw      RAW(32767);
           l_raw_len  PLS_INTEGER;
+          l_g PLS_INTEGER;
+
         BEGIN
           l_cmap_txt :=
             '/CIDInit /ProcSet findresource begin' || CHR(10) ||
@@ -1318,12 +1377,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
             '/CMapType 2 def' || CHR(10) ||
             '1 begincodespacerange' || CHR(10) ||
             '<0000> <FFFF>' || CHR(10) ||
-            'endcodespacerange' || CHR(10) ||
+            'endcodespacerange' || CHR(10);
+          DBMS_LOB.CREATETEMPORARY(l_cmap,TRUE,DBMS_LOB.SESSION);
+          DBMS_LOB.WRITEAPPEND(l_cmap,LENGTHB(l_cmap_txt),UTL_RAW.CAST_TO_RAW(l_cmap_txt));
+          l_g := g_fonts(l_fi).glyph_unicode.FIRST;
+          WHILE l_g IS NOT NULL LOOP
+            -- One mapping per block keeps the count correct for sparse glyphs.
+            l_cmap_txt := '1 beginbfchar'||CHR(10)
+              ||'<'||TO_CHAR(l_g,'FM000X')||'> <'
+              ||TO_CHAR(g_fonts(l_fi).glyph_unicode(l_g),'FM000X')||'>'||CHR(10)
+              ||'endbfchar'||CHR(10);
+            DBMS_LOB.WRITEAPPEND(l_cmap,LENGTHB(l_cmap_txt),UTL_RAW.CAST_TO_RAW(l_cmap_txt));
+            l_g := g_fonts(l_fi).glyph_unicode.NEXT(l_g);
+          END LOOP;
+          l_cmap_txt :=
             'endcmap' || CHR(10) ||
             'CMapName currentdict /CMap defineresource pop' || CHR(10) ||
             'end' || CHR(10) ||
             'end';
-          DBMS_LOB.CREATETEMPORARY(l_cmap, TRUE, DBMS_LOB.SESSION);
           l_raw := UTL_RAW.CAST_TO_RAW(l_cmap_txt);
           l_raw_len := UTL_RAW.LENGTH(l_raw);
           IF l_raw_len > 0 THEN
@@ -1355,11 +1426,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         l_dummy := rad_pdf_serial.begin_obj(p_doc);
         rad_pdf_serial.doc_write(p_doc, '[');
         FOR i IN g_fonts(l_fi).first_char .. g_fonts(l_fi).last_char LOOP
-          IF g_fonts(l_fi).char_width_tab.EXISTS(i) THEN
-            rad_pdf_serial.doc_write(p_doc, TO_CHAR(g_fonts(l_fi).char_width_tab(i)));
-          ELSE
-            rad_pdf_serial.doc_write(p_doc, '0');
-          END IF;
+          DECLARE
+            l_code PLS_INTEGER;
+          BEGIN
+            l_code := TO_NUMBER(RAWTOHEX(UTL_I18N.STRING_TO_RAW(
+              UTL_I18N.RAW_TO_CHAR(HEXTORAW(TO_CHAR(i,'FM0X')),g_fonts(l_fi).encoding),'AL16UTF16')),'XXXX');
+            IF g_fonts(l_fi).char_width_tab.EXISTS(l_code) THEN
+              rad_pdf_serial.doc_write(p_doc,TO_CHAR(g_fonts(l_fi).char_width_tab(l_code)));
+            ELSE rad_pdf_serial.doc_write(p_doc,'0'); END IF;
+          END;
         END LOOP;
         rad_pdf_serial.doc_write(p_doc, ']');
         rad_pdf_serial.end_obj(p_doc);

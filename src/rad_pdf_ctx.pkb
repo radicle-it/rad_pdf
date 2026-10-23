@@ -50,7 +50,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
 
 -- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
+    l_error VARCHAR2(2000);
   BEGIN
+    IF p_doc IS NULL THEN RETURN; END IF;
     g_conformance.DELETE(p_doc);
     IF NOT is_valid(p_doc) THEN RETURN; END IF;
 
@@ -58,21 +60,30 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
     -- Each close_doc call is added as the corresponding package is built:
     --
     -- Phase 7 (highest level — called first):
-    rad_pdf_layout.close_doc(p_doc);
-    rad_pdf_table.close_doc(p_doc);
+    BEGIN rad_pdf_layout.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
+    BEGIN rad_pdf_table.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
     -- Phase 6:
-    rad_pdf_canvas.close_doc(p_doc);
+    BEGIN rad_pdf_canvas.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
     -- Phase 5:
-    rad_pdf_images.close_doc(p_doc);
+    BEGIN rad_pdf_images.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
     -- Phase 4:
-    rad_pdf_fonts.close_doc(p_doc);
+    BEGIN rad_pdf_fonts.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
     -- Phase 3:
-    rad_pdf_serial.close_doc(p_doc);
+    BEGIN rad_pdf_serial.close_doc(p_doc);
+    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
 
     -- Remove handle and metadata.
     g_active_docs.DELETE(p_doc);
     IF g_doc_info.EXISTS(p_doc) THEN
       g_doc_info.DELETE(p_doc);
+    END IF;
+    IF l_error IS NOT NULL THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_internal,'Document cleanup: '||l_error);
     END IF;
   END close_doc;
 
@@ -81,7 +92,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
                             p_level IN VARCHAR2) IS
   BEGIN
     assert_valid(p_doc);
-    IF UPPER(p_level) != 'PDF/A-2B' THEN
+    IF p_level IS NULL OR UPPER(p_level) != 'PDF/A-2B' THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_ctx.set_conformance: unsupported level "' || p_level
         || '" - only PDF/A-2B is supported', TRUE);

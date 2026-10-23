@@ -646,18 +646,9 @@ END;
 
 ### Multi-column layout
 
-Set `n_columns` in `t_page_template` to split the content area into equal-width
-columns. The layout engine fills each column top-to-bottom before advancing to the
-next. `col_gap` sets the gutter width in points.
-
-```sql
-l_tpl.n_columns := 2;     -- two equal columns
-l_tpl.col_gap   := 20;    -- 20 pt gutter between them
-
-l_doc := rad_pdf.new_document(p_template => l_tpl);
-rad_pdf.write(l_doc, 'Left column content…');
--- Layout engine fills column 1, then wraps to column 2 automatically.
-```
+The current flow renderer supports one content column. Setting `n_columns` to
+another value raises `c_err_layout`; `col_gap` is reserved for a future
+multi-column renderer. For positioned side-by-side content, use the Canvas API.
 
 `t_page_template` geometry fields at a glance:
 
@@ -666,8 +657,8 @@ rad_pdf.write(l_doc, 'Left column content…');
 | `page_format_name` | NULL | Named page size: `'A4'`, `'A3'`, `'A5'`, `'LETTER'`, `'LEGAL'`, `'TABLOID'` |
 | `page_width` / `page_height` | NULL | Explicit dimensions in points (use instead of `page_format_name`) |
 | `margin_top/bottom/left/right` | NULL | Margins in points; NULL keeps the current document value |
-| `n_columns` | 1 | Number of equal-width content columns |
-| `col_gap` | 20 | Gutter between columns in points |
+| `n_columns` | 1 | Supported value: 1 |
+| `col_gap` | 20 | Reserved for future multi-column support |
 | `header_proc` | NULL | Anonymous PL/SQL block run on every page after render |
 | `footer_proc` | NULL | Anonymous PL/SQL block run on every page after render |
 
@@ -1442,24 +1433,40 @@ At finalize the document gains:
 
 ## Known Limitations
 
-1. **CLOB paragraphs > 32767 chars** are silently truncated by `DBMS_LOB.SUBSTR`.  
-   For very long bodies, split the text into multiple `rad_pdf.write` calls.
+1. **Inline template markup** must fit in a PL/SQL VARCHAR2 buffer (32767 bytes
+   after conversion). Plain CLOB paragraphs are read completely and paginate by
+   line. Split very large mixed-style template blocks into separate paragraphs.
+2. **Tables cache all rows**, including SYS_REFCURSOR sources. `streaming` is a
+   legacy flag for already-fetched data, not a bounded-memory streaming mode.
+   Set a row cap for large datasets. Page-count tokens use actual rendered pages.
+3. **A table row must fit below its repeated header on a fresh page.** Oversized
+   rows raise `c_err_layout`; split such content into separate rows or paragraphs.
+4. **Standard fonts** (Helvetica, Times, Courier) are not embedded. Embed a TTF
+   using `rad_pdf_fonts.load_ttf(..., p_embed => TRUE)` for portable custom fonts.
+5. **GIF animation** uses the first frame only. **PNG** Adam7/interlaced images and
+   16-bit alpha images are rejected; 8-bit alpha uses a PDF SMask.
+6. **CID text** supports BMP characters available in a TrueType cmap format-4 or format-12
+   table. Supplementary characters and right-to-left shaping are not supported.
+7. **Page columns** currently support `n_columns = 1` only.
 
-2. **Streaming table mode** (`t_table_def.streaming = TRUE`) cannot supply `#PAGE_COUNT#`
-   in header/footer procs during the measure pass (page count is unknown).  
-   Use the default non-streaming mode for accurate page-count tokens.
+### Keeping text blocks together
 
-3. **Standard fonts** (Helvetica, Times, Courier) are not embedded - the viewer must have them.  
-   For full portability, embed a TTF font via `rad_pdf_fonts.load_ttf(..., p_embed => TRUE)`.
+Plain headings keep the following text line on the same page when both fit. You
+can enable this behavior on another flowable without changing its content:
 
-4. **GIF animation** - only the first frame is used.
+```sql
+l_flow := rad_pdf_layout.paragraph('Summary', 'body');
+l_flow.keep_with_next := TRUE;
+rad_pdf.add(l_doc, l_flow);
+rad_pdf.write(l_doc, 'First detail line.');
+```
 
-5. **PNG**: interlaced (Adam7) files and 16-bit-per-channel files with alpha
-   are rejected with a clear error - re-save as non-interlaced / 8-bit.
-   8-bit alpha (RGBA and grey+alpha) is fully supported: the alpha channel
-   becomes a PDF SMask (v1.6.0).
+### Image cache lifetime
 
-5. **Right-to-left text** (Arabic, Hebrew) is not supported; glyphs are placed left-to-right.
+Images referenced by open documents are pinned. LRU eviction and
+`clear_image_cache` free idle entries only. Active documents may temporarily
+exceed the configured cache budget; closing a document releases its pins and
+reapplies the budget. Close unused documents promptly.
 
 ---
 

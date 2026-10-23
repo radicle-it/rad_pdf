@@ -105,6 +105,15 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
     p_y         IN NUMBER,
     p_width     IN NUMBER);
 
+  -- Same renderer, returning the top edge available after the last row.
+  PROCEDURE draw_table(
+    p_doc       IN rad_pdf_types.t_doc_handle,
+    p_table_ref IN PLS_INTEGER,
+    p_x         IN NUMBER,
+    p_y         IN NUMBER,
+    p_width     IN NUMBER,
+    p_end_y     OUT NUMBER);
+
   -- Release per-document table cache. Called by rad_pdf_ctx.close_doc.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 

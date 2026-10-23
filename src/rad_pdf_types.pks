@@ -238,6 +238,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
     page_break_before BOOLEAN := FALSE,  -- set by measure pass
     measured_h        NUMBER  := 0,       -- set by measure pass
+    keep_with_next    BOOLEAN := FALSE,  -- keep the next text line with this block
     bookmark          BOOLEAN := FALSE,   -- HEADING: register a PDF outline
                                           -- entry when rendered (v1.6.0)
     qr_ec             VARCHAR2(1) := NULL,   -- QRCODE: EC level L/M/Q/H (v1.7.0)
@@ -283,7 +284,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- Table definition — shared between rad_pdf_layout and rad_pdf_table.
 -- cache_ref_id is populated during the measure pass; do not set manually.
 -- ---------------------------------------------------------------------------
+  -- Real SQL bind variables used by deferred table queries.
+  TYPE t_query_binds IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(30);
   TYPE t_table_def IS RECORD (
+    query_binds  t_query_binds,
     query_txt    VARCHAR2(32767) := NULL,
     query_clob   CLOB            := NULL,
     col_defs     t_columns,
@@ -323,8 +327,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     default_style       VARCHAR2(100)         := 'body',
     strict_tags         BOOLEAN               := TRUE,
     allow_queries       BOOLEAN               := FALSE,
-    -- Global row cap applied to every <table> in this render call when the
-    -- tag itself does not specify max_rows="N".  NULL = no limit (default).
+    -- Global row cap applied to every <table> in this render call. The smaller
+    -- of this value and the tag cap is used. NULL = no global cap (default).
     -- Use to protect against runaway queries without touching every template.
     max_rows            PLS_INTEGER           := NULL
   );

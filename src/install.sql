@@ -10,33 +10,58 @@ PROMPT  Working directory src/
 PROMPT ================================================================
 PROMPT
 
-@@install/install_phase1.sql
-PROMPT
-@@install/install_phase2.sql
-PROMPT
-@@install/install_phase3.sql
-PROMPT
-@@install/install_phase4.sql
-PROMPT
-@@install/install_phase5.sql
-PROMPT
-@@install/install_phase6.sql
-PROMPT
-@@install/install_phase7.sql
-PROMPT
--- Phases 9 (template) and 12 (barcode) compile BEFORE phase 8: the facade
--- body references rad_pdf_template and rad_pdf_barcode, so on a fresh schema
--- those specs must exist first.  Phase 12 also recompiles the facade (it
--- doubles as the v1.5.x -> v1.6.0 upgrade script); phase 8 then recompiles
--- it a final time — harmless and keeps the phase scripts self-contained.
-@@install/install_phase9.sql
-PROMPT
-@@install/install_phase12.sql
-PROMPT
-@@install/install_phase13.sql
-PROMPT
-@@install/install_phase8.sql
-PROMPT
+SET DEFINE OFF
+SET SQLBLANKLINES ON
+WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
+
+@@rad_pdf_types.pks
+@@rad_pdf_img_data.sql
+@@rad_pdf_img_decoder.sql
+@@rad_pdf_jpeg_decoder.sql
+@@rad_pdf_png_decoder.sql
+@@rad_pdf_gif_decoder.sql
+
+-- Declare every interface before compiling implementations.
+@@rad_pdf_units.pks
+@@rad_pdf_codec.pks
+@@rad_pdf_styles.pks
+@@rad_pdf_ctx.pks
+@@rad_pdf_serial.pks
+@@rad_pdf_fonts.pks
+@@rad_pdf_images.pks
+@@rad_pdf_canvas.pks
+@@rad_pdf_layout.pks
+@@rad_pdf_table.pks
+@@rad_pdf_template.pks
+@@rad_pdf_barcode.pks
+@@rad_pdf_chart.pks
+@@rad_pdf.pks
+
+@@rad_pdf_units.pkb
+@@rad_pdf_codec.pkb
+@@rad_pdf_styles.pkb
+@@rad_pdf_serial.pkb
+@@rad_pdf_fonts.pkb
+@@rad_pdf_images.pkb
+@@rad_pdf_canvas.pkb
+@@rad_pdf_layout.pkb
+@@rad_pdf_table.pkb
+@@rad_pdf_template.pkb
+@@rad_pdf_barcode.pkb
+@@rad_pdf_chart.pkb
+@@rad_pdf_ctx.pkb
+@@rad_pdf.pkb
+
+DECLARE
+  l_errors PLS_INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO l_errors FROM user_errors
+   WHERE (name = 'RAD_PDF' OR name LIKE 'RAD\_PDF\_%' ESCAPE '\') AND attribute = 'ERROR';
+  IF l_errors > 0 THEN
+    RAISE_APPLICATION_ERROR(-20800,'RAD_PDF compilation failed; inspect USER_ERRORS');
+  END IF;
+END;
+/
 
 PROMPT ================================================================
 PROMPT  Install complete.
@@ -52,6 +77,9 @@ PROMPT    @tests/phase14_bookmark.sql      bookmarks / outline (v1.6.0)
 PROMPT    @tests/phase15_png.sql           PNG alpha / flate (v1.6.0)
 PROMPT    @tests/phase16_chart.sql         bar / line / pie charts (v1.7.0)
 PROMPT    @tests/phase17_pdfa.sql          PDF/A-2b conformance (v1.7.0)
+PROMPT
+PROMPT    @tests/phase18_robustness.sql      content / pagination / lifetime regressions
+PROMPT    @tests/phase19_fonts_unicode.sql   cmap / Unicode / embedded-font regressions
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql

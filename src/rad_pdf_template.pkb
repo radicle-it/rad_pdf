@@ -62,7 +62,7 @@ g_col_registry t_col_registry;
 
 -- ---------------------------------------------------------------------------
 -- Private: query bind map — populated by shield_query_attrs before Phase 2,
--- consumed by handle_table_tag to bind values via DBMS_SQL.BIND_VARIABLE.
+-- consumed by handle_table_tag to register deferred SQL bind variables.
 -- Key   = UPPER(token name), e.g. 'DEPTNO'
 -- Value = raw bind value (not XML-escaped; SQL binding handles quoting)
 -- Sentinel chars: CHR(1) opens, CHR(2) closes the placeholder in the query.
@@ -101,11 +101,8 @@ c_err_attr_val    CONSTANT PLS_INTEGER := -20817;
 -- ---------------------------------------------------------------------------
 FUNCTION decode_entities(p_str IN VARCHAR2) RETURN VARCHAR2 IS
 BEGIN
-  RETURN REPLACE(
-           REPLACE(
-             REPLACE(p_str, '&lt;', '<'),
-           '&gt;', '>'),
-         '&amp;', '&');
+  RETURN REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p_str,
+    '&lt;', '<'), '&gt;', '>'), '&quot;', '"'), '&apos;', CHR(39)), '&amp;', '&');
 END decode_entities;
 
 -- ---------------------------------------------------------------------------
@@ -121,59 +118,77 @@ BEGIN
 END is_valid_rgb;
 
 -- ---------------------------------------------------------------------------
--- Private: Phase 0 normalisation — lowercase block-tag names that CLOB
--- scanners match case-sensitively (<LI>/<IF> → <li>/<if>).
---
--- Returns a *new* temporary CLOB when replacements were made, or p_src
--- itself (same LOB locator, IS_TEMPORARY = 0) when none were needed.
--- Callers must guard FREETEMPORARY with DBMS_LOB.ISTEMPORARY checks.
---
--- p_normalise_if = TRUE: also normalise <IF …> / </IF> (used when the
---   source may contain <if bind="..."> conditional blocks).
+-- Private: normalise tag names only; attribute values and text are preserved.
+-- Always returns an owned CLOB. Never frees or mutates the caller's locator.
 -- ---------------------------------------------------------------------------
 FUNCTION normalize_clob(
   p_src          IN CLOB,
   p_normalise_if IN BOOLEAN DEFAULT FALSE
 ) RETURN CLOB IS
-  l_needs_norm BOOLEAN;
-  l_tmp        CLOB;
-  l_dst        CLOB;
+  l_dst CLOB;
+  l_pos PLS_INTEGER := 1;
+  l_start PLS_INTEGER;
+  l_end PLS_INTEGER;
+  l_len PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
+  l_prefix VARCHAR2(512);
+  l_name VARCHAR2(200);
+  l_offset PLS_INTEGER;
+  l_tag_end PLS_INTEGER;
+  l_quote VARCHAR2(1);
+  l_buf VARCHAR2(512);
+  l_c VARCHAR2(1);
+  l_scan PLS_INTEGER;
 BEGIN
-  l_needs_norm :=
-    DBMS_LOB.INSTR(p_src, '<LI>',  1) > 0 OR
-    DBMS_LOB.INSTR(p_src, '</LI>', 1) > 0;
-  IF NVL(p_normalise_if, FALSE) THEN
-    l_needs_norm := l_needs_norm
-      OR DBMS_LOB.INSTR(p_src, '<IF ',  1) > 0
-      OR DBMS_LOB.INSTR(p_src, '</IF>', 1) > 0;
-  END IF;
-
-  IF NOT l_needs_norm THEN
-    RETURN p_src;   -- no copy; caller treats as alias
-  END IF;
-
-  -- SELECT REPLACE via SQL engine avoids ORA-06502 on large CLOBs (the
-  -- PL/SQL built-in REPLACE implicitly converts CLOB to VARCHAR2).
-  -- Materialise into an explicit temp CLOB: implicit LOBs returned by
-  -- SELECT INTO can misbehave when passed to nested DBMS_LOB operations.
-  IF NVL(p_normalise_if, FALSE) THEN
-    SELECT REPLACE(
-             REPLACE(
-               REPLACE(
-                 REPLACE(p_src, '<IF ', '<if '),
-               '</IF>', '</if>'),
-             '<LI>', '<li>'),
-           '</LI>', '</li>')
-      INTO l_tmp FROM DUAL;
-  ELSE
-    SELECT REPLACE(REPLACE(p_src, '<LI>', '<li>'), '</LI>', '</li>')
-      INTO l_tmp FROM DUAL;
-  END IF;
   DBMS_LOB.CREATETEMPORARY(l_dst, TRUE);
-  IF NVL(DBMS_LOB.GETLENGTH(l_tmp), 0) > 0 THEN
-    DBMS_LOB.COPY(l_dst, l_tmp, DBMS_LOB.GETLENGTH(l_tmp), 1, 1);
-  END IF;
+  WHILE l_pos <= l_len LOOP
+    l_start := DBMS_LOB.INSTR(p_src, '<', l_pos);
+    IF l_start = 0 THEN
+      DBMS_LOB.COPY(l_dst, p_src, l_len-l_pos+1,
+                    DBMS_LOB.GETLENGTH(l_dst)+1, l_pos);
+      EXIT;
+    END IF;
+    IF l_start > l_pos THEN
+      DBMS_LOB.COPY(l_dst, p_src, l_start-l_pos,
+                    DBMS_LOB.GETLENGTH(l_dst)+1, l_pos);
+    END IF;
+    l_prefix := DBMS_LOB.SUBSTR(p_src, 512, l_start);
+    l_name := REGEXP_SUBSTR(l_prefix, '^</?([[:alnum:]_]+)', 1, 1, NULL, 1);
+    l_offset := CASE WHEN SUBSTR(l_prefix,2,1) = '/' THEN 2 ELSE 1 END;
+    IF l_name IS NOT NULL THEN
+      l_prefix := SUBSTR(l_prefix,1,l_offset) || LOWER(l_name);
+      DBMS_LOB.WRITEAPPEND(l_dst, LENGTH(l_prefix), l_prefix);
+      l_scan := l_start+l_offset+LENGTH(l_name);
+    ELSE
+      DBMS_LOB.WRITEAPPEND(l_dst, 1, '<');
+      l_scan := l_start+1;
+    END IF;
+    -- Skip quoted values so a '<' in SQL or an attribute is not a new tag.
+    l_end := l_scan;
+    l_quote := NULL;
+    l_tag_end := 0;
+    WHILE l_end <= l_len AND l_tag_end = 0 LOOP
+      l_buf := DBMS_LOB.SUBSTR(p_src, 512, l_end);
+      FOR i IN 1..LENGTH(l_buf) LOOP
+        l_c := SUBSTR(l_buf,i,1);
+        IF l_quote IS NOT NULL THEN
+          IF l_c = l_quote THEN l_quote := NULL; END IF;
+        ELSIF l_c IN ('"', CHR(39)) THEN l_quote := l_c;
+        ELSIF l_c = '>' THEN l_tag_end := l_end+i-1; EXIT;
+        END IF;
+      END LOOP;
+      l_end := l_end+LENGTH(l_buf);
+    END LOOP;
+    IF l_tag_end = 0 THEN l_tag_end := l_len; END IF;
+    IF l_tag_end >= l_scan THEN
+      DBMS_LOB.COPY(l_dst,p_src,l_tag_end-l_scan+1,
+                    DBMS_LOB.GETLENGTH(l_dst)+1,l_scan);
+    END IF;
+    l_pos := l_tag_end+1;
+  END LOOP;
   RETURN l_dst;
+EXCEPTION WHEN OTHERS THEN
+  IF DBMS_LOB.ISTEMPORARY(l_dst)=1 THEN DBMS_LOB.FREETEMPORARY(l_dst); END IF;
+  RAISE;
 END normalize_clob;
 
 -- ---------------------------------------------------------------------------
@@ -183,20 +198,22 @@ END normalize_clob;
 -- ---------------------------------------------------------------------------
 FUNCTION extract_attr(
   p_tag  IN VARCHAR2,
-  p_attr IN VARCHAR2
+  p_attr IN VARCHAR2,
+  p_decode IN BOOLEAN DEFAULT TRUE
 ) RETURN VARCHAR2 IS
   l_val VARCHAR2(32767);
 BEGIN
   -- Double-quoted:  attr="value"
-  l_val := REGEXP_SUBSTR(p_tag, p_attr || '\s*=\s*"([^"]*)"', 1, 1, 'i', 1);
+  l_val := REGEXP_SUBSTR(p_tag, '(^|[[:space:]])' || p_attr || '\s*=\s*"([^"]*)"', 1, 1, 'i', 2);
   IF l_val IS NOT NULL THEN
-    RETURN l_val;
+    RETURN CASE WHEN p_decode THEN decode_entities(l_val) ELSE l_val END;
   END IF;
   -- Single-quoted:  attr='value'
-  RETURN REGEXP_SUBSTR(
+  l_val := REGEXP_SUBSTR(
     p_tag,
-    p_attr || '\s*=\s*' || CHR(39) || '([^' || CHR(39) || ']*)' || CHR(39),
-    1, 1, 'i', 1);
+    '(^|[[:space:]])' || p_attr || '\s*=\s*' || CHR(39) || '([^' || CHR(39) || ']*)' || CHR(39),
+    1, 1, 'i', 2);
+  RETURN CASE WHEN p_decode THEN decode_entities(l_val) ELSE l_val END;
 END extract_attr;
 
 -- ---------------------------------------------------------------------------
@@ -229,7 +246,7 @@ END parse_unit_attr;
 -- Name scheme (suffixes appended in order):
 --   Bold/italic : __b | __i | __bi
 --   Colour      : __c<rrggbb>     e.g. __cff0000
---   Font size   : __s<N>          e.g. __s14  (rounded to integer pt)
+--   Exact font size and base-style revision participate in the hashed key.
 --
 -- The resulting style is created once in the rad_pdf_styles registry;
 -- subsequent calls with the same parameters return the cached name instantly.
@@ -269,10 +286,12 @@ BEGIN
     l_name := l_name || '__c' || LOWER(p_color);
   END IF;
   IF p_font_size IS NOT NULL THEN
-    l_name := l_name || '__s' || TO_CHAR(ROUND(p_font_size));
+    l_name := l_name || '__s' || rad_pdf_codec.fmt(p_font_size, 6);
   END IF;
 
-  -- Register the style variant lazily
+  -- Include base revision and exact options in a bounded cache key.
+  l_name := 'inline_'||RAWTOHEX(DBMS_CRYPTO.HASH(UTL_I18N.STRING_TO_RAW(
+    l_name||':'||TO_CHAR(rad_pdf_styles.revision(p_base)),'AL32UTF8'),DBMS_CRYPTO.HASH_SH256));
   IF NOT rad_pdf_styles.exists_style(l_name) THEN
     l_fmt := rad_pdf_styles.get(p_base);
     -- Apply bold/italic if requested
@@ -286,14 +305,7 @@ BEGIN
     IF p_font_size IS NOT NULL THEN
       l_fmt.font_size := p_font_size;
     END IF;
-    rad_pdf_styles.define(
-      p_name       => l_name,
-      p_font_name  => l_fmt.font_name,
-      p_font_style => l_fmt.font_style,
-      p_font_size  => l_fmt.font_size,
-      p_font_color => l_fmt.font_color,
-      p_back_color => l_fmt.back_color
-    );
+    rad_pdf_styles.define_format(l_name,l_fmt);
   END IF;
   RETURN l_name;
 END derive_style;
@@ -556,9 +568,7 @@ BEGIN
   END IF;
 
   -- If shield_query_attrs placed CHR(1)..CHR(2) sentinels in the query,
-  -- resolve them now by substituting safely-quoted literal values.
-  -- The bind value is wrapped in single quotes with embedded quotes doubled,
-  -- so it is injected as a SQL string literal, not as arbitrary SQL text.
+  -- resolve them to named SQL bind variables stored with the table definition.
   IF g_qbind_active AND INSTR(l_qry, CHR(1)) > 0 THEN
     DECLARE
       l_qpos   PLS_INTEGER := 1;
@@ -576,8 +586,8 @@ BEGIN
         l_safe := l_safe || SUBSTR(l_qry, l_qpos, l_s1_pos - l_qpos);
         l_tok  := SUBSTR(l_qry, l_s1_pos + 1, l_s2_pos - l_s1_pos - 1);
         l_val  := g_qbind_map(l_tok);
-        -- Safely quote: wrap in ' and double any embedded '
-        l_safe := l_safe || '''' || REPLACE(l_val, '''', '''''') || '''';
+        l_tdef.query_binds('radpdf_'||TO_CHAR(l_tdef.query_binds.COUNT+1)) := l_val;
+        l_safe := l_safe||':radpdf_'||TO_CHAR(l_tdef.query_binds.COUNT);
         l_qpos := l_s2_pos + 1;
       END LOOP;
       l_safe := l_safe || SUBSTR(l_qry, l_qpos);
@@ -627,14 +637,22 @@ BEGIN
   END IF;
   l_max_rows := extract_attr(p_tag, 'max_rows');
   IF l_max_rows IS NOT NULL THEN
+    IF NOT REGEXP_LIKE(TRIM(l_max_rows),'^[0-9]+$') THEN
+      RAISE_APPLICATION_ERROR(c_err_attr_val,'<table> max_rows must be a positive integer');
+    END IF;
     BEGIN
       l_tdef.options.max_rows := TO_NUMBER(l_max_rows);
     EXCEPTION WHEN OTHERS THEN
       RAISE_APPLICATION_ERROR(c_err_attr_val,
         '<table> invalid max_rows value: "' || l_max_rows || '"');
     END;
-  ELSIF p_options.max_rows IS NOT NULL THEN
-    l_tdef.options.max_rows := p_options.max_rows;
+  END IF;
+  IF l_tdef.options.max_rows IS NOT NULL AND l_tdef.options.max_rows <= 0 THEN
+    RAISE_APPLICATION_ERROR(c_err_attr_val, '<table> max_rows must be positive');
+  END IF;
+  IF p_options.max_rows IS NOT NULL THEN
+    l_tdef.options.max_rows := LEAST(NVL(l_tdef.options.max_rows, p_options.max_rows),
+                                     p_options.max_rows);
   END IF;
 
   l_ref_id            := rad_pdf_layout.register_table(p_doc, l_tdef);
@@ -798,6 +816,7 @@ PROCEDURE dispatch_open_close(
   l_li_txt  VARCHAR2(32767);
   l_cnt_li  PLS_INTEGER;
   l_nr      PLS_INTEGER;
+  l_decoded CLOB;
 BEGIN
   l_cnt_len := NVL(DBMS_LOB.GETLENGTH(p_content), 0);
 
@@ -809,19 +828,26 @@ BEGIN
                NVL(p_options.default_style, 'body'));
     IF l_cnt_len = 0 THEN
       NULL;  -- <p></p>: no-op
-    ELSIF l_cnt_len <= 32767 THEN
-      -- Short content: full inline-markup path.
-      dispatch_paragraph(p_doc, DBMS_LOB.SUBSTR(p_content, l_cnt_len, 1), l_style);
+    ELSIF l_cnt_len <= 8191 THEN
+      dispatch_paragraph(p_doc, DBMS_LOB.SUBSTR(p_content,l_cnt_len,1),l_style);
     ELSE
       -- Long content (> 32767 chars).
       IF DBMS_LOB.INSTR(p_content, '<') > 0 THEN
-        -- Inline markup present: can't scan inline tags beyond VARCHAR2 limit.
+        l_content_vc := DBMS_LOB.SUBSTR(p_content,32767,1);
+        IF LENGTH(l_content_vc)=l_cnt_len THEN
+          dispatch_paragraph(p_doc,l_content_vc,l_style);
+          RETURN;
+        END IF;
         RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_template,
           '<p> content exceeds 32767 characters and contains inline tags. '
           || 'Split the paragraph into multiple <p> blocks.');
       END IF;
       -- Plain long text: use the CLOB overload of rad_pdf_layout.paragraph.
-      rad_pdf_layout.add(p_doc, rad_pdf_layout.paragraph(p_content, l_style));
+      SELECT REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p_content,
+        '&lt;','<'),'&gt;','>'),'&quot;','"'),'&apos;',CHR(39)),'&amp;','&')
+        INTO l_decoded FROM dual;
+      rad_pdf_layout.add(p_doc,rad_pdf_layout.paragraph(l_decoded,l_style));
+      IF DBMS_LOB.ISTEMPORARY(l_decoded)=1 THEN DBMS_LOB.FREETEMPORARY(l_decoded); END IF;
     END IF;
 
   ELSIF REGEXP_LIKE(p_name, '^h[1-6]$') THEN
@@ -891,6 +917,9 @@ BEGIN
         'Unknown block tag: <' || p_name || '>');
     END IF;
   END IF;
+EXCEPTION WHEN OTHERS THEN
+  IF DBMS_LOB.ISTEMPORARY(l_decoded)=1 THEN DBMS_LOB.FREETEMPORARY(l_decoded); END IF;
+  RAISE;
 END dispatch_open_close;
 
 -- ---------------------------------------------------------------------------
@@ -950,8 +979,7 @@ END find_tag_end;
 -- from Phase 2 (apply_binds_clob) by replacing them with
 --   CHR(1) || UPPER(token_name) || CHR(2)
 -- and storing the bind value in g_qbind_map.  handle_table_tag later
--- resolves these sentinels via safely-quoted string literals, so the values
--- never end up concatenated into a SQL string.
+-- resolves sentinels to SQL bind variables; values never become SQL text.
 --
 -- Returns p_src unchanged (same LOB locator) when no shielding is needed,
 -- or a new temporary CLOB when at least one sentinel was written.
@@ -959,7 +987,8 @@ END find_tag_end;
 -- ---------------------------------------------------------------------------
 FUNCTION shield_query_attrs(
   p_src   IN CLOB,
-  p_binds IN rad_pdf_types.t_bind_array
+  p_binds IN rad_pdf_types.t_bind_array,
+  p_owned OUT BOOLEAN
 ) RETURN CLOB IS
   -- Sentinel delimiters (never appear in SQL or template text)
   c_s1 CONSTANT VARCHAR2(1) := CHR(1);
@@ -1048,6 +1077,7 @@ FUNCTION shield_query_attrs(
   END append_str;
 
 BEGIN
+  p_owned := FALSE;
   -- Build bind lookup
   i := p_binds.FIRST;
   WHILE i IS NOT NULL LOOP
@@ -1103,7 +1133,7 @@ BEGIN
                    LEAST(l_tag_end - l_tbl_pos + 1, 32767), l_tbl_pos);
 
     -- Try to extract and shield the query attribute
-    l_qry     := extract_attr(l_tag_raw, 'query');
+    l_qry     := extract_attr(l_tag_raw, 'query', FALSE);
     l_qry_new := process_query(l_qry);
 
     IF l_qry IS NULL OR l_qry_new = l_qry THEN
@@ -1151,7 +1181,11 @@ BEGIN
   END IF;
 
   g_qbind_active := TRUE;
+  p_owned := TRUE;
   RETURN l_dst;
+EXCEPTION WHEN OTHERS THEN
+  IF DBMS_LOB.ISTEMPORARY(l_dst)=1 THEN DBMS_LOB.FREETEMPORARY(l_dst); END IF;
+  RAISE;
 END shield_query_attrs;
 
 -- ---------------------------------------------------------------------------
@@ -1467,6 +1501,10 @@ BEGIN
   l_opts.default_style      := NVL(p_options.default_style, 'body');
   l_opts.strict_tags        := NVL(p_options.strict_tags,   TRUE);
   l_opts.allow_queries      := NVL(p_options.allow_queries, FALSE);
+  l_opts.max_rows           := p_options.max_rows;
+  IF l_opts.max_rows IS NOT NULL AND l_opts.max_rows <= 0 THEN
+    RAISE_APPLICATION_ERROR(c_err_attr_val, 'max_rows must be a positive integer');
+  END IF;
 
   -- -------------------------------------------------------------------------
   -- Implement default_font_name / default_font_style / default_font_size.
@@ -1479,16 +1517,18 @@ BEGIN
   THEN
     l_dft_sty := l_opts.default_style || '__dft'
       || CASE WHEN l_opts.default_font_name IS NOT NULL
-              THEN '_fn' || LOWER(REGEXP_REPLACE(l_opts.default_font_name,
-                                                 '[^a-zA-Z0-9]', ''))
+              THEN '_fn' || LOWER(l_opts.default_font_name)
               ELSE '' END
       || CASE WHEN l_opts.default_font_style IS NOT NULL
               THEN '_' || LOWER(l_opts.default_font_style)
               ELSE '' END
       || CASE WHEN l_opts.default_font_size IS NOT NULL
-              THEN '_s' || TO_CHAR(ROUND(l_opts.default_font_size))
+              THEN '_s' || rad_pdf_codec.fmt(l_opts.default_font_size, 6)
               ELSE '' END;
 
+    l_dft_sty := 'default_'||RAWTOHEX(DBMS_CRYPTO.HASH(UTL_I18N.STRING_TO_RAW(
+      l_dft_sty||':'||TO_CHAR(rad_pdf_styles.revision(l_opts.default_style)),'AL32UTF8'),
+      DBMS_CRYPTO.HASH_SH256));
     IF NOT rad_pdf_styles.exists_style(l_dft_sty) THEN
       l_dft_fmt := rad_pdf_styles.get(l_opts.default_style);
       IF l_opts.default_font_name  IS NOT NULL THEN
@@ -1500,13 +1540,7 @@ BEGIN
       IF l_opts.default_font_size  IS NOT NULL THEN
         l_dft_fmt.font_size  := l_opts.default_font_size;
       END IF;
-      rad_pdf_styles.define(
-        p_name       => l_dft_sty,
-        p_font_name  => l_dft_fmt.font_name,
-        p_font_style => l_dft_fmt.font_style,
-        p_font_size  => l_dft_fmt.font_size,
-        p_font_color => l_dft_fmt.font_color,
-        p_back_color => l_dft_fmt.back_color);
+      rad_pdf_styles.define_format(l_dft_sty,l_dft_fmt);
     END IF;
     l_opts.default_style := l_dft_sty;
   END IF;
@@ -1630,11 +1664,8 @@ END clear_columns;
 
 FUNCTION escape_value(p_value IN VARCHAR2) RETURN VARCHAR2 IS
 BEGIN
-  RETURN REPLACE(
-           REPLACE(
-             REPLACE(p_value, '&', '&amp;'),
-           '<', '&lt;'),
-         '>', '&gt;');
+  RETURN REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p_value,
+    '&','&amp;'),'<','&lt;'),'>','&gt;'),'"','&quot;'),CHR(39),'&apos;');
 END escape_value;
 
 -- ===========================================================================
@@ -1656,7 +1687,8 @@ PROCEDURE render(
   l_bound    CLOB;
   l_cond     CLOB;
   l_src      CLOB;      -- normalised source
-  l_shielded CLOB;      -- after shield_query_attrs (= l_src when no shielding)
+  l_shielded CLOB;      -- may alias l_src
+  l_shielded_owned BOOLEAN := FALSE;
 BEGIN
   rad_pdf_ctx.assert_valid(p_doc);
 
@@ -1666,8 +1698,8 @@ BEGIN
   -- Phase 0b: protect #TOKEN# inside <table query="..."> from Phase 2 text
   -- substitution.  Tokens in query attributes are replaced with
   -- CHR(1)..CHR(2) sentinels; their values are stored in g_qbind_map and
-  -- injected as safely-quoted SQL literals in handle_table_tag.
-  l_shielded := shield_query_attrs(l_src, p_binds);
+  -- registered as SQL bind variables in handle_table_tag.
+  l_shielded := shield_query_attrs(l_src, p_binds, l_shielded_owned);
 
   DBMS_LOB.CREATETEMPORARY(l_bound, TRUE);
   IF DBMS_LOB.INSTR(l_shielded, '<if ', 1) > 0 THEN
@@ -1683,7 +1715,7 @@ BEGIN
   END IF;
   do_render(p_doc, l_bound, p_options);
   DBMS_LOB.FREETEMPORARY(l_bound);
-  IF l_shielded IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
+  IF l_shielded_owned AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
     DBMS_LOB.FREETEMPORARY(l_shielded);
   END IF;
   IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN
@@ -1698,7 +1730,7 @@ EXCEPTION
     g_qbind_map.DELETE;
     IF DBMS_LOB.ISTEMPORARY(l_bound)    = 1 THEN DBMS_LOB.FREETEMPORARY(l_bound);    END IF;
     IF DBMS_LOB.ISTEMPORARY(l_cond)     = 1 THEN DBMS_LOB.FREETEMPORARY(l_cond);     END IF;
-    IF l_shielded IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
+    IF l_shielded_owned AND DBMS_LOB.ISTEMPORARY(l_shielded) = 1 THEN
       DBMS_LOB.FREETEMPORARY(l_shielded);
     END IF;
     IF l_src IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_src) = 1 THEN

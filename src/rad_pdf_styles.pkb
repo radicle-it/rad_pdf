@@ -5,7 +5,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
 
   TYPE t_style_map IS TABLE OF rad_pdf_types.t_cell_format INDEX BY VARCHAR2(100);
   g_styles          t_style_map;
+  TYPE t_versions IS TABLE OF NUMBER INDEX BY VARCHAR2(100);
+  g_versions t_versions;
+  g_revision NUMBER := 0;
   g_defaults_loaded BOOLEAN := FALSE;
+  PROCEDURE touch(p_name IN VARCHAR2) IS
+  BEGIN
+    g_revision := g_revision+1;
+    g_versions(p_name) := g_revision;
+  END touch;
 
 -- ---------------------------------------------------------------------------
   PROCEDURE load_defaults IS
@@ -14,6 +22,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
     PROCEDURE put(p_name IN VARCHAR2, p_fmt IN rad_pdf_types.t_cell_format) IS
     BEGIN
       g_styles(p_name) := p_fmt;
+      touch(p_name);
     END;
   BEGIN
     IF g_defaults_loaded THEN RETURN; END IF;
@@ -117,8 +126,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
     IF p_leading    IS NOT NULL THEN l_f.spacing    := TO_CHAR(p_leading) || 'pt'; END IF;
     IF p_num_format IS NOT NULL THEN l_f.num_format := p_num_format; END IF;
 
-    g_styles(p_name) := l_f;
+    define_format(p_name,l_f);
   END define;
+
+-- ---------------------------------------------------------------------------
+  PROCEDURE define_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format) IS
+  BEGIN
+    IF p_name IS NULL OR LENGTH(p_name)>100 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'Style name must contain 1..100 characters');
+    END IF;
+    IF NVL(p_format.font_size,0)<=0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'Font size must be positive');
+    END IF;
+    load_defaults;
+    g_styles(p_name) := p_format;
+    touch(p_name);
+  END define_format;
+
+  FUNCTION revision(p_name IN VARCHAR2) RETURN NUMBER IS
+  BEGIN
+    load_defaults;
+    IF p_name IS NOT NULL AND g_versions.EXISTS(p_name) THEN RETURN g_versions(p_name); END IF;
+    RETURN g_versions('default');
+  END revision;
 
 -- ---------------------------------------------------------------------------
   FUNCTION get(p_name IN VARCHAR2) RETURN rad_pdf_types.t_cell_format IS
@@ -144,6 +174,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
     IF p_name IS NULL THEN RETURN; END IF;
     IF g_styles.EXISTS(p_name) THEN
       g_styles.DELETE(p_name);
+      g_versions.DELETE(p_name);
     END IF;
   END drop_style;
 
@@ -151,6 +182,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
   PROCEDURE clear_all IS
   BEGIN
     g_styles.DELETE;
+    g_versions.DELETE;
     g_defaults_loaded := FALSE;
   END clear_all;
 

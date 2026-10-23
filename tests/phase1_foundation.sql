@@ -63,8 +63,7 @@ BEGIN
     DBMS_LOB.APPEND(l_src, UTL_RAW.CAST_TO_RAW(RPAD('A', 100, 'A')));
     l_comp := rad_pdf_codec.flate_encode(l_src);
     ok('flate not null',       DBMS_LOB.GETLENGTH(l_comp) > 0);
-    ok('flate no zlib header', UTL_RAW.SUBSTR(DBMS_LOB.SUBSTR(l_comp, 2, 1), 1, 1)
-                               != HEXTORAW('78'));
+    ok('flate valid zlib header', DBMS_LOB.SUBSTR(l_comp, 2, 1) = HEXTORAW('789C'));
     DBMS_LOB.FREETEMPORARY(l_src);
     DBMS_LOB.FREETEMPORARY(l_comp);
   END;
