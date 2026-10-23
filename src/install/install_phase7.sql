@@ -17,6 +17,7 @@ PROMPT --- rad_pdf_canvas body (adds measure_wrapped)
 SHOW ERRORS PACKAGE BODY rad_pdf_canvas
 
 PROMPT --- rad_pdf_layout spec
+@@../rad_pdf_swiss.pks
 @@../rad_pdf_layout.pks
 SHOW ERRORS PACKAGE rad_pdf_layout
 

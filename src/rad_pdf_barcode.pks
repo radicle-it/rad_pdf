@@ -46,6 +46,12 @@ CREATE OR REPLACE PACKAGE rad_pdf_barcode AUTHID DEFINER IS
 -- for the QR code that p_value/p_ec_level would produce.  Useful to compute
 -- the module size in advance (module = p_size / side_count).
 -- ---------------------------------------------------------------------------
+  -- Internal Swiss QR: binary UTF-8, M, max version 25, 46 mm symbol (no quiet
+  -- zone included), official 7 mm cross. Coordinates in points; caller reserves
+  -- the surrounding 5 mm white zone and validates the Swiss payment payload.
+  PROCEDURE swiss_qrcode(p_doc IN rad_pdf_types.t_doc_handle,p_value IN VARCHAR2,
+                          p_x IN NUMBER,p_y IN NUMBER);
+
   FUNCTION qrcode_modules(p_value    IN VARCHAR2,
                           p_ec_level IN VARCHAR2 DEFAULT 'M')
     RETURN PLS_INTEGER;

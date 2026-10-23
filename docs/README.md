@@ -104,6 +104,8 @@ If any test fails, run the individual phase test to isolate the issue:
 -- ... through phase8_pdf.sql
 ```
 
+See [Swiss QR-bill](SWISS_QR_BILL.md) for payment sections, receipt and the JSON input contract.
+
 See [Rendering performance](PERFORMANCE.md) for the text-plan architecture,
 compression option and measured before/after workloads.
 
@@ -145,6 +147,7 @@ benchmark_large_table: 10 passed, 0 failed.
 DROP PACKAGE rad_pdf_template;
 DROP PACKAGE rad_pdf;
 DROP PACKAGE rad_pdf_table;   DROP PACKAGE rad_pdf_layout;
+DROP PACKAGE rad_pdf_swiss;
 DROP PACKAGE rad_pdf_canvas;  DROP PACKAGE rad_pdf_text;
 DROP PACKAGE rad_pdf_images;
 DROP PACKAGE rad_pdf_fonts;   DROP PACKAGE rad_pdf_serial;

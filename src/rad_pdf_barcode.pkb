@@ -193,6 +193,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
   procedure gen_qrcode_matrix( p_val varchar2
                              , p_ec_level varchar2
                              , p_matrix out tp_matrix
+                             , p_utf8 boolean default false
                              )
   is
     l_version pls_integer;
@@ -675,7 +676,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
                  end;
     l_qr_config := get_qr_config;
     --
-    if translate( p_val, '#0123456789', '#' ) is null
+    if p_utf8 then -- Swiss QR: binary UTF-8, without ECI or BOM
+      l_tmp := utl_i18n.string_to_raw(p_val,'AL32UTF8');
+      l_version := get_version(utl_raw.length(l_tmp),l_eclevel,5);
+      add_byte_data(l_tmp,l_version,l_stream);
+    elsif translate( p_val, '#0123456789', '#' ) is null
     then  -- numeric mode
       l_version := get_version( length( p_val ), l_eclevel, 3 );
       append_bits( l_stream, 1, 4 ); -- mode
@@ -1301,16 +1306,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
 -- ---------------------------------------------------------------------------
 -- qrcode — draw a QR code as filled vector rectangles
 -- ---------------------------------------------------------------------------
-  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
-                   p_value    IN VARCHAR2,
-                   p_x        IN NUMBER,
-                   p_y        IN NUMBER,
-                   p_size     IN NUMBER,
-                   p_ec_level IN VARCHAR2              DEFAULT 'M',
-                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
-                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt') IS
-    l_matrix tp_matrix;
+  PROCEDURE paint_qr(p_doc IN rad_pdf_types.t_doc_handle,
+                     p_matrix IN tp_matrix,p_x IN NUMBER,p_y IN NUMBER,
+                     p_size IN NUMBER,p_color IN rad_pdf_types.t_rgb,
+                     p_unit IN rad_pdf_types.t_unit,p_symbol_only IN BOOLEAN DEFAULT FALSE) IS
     l_n      PLS_INTEGER;
+    l_border PLS_INTEGER := CASE WHEN p_symbol_only THEN 4 ELSE 0 END;
     l_x0     NUMBER;
     l_y0     NUMBER;
     l_size   NUMBER;
@@ -1339,14 +1340,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
       l_e.x1 := NULL;        l_e.y1 := NULL;        l_path(l_i + 4) := l_e;
     END add_rect;
   BEGIN
-    rad_pdf_ctx.assert_valid(p_doc);
-    IF NVL(p_size, 0) <= 0 THEN
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
-        'QR code size must be > 0');
-    END IF;
-    encode_qr(p_value, p_ec_level, l_matrix);
 
-    l_n    := l_matrix.COUNT;              -- modules per side, quiet included
+    l_n    := p_matrix.COUNT-2*l_border;              -- modules per side, quiet included
     l_x0   := rad_pdf_units.to_pt(p_x,    p_unit);
     l_y0   := rad_pdf_units.to_pt(p_y,    p_unit);
     l_size := rad_pdf_units.to_pt(p_size, p_unit);
@@ -1355,14 +1350,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
     -- One rad_pdf_canvas.path call per matrix row keeps every content-stream
     -- block far below the 32k VARCHAR2 limit even for QR version 40.
     -- Runs of adjacent dark modules in a row merge into a single rectangle.
-    FOR r IN 0 .. l_n - 1 LOOP             -- r = row, top to bottom
+    FOR r IN l_border .. l_border+l_n-1 LOOP             -- r = row, top to bottom
       l_path.DELETE;
       l_run := 0;
-      l_ry  := l_y0 + l_size - (r + 1) * l_m;
-      FOR c IN 0 .. l_n - 1 LOOP           -- c = column, left to right
-        IF l_matrix(c)(r) > 0 THEN
+      l_ry  := l_y0 + l_size - (r-l_border+1)*l_m;
+      FOR c IN l_border .. l_border+l_n-1 LOOP           -- c = column, left to right
+        IF p_matrix(c)(r) > 0 THEN
           IF l_run = 0 THEN
-            l_rx := l_x0 + c * l_m;
+            l_rx := l_x0+(c-l_border)*l_m;
           END IF;
           l_run := l_run + 1;
         ELSIF l_run > 0 THEN
@@ -1379,7 +1374,52 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_barcode IS
                             p_fill_color => NVL(p_color, '000000'));
       END IF;
     END LOOP;
+  END paint_qr;
+
+  PROCEDURE qrcode(p_doc      IN rad_pdf_types.t_doc_handle,
+                   p_value    IN VARCHAR2,
+                   p_x        IN NUMBER,
+                   p_y        IN NUMBER,
+                   p_size     IN NUMBER,
+                   p_ec_level IN VARCHAR2              DEFAULT 'M',
+                   p_color    IN rad_pdf_types.t_rgb  DEFAULT '000000',
+                   p_unit     IN rad_pdf_types.t_unit DEFAULT 'pt') IS
+    l_matrix tp_matrix;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    IF NVL(p_size, 0) <= 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,
+        'QR code size must be > 0');
+    END IF;
+    encode_qr(p_value,p_ec_level,l_matrix);
+    paint_qr(p_doc,l_matrix,p_x,p_y,p_size,p_color,p_unit);
   END qrcode;
+
+  PROCEDURE swiss_qrcode(p_doc IN rad_pdf_types.t_doc_handle,p_value IN VARCHAR2,
+                          p_x IN NUMBER,p_y IN NUMBER) IS
+    l_matrix tp_matrix;
+    c_mm CONSTANT NUMBER := 72/25.4;
+    l_x NUMBER := p_x+19.5*c_mm;
+    l_y NUMBER := p_y+19.5*c_mm;
+    l_scale NUMBER := 7*c_mm/19.8;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    IF p_value IS NULL OR UTL_RAW.LENGTH(UTL_I18N.STRING_TO_RAW(p_value,'AL32UTF8'))>997 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,'Swiss QR payload exceeds version 25-M capacity');
+    END IF;
+    gen_qrcode_matrix(p_value,'M',l_matrix,TRUE);
+    IF l_matrix.COUNT-8>117 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_barcode,'Swiss QR exceeds version 25');
+    END IF;
+    paint_qr(p_doc,l_matrix,p_x,p_y,46*c_mm,'000000','pt',TRUE);
+    -- Official SIX SVG viewBox 0 0 19.8 19.8: white border, black square,
+    -- two white cross rectangles. SVG origin is top-left; PDF is bottom-left.
+    rad_pdf_canvas.rect(p_doc,l_x,l_y,7*c_mm,7*c_mm,NULL,'FFFFFF',0);
+    rad_pdf_canvas.rect(p_doc,l_x+1.41785*l_scale,l_y+1.41785*l_scale,
+      16.9643*l_scale,16.9643*l_scale,NULL,'000000',0);
+    rad_pdf_canvas.rect(p_doc,l_x+8.3*l_scale,l_y+4.8*l_scale,3.3*l_scale,11*l_scale,NULL,'FFFFFF',0);
+    rad_pdf_canvas.rect(p_doc,l_x+4.4*l_scale,l_y+8.6*l_scale,11*l_scale,3.3*l_scale,NULL,'FFFFFF',0);
+  END swiss_qrcode;
 
 -- ---------------------------------------------------------------------------
 -- qrcode_modules — modules per side (quiet zone included)

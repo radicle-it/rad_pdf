@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "account": "CH4431999123000889012",
+  "creditor": {
+    "name": "Max Muster & Söhne",
+    "street": "Musterstrasse",
+    "building_no": "123",
+    "postal_code": "8000",
+    "town": "Seldwyla",
+    "country": "CH"
+  },
+  "amount": 2500.25,
+  "currency": "CHF",
+  "debtor": {
+    "name": "Simon Muster",
+    "street": "Musterstrasse",
+    "building_no": "1",
+    "postal_code": "8000",
+    "town": "Seldwyla",
+    "country": "CH"
+  },
+  "reference_type": "QRR",
+  "reference": "210000000003139471430009017",
+  "message": "Invoice 1024",
+  "billing_information": "//S1/10/1024",
+  "alternatives": [
+    "eBill/B/41010560425610107"
+  ]
+}

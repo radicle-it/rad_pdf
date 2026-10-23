@@ -344,6 +344,19 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END add_bookmark;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
+                          p_bill IN rad_pdf_swiss.t_bill,
+                          p_options IN rad_pdf_swiss.t_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_layout.set_swiss_bill(p_doc,p_bill,p_options);
+  END;
+  PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
+                          p_json IN CLOB,
+                          p_options IN rad_pdf_swiss.t_options DEFAULT NULL) IS
+  BEGIN
+    rad_pdf_layout.set_swiss_bill(p_doc,rad_pdf_swiss.from_json(p_json),p_options);
+  END;
+
   PROCEDURE spacer(p_doc    IN rad_pdf_types.t_doc_handle,
                    p_height IN NUMBER DEFAULT 12) IS
   BEGIN

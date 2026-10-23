@@ -101,6 +101,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
   -- when emitting the Tf operator). Sets up the font for write_font_objects.
   PROCEDURE mark_font_used(p_doc IN rad_pdf_types.t_doc_handle, p_font_idx IN PLS_INTEGER);
 
+  -- Fail before painting when a font would lose or replace visible characters.
+  PROCEDURE assert_text_supported(p_text IN VARCHAR2,p_font_idx IN PLS_INTEGER);
+
   -- Convert text to the raw bytes expected by the PDF font encoding.
   FUNCTION  text_to_pdf_string(p_text     IN VARCHAR2,
                                p_font_idx IN PLS_INTEGER) RETURN VARCHAR2;

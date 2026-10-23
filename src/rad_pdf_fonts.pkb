@@ -1241,6 +1241,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- ---------------------------------------------------------------------------
 -- Public: text_to_pdf_string
 -- ---------------------------------------------------------------------------
+  PROCEDURE assert_text_supported(p_text IN VARCHAR2,p_font_idx IN PLS_INTEGER) IS
+    l_raw RAW(32767);
+    l_code PLS_INTEGER;
+  BEGIN
+    IF p_text IS NULL THEN RETURN; END IF;
+    l_raw := encoded_text(p_text,p_font_idx);
+    IF NOT g_fonts(p_font_idx).cid THEN
+      IF UTL_I18N.RAW_TO_CHAR(l_raw,g_fonts(p_font_idx).encoding)!=p_text THEN
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,'Font encoding cannot represent payment text; use a supported CID font');
+      END IF;
+    ELSE
+      FOR i IN 0..UTL_RAW.LENGTH(l_raw)/2-1 LOOP
+        l_code := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i*2+1,2)),'XXXX');
+        IF l_code IN (9,10,13) THEN NULL; -- layout delimiters are not glyphs
+        ELSIF NOT g_fonts(p_font_idx).code2glyph.EXISTS(l_code) THEN
+          RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,'Font has no glyph for payment text character '||l_code);
+        ELSIF g_fonts(p_font_idx).code2glyph(l_code)=0 THEN
+          RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,'Font has no glyph for payment text character '||l_code);
+        END IF;
+      END LOOP;
+    END IF;
+  END assert_text_supported;
+
   FUNCTION text_to_pdf_string(p_text IN VARCHAR2,
                                p_font_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
     l_raw RAW(32767);

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radicle.it/rad_pdf/schemas/swiss-qr-bill-v1.json",
+  "title": "RAD_PDF Swiss QR-bill input v1 (SIX IG 2.4)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "account",
+    "creditor"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "account": {
+      "type": "string",
+      "pattern": "^(CH|LI)[0-9]{7}[A-Z0-9]{12}$"
+    },
+    "creditor": {
+      "$ref": "#/$defs/address"
+    },
+    "debtor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/address"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "amount": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.01,
+      "maximum": 999999999.99,
+      "multipleOf": 0.01
+    },
+    "currency": {
+      "enum": [
+        "CHF",
+        "EUR"
+      ],
+      "default": "CHF"
+    },
+    "reference_type": {
+      "enum": [
+        "NON",
+        "QRR",
+        "SCOR"
+      ],
+      "default": "NON"
+    },
+    "reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 27
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 140
+    },
+    "billing_information": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 140
+    },
+    "alternatives": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      }
+    }
+  },
+  "$defs": {
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "postal_code",
+        "town",
+        "country"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 70
+        },
+        "street": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 70
+        },
+        "building_no": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 16
+        },
+        "postal_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "town": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 35
+        },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        }
+      }
+    }
+  },
+  "$comment": "Runtime checks additionally enforce ISO country membership, Swiss character repertoire, IBAN/reference checksums and relationships, CHF-only QRR, 140 combined message/billing characters and QR byte capacity."
+}

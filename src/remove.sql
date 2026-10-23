@@ -26,6 +26,7 @@ DROP PACKAGE rad_pdf_table;
 
 PROMPT --- dropping package rad_pdf_layout
 DROP PACKAGE rad_pdf_layout;
+DROP PACKAGE rad_pdf_swiss;
 
 -- -----------------------------------------------------------------------
 -- Phase 6 — canvas drawing primitives

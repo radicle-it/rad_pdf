@@ -21,6 +21,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
 
   TYPE t_plan_map IS TABLE OF rad_pdf_text.t_plan INDEX BY PLS_INTEGER;
   TYPE t_layout_state IS RECORD (
+    swiss_bill rad_pdf_swiss.t_bill,
+    swiss_options rad_pdf_swiss.t_options,
+    has_swiss BOOLEAN := FALSE,
     plans         t_plan_map,
     flowables     rad_pdf_types.t_flowable_list,
     table_defs    t_table_def_map,
@@ -71,6 +74,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
     l_mb := NVL(l_tmpl.margin_bottom, rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_bot));
     l_ml := NVL(l_tmpl.margin_left,   rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_left));
     l_mr := NVL(l_tmpl.margin_right,  rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_right));
+    IF g_layout(p_doc).has_swiss AND g_layout(p_doc).swiss_options.placement='INTEGRATED' THEN
+      l_mb := GREATEST(l_mb,rad_pdf_units.to_pt(115,'mm'));
+    END IF;
     l_f.x      := l_ml;
     l_f.y      := l_ph - l_mt;
     l_f.width  := l_pw - l_ml - l_mr;
@@ -96,8 +102,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
                          rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_page_height));
       rad_pdf_canvas.set_page_format(p_doc, l_pf);
     END IF;
-    IF l_tmpl.margin_top    IS NOT NULL OR l_tmpl.margin_bottom IS NOT NULL OR
-       l_tmpl.margin_left   IS NOT NULL OR l_tmpl.margin_right  IS NOT NULL THEN
+    IF l_tmpl.margin_top IS NOT NULL OR l_tmpl.margin_bottom IS NOT NULL OR
+       l_tmpl.margin_left IS NOT NULL OR l_tmpl.margin_right IS NOT NULL OR
+       (g_layout(p_doc).has_swiss AND g_layout(p_doc).swiss_options.placement='INTEGRATED') THEN
       l_mar.top    := NVL(l_tmpl.margin_top,
                           rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_top));
       l_mar.bottom := NVL(l_tmpl.margin_bottom,
@@ -106,6 +113,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
                           rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_left));
       l_mar.right  := NVL(l_tmpl.margin_right,
                           rad_pdf_canvas.get_info(p_doc, rad_pdf_types.c_info_margin_right));
+      IF g_layout(p_doc).has_swiss AND g_layout(p_doc).swiss_options.placement='INTEGRATED' THEN
+        l_mar.bottom := GREATEST(l_mar.bottom,rad_pdf_units.to_pt(115,'mm'));
+      END IF;
       rad_pdf_canvas.set_margins(p_doc, l_mar);
     END IF;
   END apply_template_to_page;
@@ -351,6 +361,27 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
 -- ---------------------------------------------------------------------------
 -- render: prepare sources → draw with live cursor → actual page callbacks
 -- ---------------------------------------------------------------------------
+  PROCEDURE set_swiss_bill(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_bill IN rad_pdf_swiss.t_bill,
+                           p_options IN rad_pdf_swiss.t_options DEFAULT NULL) IS
+    l_payload VARCHAR2(4000);
+    l_options rad_pdf_swiss.t_options := p_options;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    ensure_state(p_doc);
+    l_payload := rad_pdf_swiss.payload(p_bill);
+    l_options.placement := NVL(l_options.placement,'INTEGRATED');
+    IF l_options.placement NOT IN ('INTEGRATED','SEPARATE') THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_swiss.c_err_swiss,'placement must be INTEGRATED or SEPARATE');
+    END IF;
+    IF g_layout(p_doc).has_swiss THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_swiss.c_err_swiss,'Document already has a Swiss payment section');
+    END IF;
+    g_layout(p_doc).swiss_bill := p_bill;
+    g_layout(p_doc).swiss_options := l_options;
+    g_layout(p_doc).has_swiss := TRUE;
+  END set_swiss_bill;
+
   PROCEDURE render(p_doc IN rad_pdf_types.t_doc_handle) IS
     l_frame rad_pdf_types.t_frame;
     l_y NUMBER;
@@ -476,8 +507,19 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_layout IS
       END IF;
       l_idx := g_layout(p_doc).flowables.NEXT(l_idx);
     END LOOP;
+    IF g_layout(p_doc).has_swiss AND g_layout(p_doc).swiss_options.placement='SEPARATE' THEN
+      rad_pdf_serial.page_flush(p_doc);
+      IF g_layout(p_doc).flowables.COUNT>0 OR rad_pdf_serial.page_count(p_doc)>1
+         OR DBMS_LOB.GETLENGTH(rad_pdf_serial.get_page_blob(p_doc,rad_pdf_serial.current_page(p_doc)))>0 THEN
+        rad_pdf_canvas.new_page(p_doc); apply_template_to_page(p_doc);
+      END IF;
+    END IF;
     g_layout(p_doc).total_pages := rad_pdf_serial.page_count(p_doc);
     rad_pdf_canvas.run_page_procs(p_doc,g_layout(p_doc).total_pages);
+    IF g_layout(p_doc).has_swiss THEN
+      rad_pdf_canvas.goto_page(p_doc,g_layout(p_doc).total_pages-1);
+      rad_pdf_swiss.draw(p_doc,g_layout(p_doc).swiss_bill,g_layout(p_doc).swiss_options);
+    END IF;
   END render;
 
 -- ---------------------------------------------------------------------------

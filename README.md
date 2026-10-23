@@ -11,6 +11,8 @@ No Java, no external tools, no OS dependencies.
 See [rendering architecture and measured performance](docs/PERFORMANCE.md) for
 the optimized text pipeline and page compression option.
 
+Swiss payment sections: [Swiss QR-bill API and JSON contract](docs/SWISS_QR_BILL.md).
+
 ## What it does
 
 RAD_PDF generates PDF files entirely inside Oracle Database using PL/SQL.  

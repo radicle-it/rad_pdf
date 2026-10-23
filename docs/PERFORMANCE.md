@@ -92,5 +92,5 @@ access layers, generic dispatch framework or new dependency is required.
 Table source rows and paragraph plans remain in memory until document close;
 this is not an unbounded streaming renderer. Peak PGA was not instrumented by
 this benchmark. Numeric/date SQL conversion and locale rules remain the existing
-API's responsibility. Swiss QR-bill payload validation, Swiss QR generation and
-reserved payment-section page areas are separate features still to implement.
+API's responsibility. The subsequent [Swiss QR-bill module](SWISS_QR_BILL.md) uses this pipeline for
+validated payment data and reserved payment sections.

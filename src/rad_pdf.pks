@@ -104,6 +104,14 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
                          p_y     IN NUMBER      DEFAULT NULL,
                          p_unit  IN rad_pdf_types.t_unit DEFAULT 'pt');
 
+  -- Attach the validated Swiss QR-bill payment section to the last page.
+  PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
+                          p_bill IN rad_pdf_swiss.t_bill,
+                          p_options IN rad_pdf_swiss.t_options DEFAULT NULL);
+  PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
+                          p_json IN CLOB,
+                          p_options IN rad_pdf_swiss.t_options DEFAULT NULL);
+
   PROCEDURE spacer (p_doc    IN rad_pdf_types.t_doc_handle,
                     p_height IN NUMBER DEFAULT 12);
 
