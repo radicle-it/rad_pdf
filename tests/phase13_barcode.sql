@@ -76,7 +76,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: capacity overflow raises -20820');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     -- v40-H byte capacity is 1273; 5000 chars cannot fit at EC level H
     rad_pdf_barcode.qrcode(l_doc, RPAD('x', 5000, 'x'), 10, 10, 100, 'H');
@@ -104,7 +104,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: size <= 0 raises -20820');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf_barcode.qrcode(l_doc, 'TEST', 10, 10, 0);
     RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: no error for size 0');
@@ -157,7 +157,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: QR renders into a valid PDF');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_barcode.qrcode(l_doc, 'https://radicle.it', 72, 500, 150, 'M');
   l_pdf := rad_pdf.finalize(l_doc);
   assert(DBMS_LOB.GETLENGTH(l_pdf) > 1000, 'BLOB too small');
@@ -186,7 +186,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: facade shortcut, mm units, custom color');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.qrcode(l_doc, 'FACADE TEST', 20, 150, 40,
                  p_ec_level => 'Q', p_color => '003366', p_unit => 'mm');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -214,7 +214,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: all four encoding modes');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.qrcode(l_doc, '0123456789012345',          72, 650, 100);  -- numeric
   rad_pdf.qrcode(l_doc, 'ALNUM-TEST $%*+./:',       250, 650, 100);  -- alphanumeric
   rad_pdf.qrcode(l_doc, 'MixedCase byte mode!',      72, 450, 100);  -- byte
@@ -247,7 +247,7 @@ BEGIN
   l_n := rad_pdf_barcode.qrcode_modules(RPAD('0', 1500, '7'), 'M');
   assert(l_n >= 100, 'expected a high version, got ' || l_n || ' modules');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.qrcode(l_doc, RPAD('0', 1500, '7'), 72, 300, 300, 'M');
   l_pdf := rad_pdf.finalize(l_doc);
   assert(DBMS_LOB.GETLENGTH(l_pdf) > 5000, 'BLOB too small');
@@ -274,7 +274,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 10: QR + layout engine + watermark');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.heading(l_doc, 'Invoice 2026-001', 1);
   rad_pdf.write(l_doc, 'Scan the QR code to pay online.');
   rad_pdf.set_watermark(l_doc, 'DEMO');
@@ -306,7 +306,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 11: Code 128 subsets B and C');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_barcode.code128(l_doc, 'RAD-PDF-2026', 60, 700, 220, 50);  -- subset B
   rad_pdf_barcode.code128(l_doc, '0123456789',  60, 600, 180, 50);   -- subset C
   rad_pdf_barcode.code128(l_doc, 'NoText', 60, 500, 150, 30,
@@ -336,7 +336,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 12: Code 39 charset validation + full ASCII');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_barcode.code39(l_doc, 'ABC-1234', 60, 700, 260, 50);
   -- lowercase rejected in standard mode
   BEGIN
@@ -373,7 +373,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 13: EAN-13 check digit handling');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   -- 12 digits: check digit computed (5901234123457)
   rad_pdf_barcode.ean13(l_doc, '590123412345', 60, 700, 70);
   -- 13 digits with correct check digit: accepted
@@ -419,7 +419,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 14: facade barcode dispatcher');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.barcode(l_doc, 'CODE128', 'FACADE-TEST', 20, 240, 80, 18, p_unit => 'mm');
   rad_pdf.barcode(l_doc, 'code 39', 'FACADE39',    20, 210, 80, 18, p_unit => 'mm');
   rad_pdf.barcode(l_doc, 'EAN-13',  '590123412345', 20, 175, 40, 25, p_unit => 'mm');
@@ -456,7 +456,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 15: font state restored after human-readable text');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.set_font(l_doc, 'Times', 'B', 14);
   rad_pdf_barcode.code128(l_doc, 'FONT-STATE', 60, 700, 200, 50);
   l_size := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_font_size);

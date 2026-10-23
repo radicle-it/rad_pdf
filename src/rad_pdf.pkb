@@ -11,7 +11,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     5. Catalog object
     6. Info object (with PDF date string)
     7. rad_pdf_serial.finish_doc  (xref + trailer)
-    8. rad_pdf_serial.get_doc_copy  → BLOB returned to caller
+    8. rad_pdf_serial.take_doc  → transfer BLOB ownership to caller
     9. rad_pdf_ctx.close_doc
 */
 
@@ -34,13 +34,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 -- ---------------------------------------------------------------------------
   FUNCTION new_document(
     p_info     IN rad_pdf_types.t_doc_info      DEFAULT NULL,
-    p_template IN rad_pdf_types.t_page_template DEFAULT NULL)
+    p_template IN rad_pdf_types.t_page_template DEFAULT NULL,
+    p_compress_pages IN BOOLEAN DEFAULT TRUE)
     RETURN rad_pdf_types.t_doc_handle IS
     l_doc  rad_pdf_types.t_doc_handle;
     l_have_template BOOLEAN := FALSE;
   BEGIN
     l_doc := rad_pdf_ctx.new_doc;
     rad_pdf_serial.init_doc(l_doc);
+    rad_pdf_serial.set_page_compression(l_doc,p_compress_pages);
     rad_pdf_fonts.load_standard_fonts;
     -- Apply template if any meaningful field is set
     IF p_template.page_format_name IS NOT NULL OR
@@ -252,8 +254,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     -- 7. Cross-reference table and trailer
     rad_pdf_serial.finish_doc(p_doc, l_cat_obj, l_info_obj, l_total_pgs);
 
-    -- 8. Return an owned copy of the PDF BLOB; caller must FREETEMPORARY.
-    l_result := rad_pdf_serial.get_doc_copy(p_doc);
+    -- 8. Transfer the finished PDF BLOB; caller must FREETEMPORARY.
+    l_result := rad_pdf_serial.take_doc(p_doc);
     rad_pdf_ctx.close_doc(p_doc);
     RETURN l_result;
   EXCEPTION

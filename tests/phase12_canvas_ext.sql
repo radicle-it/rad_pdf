@@ -33,7 +33,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 1: set_line_dash reset to solid (dash=0)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_line_dash(l_doc, 0);  -- restore solid (no-op dash)
   rad_pdf_canvas.line(l_doc, 10, 100, 200, 100, p_unit => 'mm');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -66,7 +66,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 2: set_line_dash symmetric (dash=3mm, gap default=dash)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_line_dash(l_doc, 3, p_unit => 'mm');  -- gap defaults to dash
   rad_pdf_canvas.line(l_doc, 10, 100, 200, 100, p_unit => 'mm');
   rad_pdf.set_line_dash(l_doc, 0);  -- restore solid
@@ -98,7 +98,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: set_line_dash asymmetric (dash=5pt, gap=3pt, phase=2pt)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_line_dash(l_doc, 5, p_gap => 3, p_phase => 2);
   rad_pdf_canvas.line(l_doc, 50, 500, 550, 500);
   rad_pdf.set_line_dash(l_doc, 0);
@@ -131,7 +131,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: set_line_dash via rad_pdf public facade');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_line_dash(l_doc, 4, p_gap => 2);
   rad_pdf_canvas.rect(l_doc, 20, 20, 100, 50, p_unit => 'mm');
   rad_pdf.set_line_dash(l_doc, 0);
@@ -160,7 +160,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 5: write_wrapped L alignment - finalize succeeds');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_wrapped(l_doc,
     'The quick brown fox jumps over the lazy dog. '
     || 'Pack my box with five dozen liquor jugs.',
@@ -193,7 +193,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: write_wrapped J justification - Tw present');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   -- Text long enough to wrap at least once (width 300pt ~105mm at 12pt)
   rad_pdf_canvas.write_wrapped(l_doc,
     'The quick brown fox jumps over the lazy dog. '
@@ -231,7 +231,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: write_wrapped J - single word wider than line (no Tw)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   -- Very narrow width forces single-word "lines"; no spaces → no Tw
   rad_pdf_canvas.write_wrapped(l_doc,
     'Antidisestablishmentarianism supercalifragilisticexpialidocious',
@@ -264,7 +264,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: write_wrapped R and C alignments still work');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_wrapped(l_doc,
     'Right-aligned paragraph text.', p_x => 50, p_y => 700,
     p_width => 300, p_align => 'R');

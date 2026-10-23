@@ -33,7 +33,7 @@ BEGIN
     l_doc rad_pdf_types.t_doc_handle;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     ok('new_document returns valid handle', rad_pdf_ctx.is_valid(l_doc));
     rad_pdf.close_document(l_doc);
     ok('handle invalid after close_document', NOT rad_pdf_ctx.is_valid(l_doc));
@@ -47,7 +47,7 @@ BEGIN
     l_pdf BLOB;
     l_hdr VARCHAR2(10);
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     l_pdf := rad_pdf.finalize(l_doc);
     l_hdr := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(l_pdf, 5, 1));
     ok('finalize returns non-empty BLOB',   DBMS_LOB.GETLENGTH(l_pdf) > 100);
@@ -64,7 +64,7 @@ BEGIN
     l_txt VARCHAR2(500);
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.write(l_doc, 'Hello world', 'body');
     l_pdf := rad_pdf.finalize(l_doc);
     -- Search the PDF body for BT (text begin operator)
@@ -83,7 +83,7 @@ BEGIN
     l_pdf BLOB;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Chapter 1', 1);
     rad_pdf.write(l_doc, 'Introduction text.');
     l_pdf := rad_pdf.finalize(l_doc);
@@ -101,7 +101,7 @@ BEGIN
     l_pdf BLOB;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.write(l_doc, 'Page one.');
     rad_pdf.new_page(l_doc);
     rad_pdf.write(l_doc, 'Page two.');
@@ -119,7 +119,7 @@ BEGIN
     l_pdf BLOB;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.write(l_doc, 'Before spacer.');
     rad_pdf.spacer(l_doc, 24);
     rad_pdf.write(l_doc, 'After spacer.');
@@ -135,7 +135,7 @@ BEGIN
     l_doc rad_pdf_types.t_doc_handle;
     l_pdf BLOB;
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.set_page_format(l_doc, 'A4');
     l_pdf := rad_pdf.finalize(l_doc);
     ok('set_page_format A4 no exception', DBMS_LOB.GETLENGTH(l_pdf) > 0);
@@ -149,7 +149,7 @@ BEGIN
     l_doc rad_pdf_types.t_doc_handle;
     l_pdf BLOB;
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.set_margins(l_doc, p_top => 56.693, p_bottom => 56.693,
                            p_left => 42.520, p_right  => 42.520);
     ok('set_margins: top applied',
@@ -172,7 +172,7 @@ BEGIN
     rad_pdf_styles.load_defaults;
     l_info.title  := 'Test Report';
     l_info.author := 'Radicle S.r.l.';
-    l_doc := rad_pdf.new_document(p_info => l_info);
+    l_doc := rad_pdf.new_document(p_info => l_info, p_compress_pages=>FALSE);
     rad_pdf.write(l_doc, 'Content here.');
     l_pdf := rad_pdf.finalize(l_doc);
     ok('doc info finalize: PDF > 500', DBMS_LOB.GETLENGTH(l_pdf) > 500);
@@ -188,7 +188,7 @@ BEGIN
     l_doc rad_pdf_types.t_doc_handle;
     l_pdf BLOB;
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     -- Direct canvas calls (bypass layout engine)
     rad_pdf_canvas.set_font(l_doc, 'helvetica', 'B', 16);
     rad_pdf_canvas.write_text(l_doc, 'Direct canvas text', 72, 700, 'pt');

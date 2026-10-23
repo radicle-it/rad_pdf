@@ -8,6 +8,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_serial AUTHID DEFINER IS
 -- Document lifecycle
 -- ---------------------------------------------------------------------------
   PROCEDURE init_doc  (p_doc IN rad_pdf_types.t_doc_handle);
+  PROCEDURE set_page_compression(p_doc IN rad_pdf_types.t_doc_handle,p_enabled IN BOOLEAN);
+  FUNCTION page_compression(p_doc IN rad_pdf_types.t_doc_handle) RETURN BOOLEAN;
+  PROCEDURE release_page(p_doc IN rad_pdf_types.t_doc_handle,p_page_nr IN PLS_INTEGER);
   PROCEDURE close_doc (p_doc IN rad_pdf_types.t_doc_handle);
 
 -- ---------------------------------------------------------------------------
@@ -49,6 +52,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_serial AUTHID DEFINER IS
     p_catalogue_obj IN NUMBER,
     p_info_obj      IN NUMBER,
     p_total_pages   IN NUMBER);
+
+  -- Transfer the finished BLOB to the caller without duplicating its bytes.
+  FUNCTION take_doc(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB;
 
   FUNCTION  get_doc_copy(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB;
 

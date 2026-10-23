@@ -32,7 +32,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 1: text watermark UNDER, opacity 0.3');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Page content.');
   rad_pdf.set_watermark(l_doc, 'DRAFT');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -62,7 +62,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 2: text watermark OVER, opacity 0.5');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Page content.');
   rad_pdf.set_watermark(l_doc, 'CONFIDENTIAL',
     p_opacity => 0.5, p_layer => 'OVER');
@@ -93,7 +93,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: image watermark UNDER');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   -- Minimal valid JPEG: SOI (FFD8) + EOI (FFD9). Parser defaults to 1x1.
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
   DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
@@ -131,7 +131,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: image watermark OVER');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
   DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
@@ -166,7 +166,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 5: opacity = 1.0 - no ExtGState in output');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'OPAQUE', p_opacity => 1.0);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -197,7 +197,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: opacity = 0.0 - fully transparent, no error');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'INVISIBLE', p_opacity => 0.0);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -225,7 +225,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: angle = 0 (horizontal text)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'HORIZONTAL', p_angle => 0);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -253,7 +253,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: angle = -45 (opposite diagonal)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_angle => -45);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -281,7 +281,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 9: angle = 90 (vertical text)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'VERTICAL', p_angle => 90);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -309,7 +309,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 10: multi-page document - watermark on every page');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_opacity => 0.2);
   rad_pdf.write(l_doc, 'Page 1 content.');
   rad_pdf.new_page(l_doc);
@@ -348,7 +348,7 @@ BEGIN
   l_tmpl.header_proc := 'BEGIN rad_pdf_canvas.write_text(' ||
     'rad_pdf_types.t_doc_handle(#DOC_HANDLE#), ' ||
     '''Page #PAGE_NR# of #PAGE_COUNT#'', 28, 820); END;';
-  l_doc := rad_pdf.new_document(p_template => l_tmpl);
+  l_doc := rad_pdf.new_document(p_template => l_tmpl, p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT');
   rad_pdf.write(l_doc, 'Document with header and watermark.');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -377,7 +377,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 12: watermark + layout engine (table + write)');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_opacity => 0.25, p_angle => 30);
   rad_pdf.heading(l_doc, 'Watermark Layout Test', 1);
   rad_pdf.write(l_doc, 'Table rendered alongside watermark.');
@@ -412,7 +412,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 13: watermark + rad_pdf_template.render');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_angle => 45, p_opacity => 0.3);
   rad_pdf.render_template(l_doc,
     '<h1>Watermark Template Test</h1>' ||
@@ -444,7 +444,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 14: clear_watermark removes state');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content without watermark after clear.');
   rad_pdf.set_watermark(l_doc, 'DRAFT');
   rad_pdf.clear_watermark(l_doc);
@@ -476,7 +476,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 15: clear_watermark on doc with no watermark - no-op');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.clear_watermark(l_doc);   -- should not raise
   l_pdf := rad_pdf.finalize(l_doc);
@@ -504,7 +504,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 16: set_watermark called twice - second replaces first');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'FIRST',  p_opacity => 0.5);
   rad_pdf.set_watermark(l_doc, 'SECOND', p_opacity => 0.2);
@@ -538,8 +538,8 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 17: two documents - independent watermark state');
   rad_pdf_styles.load_defaults;
-  l_doc1 := rad_pdf.new_document;
-  l_doc2 := rad_pdf.new_document;
+  l_doc1 := rad_pdf.new_document(p_compress_pages=>FALSE);
+  l_doc2 := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc1, 'Document 1 content.');
   rad_pdf.write(l_doc2, 'Document 2 content.');
   rad_pdf.set_watermark(l_doc1, 'DOC1MARK');
@@ -580,7 +580,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 18: set_watermark after finalize raises c_err_handle');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   l_pdf := rad_pdf.finalize(l_doc);   -- l_doc is now closed
   DBMS_LOB.FREETEMPORARY(l_pdf);
@@ -615,7 +615,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 19: opacity < 0 raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, 'DRAFT', p_opacity => -0.1);
   EXCEPTION
@@ -647,7 +647,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 20: opacity > 1 raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, 'DRAFT', p_opacity => 1.1);
   EXCEPTION
@@ -679,7 +679,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 21: unknown layer string raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, 'DRAFT', p_layer => 'BEHIND');
   EXCEPTION
@@ -711,7 +711,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 22: NULL text raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, NULL);
   EXCEPTION
@@ -743,7 +743,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 23: font_size = 0 raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, 'DRAFT', p_font_size => 0);
   EXCEPTION
@@ -777,7 +777,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 24: width_pct = 0 raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
   DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
@@ -821,7 +821,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 25: width_pct = 101 raises c_err_validation');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
   DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
@@ -863,7 +863,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 26: invalid image_id raises c_err_image');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark_image(l_doc, 9999);
   EXCEPTION
@@ -895,7 +895,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 27: text with PDF special chars - escaped correctly');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   -- Parentheses and backslash must be escaped in PDF literal strings
   rad_pdf.set_watermark(l_doc, 'DRAFT (v1) \100%', p_opacity => 0.3);
@@ -924,7 +924,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 28: single-page document with watermark');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Single page.');
   rad_pdf.set_watermark(l_doc, 'DRAFT');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -955,7 +955,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 29: no watermark - no WM_GS in output, /Contents is scalar');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'No watermark document.');
   l_pdf := rad_pdf.finalize(l_doc);
   assert(DBMS_LOB.GETLENGTH(l_pdf) > 0, 'BLOB empty');
@@ -986,7 +986,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 30: UNDER watermark - q...Q present in stream');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.write(l_doc, 'Content.');
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_layer => 'UNDER');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1044,7 +1044,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
 
   -- single page: only page 2 carries the watermark (array /Contents)
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '2');
   three_pages;
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1052,7 +1052,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- open range '2-': pages 2 and 3
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '2-');
   three_pages;
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1060,7 +1060,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- combination '1,3'
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT', p_pages => '1,3');
   three_pages;
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1068,7 +1068,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- default NULL: all pages (regression)
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DRAFT');
   three_pages;
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1076,7 +1076,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- malformed spec raises c_err_validation
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.set_watermark(l_doc, 'X', p_pages => '1;3');
     RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: bad spec accepted');

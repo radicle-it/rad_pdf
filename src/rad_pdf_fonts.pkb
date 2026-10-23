@@ -18,6 +18,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- Internal types
 -- ---------------------------------------------------------------------------
   TYPE t_pls_tab IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+  TYPE t_byte_widths IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(2);
+  TYPE t_byte_escapes IS TABLE OF VARCHAR2(4) INDEX BY VARCHAR2(2);
   TYPE t_name_idx IS TABLE OF VARCHAR2(20) INDEX BY VARCHAR2(210);
 
   TYPE t_font IS RECORD (
@@ -49,6 +51,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     stemv             PLS_INTEGER,
     diff              VARCHAR2(32767),
     char_width_tab    t_pls_tab,
+    byte_widths       t_byte_widths,
     used_chars        t_pls_tab,
     code2glyph        t_pls_tab,
     glyph_unicode     t_pls_tab,
@@ -78,6 +81,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   g_doc_state  t_font_doc_map;           -- per-document state
 
 -- ---------------------------------------------------------------------------
+-- Immutable byte lookup tables. Built once per session, not per text operation.
+-- ---------------------------------------------------------------------------
+  g_byte_escapes t_byte_escapes;
+  g_safe_ascii VARCHAR2(128);
+
 -- PRIVATE: raw TTF binary access helpers
 -- ---------------------------------------------------------------------------
   FUNCTION num2raw(p_value IN NUMBER) RETURN RAW IS
@@ -1143,26 +1151,70 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     RETURN l_raw;
   END encoded_text;
 
+  PROCEDURE init_byte_tables IS
+    l_hex VARCHAR2(2);
+  BEGIN
+    IF g_byte_escapes.COUNT>0 THEN RETURN; END IF;
+    g_safe_ascii := CHR(1);
+    FOR c IN 0..255 LOOP
+      l_hex := TO_CHAR(c,'FM0X');
+      IF c IN (40,41,92) THEN g_byte_escapes(l_hex) := CHR(92)||CHR(c);
+      ELSIF c<32 OR c>126 THEN
+        g_byte_escapes(l_hex) := CHR(92)||TRUNC(c/64)||MOD(TRUNC(c/8),8)||MOD(c,8);
+      ELSE
+        g_byte_escapes(l_hex) := CHR(c);
+        g_safe_ascii := g_safe_ascii||CHR(c);
+      END IF;
+    END LOOP;
+  END init_byte_tables;
+
+  PROCEDURE init_byte_widths(p_idx IN PLS_INTEGER) IS
+    l_code PLS_INTEGER;
+    l_hex VARCHAR2(2);
+  BEGIN
+    IF g_fonts(p_idx).byte_widths.COUNT>0 THEN RETURN; END IF;
+    FOR c IN 0..255 LOOP
+      l_hex := TO_CHAR(c,'FM0X');
+      IF g_fonts(p_idx).standard THEN l_code := c;
+      ELSE
+        l_code := TO_NUMBER(RAWTOHEX(UTL_I18N.STRING_TO_RAW(
+          UTL_I18N.RAW_TO_CHAR(HEXTORAW(l_hex),g_fonts(p_idx).encoding),'AL16UTF16')),'XXXX');
+      END IF;
+      g_fonts(p_idx).byte_widths(l_hex) := CASE
+        WHEN g_fonts(p_idx).char_width_tab.EXISTS(l_code)
+        THEN g_fonts(p_idx).char_width_tab(l_code) ELSE 0 END;
+    END LOOP;
+  END init_byte_widths;
+
   FUNCTION text_width(p_text IN VARCHAR2, p_font_idx IN PLS_INTEGER,
                       p_size_pt IN NUMBER) RETURN NUMBER IS
-    l_raw RAW(32767);
+    l_hex VARCHAR2(32767);
     l_w NUMBER := 0;
-    l_c PLS_INTEGER;
-    l_step PLS_INTEGER := CASE WHEN g_fonts(p_font_idx).cid THEN 2 ELSE 1 END;
-    l_unicode RAW(4);
+    l_code PLS_INTEGER;
+    l_raw RAW(32767);
+    l_pos PLS_INTEGER := 1;
+    l_piece VARCHAR2(4000);
   BEGIN
     IF p_text IS NULL THEN RETURN 0; END IF;
-    l_raw := encoded_text(p_text,p_font_idx);
-    FOR i IN 0..UTL_RAW.LENGTH(l_raw)/l_step-1 LOOP
-      l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i*l_step+1,l_step)),'XXXX');
-      IF NOT g_fonts(p_font_idx).standard AND NOT g_fonts(p_font_idx).cid THEN
-        l_unicode := UTL_I18N.STRING_TO_RAW(
-          UTL_I18N.RAW_TO_CHAR(UTL_RAW.SUBSTR(l_raw,i+1,1),g_fonts(p_font_idx).encoding),'AL16UTF16');
-        l_c := TO_NUMBER(RAWTOHEX(l_unicode),'XXXX');
+    IF NOT g_fonts(p_font_idx).cid THEN init_byte_widths(p_font_idx); END IF;
+    -- Bounded conversion chunks keep RAWTOHEX below the VARCHAR2 byte limit.
+    WHILE l_pos<=LENGTH(p_text) LOOP
+      l_piece := SUBSTR(p_text,l_pos,1000);
+      l_raw := encoded_text(l_piece,p_font_idx);
+      l_hex := RAWTOHEX(l_raw);
+      IF g_fonts(p_font_idx).cid THEN
+        FOR i IN 0..LENGTH(l_hex)/4-1 LOOP
+          l_code := TO_NUMBER(SUBSTR(l_hex,i*4+1,4),'XXXX');
+          IF g_fonts(p_font_idx).char_width_tab.EXISTS(l_code) THEN
+            l_w := l_w+g_fonts(p_font_idx).char_width_tab(l_code);
+          END IF;
+        END LOOP;
+      ELSE
+        FOR i IN 0..LENGTH(l_hex)/2-1 LOOP
+          l_w := l_w+g_fonts(p_font_idx).byte_widths(SUBSTR(l_hex,i*2+1,2));
+        END LOOP;
       END IF;
-      IF g_fonts(p_font_idx).char_width_tab.EXISTS(l_c) THEN
-        l_w := l_w+g_fonts(p_font_idx).char_width_tab(l_c);
-      END IF;
+      l_pos := l_pos+LENGTH(l_piece);
     END LOOP;
     RETURN l_w*p_size_pt/1000;
   END text_width;
@@ -1197,6 +1249,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_gid PLS_INTEGER;
   BEGIN
     IF p_text IS NULL THEN RETURN '()'; END IF;
+    init_byte_tables;
+    IF g_fonts(p_font_idx).standard
+       AND TRANSLATE(p_text,g_safe_ascii,CHR(1)) IS NULL THEN
+      RETURN '('||p_text||')';
+    END IF;
     l_raw := encoded_text(p_text,p_font_idx);
     IF g_fonts(p_font_idx).cid THEN
       FOR i IN 0..UTL_RAW.LENGTH(l_raw)/2-1 LOOP
@@ -1213,17 +1270,23 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
       END LOOP;
       RETURN '<'||l_result||'>';
     END IF;
-    -- Escape encoded bytes, using octal for bytes outside printable ASCII.
-    FOR i IN 1..UTL_RAW.LENGTH(l_raw) LOOP
-      l_c := TO_NUMBER(RAWTOHEX(UTL_RAW.SUBSTR(l_raw,i,1)),'XX');
-      mark_char_used(p_font_idx,l_c);
-      IF l_c IN (40,41,92) THEN
-        l_result := l_result||CHR(92)||CHR(l_c);
-      ELSIF l_c < 32 OR l_c > 126 THEN
-        l_result := l_result||CHR(92)||TRUNC(l_c/64)||MOD(TRUNC(l_c/8),8)||MOD(l_c,8);
-      ELSE l_result := l_result||CHR(l_c);
-      END IF;
-    END LOOP;
+    DECLARE
+      l_hex VARCHAR2(32767);
+      l_byte VARCHAR2(2);
+      l_pos PLS_INTEGER := 1;
+    BEGIN
+      WHILE l_pos<=UTL_RAW.LENGTH(l_raw) LOOP
+        l_hex := RAWTOHEX(UTL_RAW.SUBSTR(l_raw,l_pos,LEAST(8191,UTL_RAW.LENGTH(l_raw)-l_pos+1)));
+        FOR i IN 0..LENGTH(l_hex)/2-1 LOOP
+          l_byte := SUBSTR(l_hex,i*2+1,2);
+          IF NOT g_fonts(p_font_idx).standard THEN
+            g_fonts(p_font_idx).used_chars(TO_NUMBER(l_byte,'XX')) := 0;
+          END IF;
+          l_result := l_result||g_byte_escapes(l_byte);
+        END LOOP;
+        l_pos := l_pos+LENGTH(l_hex)/2;
+      END LOOP;
+    END;
     RETURN '('||l_result||')';
   END text_to_pdf_string;
 

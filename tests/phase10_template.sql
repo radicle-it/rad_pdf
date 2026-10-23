@@ -76,7 +76,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: VARCHAR2 template, no binds');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Report Title</h1>'                                    ||
     '<h2>Sub-heading</h2>'                                     ||
@@ -117,7 +117,7 @@ BEGIN
   DBMS_LOB.WRITEAPPEND(l_clob, LENGTH('<h6>Heading 6</h6>'), '<h6>Heading 6</h6>');
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, l_clob);
   l_pdf := rad_pdf.finalize(l_doc);
   DBMS_LOB.FREETEMPORARY(l_clob);
@@ -146,7 +146,7 @@ BEGIN
   l_binds(2).value := 'INV-2026-001';
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Invoice for #CUSTOMER#</h1>'         ||
     '<p>Reference: #REF#</p>'                 ||
@@ -171,7 +171,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: inline <b> and <i> inside <p>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<p>Plain text</p>'                               ||
     '<p><b>Bold text</b></p>'                         ||
@@ -197,7 +197,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: <br/> inside <p>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<p>Line one<br/>Line two<br/>Line three</p>');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -219,7 +219,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: <spacer> and <hr> attributes');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<p>Before spacer</p>'                         ||
     '<spacer height="20pt"/>'                      ||
@@ -244,7 +244,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 9: <pagebreak/>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Page One</h1>'           ||
     '<p>Content on page 1.</p>'   ||
@@ -270,7 +270,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 10: <p style="caption">');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<p>Normal paragraph.</p>'                ||
     '<p style="caption">Caption text.</p>');
@@ -294,7 +294,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 11: ORA-20810 for <if> missing bind attribute');
   l_binds(1).key := 'X'; l_binds(1).value := 'y';
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     -- <if x="y"> has the '<if ' prefix but no bind attribute -> ORA-20810
     rad_pdf_template.render(l_doc,
@@ -324,7 +324,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 12: ORA-20811 for unknown tag (strict mode)');
   rad_pdf_styles.load_defaults;
-  l_doc        := rad_pdf.new_document;
+  l_doc        := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_opts.strict_tags := TRUE;
   BEGIN
     rad_pdf_template.render(l_doc,
@@ -356,7 +356,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 13: unknown tag silently ignored (strict_tags=FALSE)');
   rad_pdf_styles.load_defaults;
-  l_doc             := rad_pdf.new_document;
+  l_doc             := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_opts.strict_tags := FALSE;
   rad_pdf_template.render(l_doc,
     '<p>Good paragraph</p>'          ||
@@ -389,7 +389,7 @@ BEGIN
   rad_pdf_template.register_columns('SECURE_TEST', l_cols);
 
   rad_pdf_styles.load_defaults;
-  l_doc             := rad_pdf.new_document;
+  l_doc             := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_opts.allow_queries := FALSE;  -- queries not enabled
   BEGIN
     rad_pdf_template.render(l_doc,
@@ -428,7 +428,7 @@ BEGIN
   l_binds(1).value := 'Facade Test';
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.render_template(l_doc,
     '<h1>#TITLE#</h1><p>Generated via facade.</p>',
     l_binds);
@@ -457,7 +457,7 @@ BEGIN
   l_binds(1).value := 'a < b & c > d';   -- auto-escaped by apply_binds
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Entity Test</h1>'              ||
     '<p>Expression: #EXPR#</p>'         ||
@@ -491,7 +491,7 @@ BEGIN
   l_binds(1).value := NULL;          -- deliberately NULL
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf_template.render(l_doc,
       '<p>Value is #MYKEY# here.</p>',
@@ -547,7 +547,7 @@ BEGIN
 
   l_opts.allow_queries := TRUE;
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
   -- Template contains '>' (greater-than) and '>=' inside the query attribute.
   -- Before the fix this raised ORA-20813; after the fix it must succeed.
@@ -579,7 +579,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 19: inline <b>/<i> rendered on the same line (PARA_RUNS)');
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
   -- Paragraph with bold inline: all three runs must land on one line,
   -- not be emitted as three separate block-level paragraphs.
@@ -622,7 +622,7 @@ BEGIN
   l_binds(2).raw   := TRUE;
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Auto-escape Test</h1>'                    ||
     '<p>User input: #USER_TEXT#</p>'               ||
@@ -647,7 +647,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 21: <ul> and <ol> list tags');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>List Test</h1>'                                                   ||
     '<p>Unordered:</p>'                                                    ||
@@ -692,7 +692,7 @@ BEGIN
 
   l_opts.allow_queries := TRUE;
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
   rad_pdf_template.render(l_doc,
     '<h1>Styled Table</h1>'                                               ||
@@ -741,7 +741,7 @@ BEGIN
   -- HIDDEN intentionally omitted from the array -> key absent -> FALSE
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, TO_CLOB(l_tmpl), l_binds);
   l_pdf := rad_pdf.finalize(l_doc);
   DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
@@ -789,7 +789,7 @@ BEGIN
   --  apply_binds_clob.)
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, TO_CLOB(l_tmpl), l_binds);
   l_pdf := rad_pdf.finalize(l_doc);
   DBMS_OUTPUT.PUT_LINE('  PASS  (PDF bytes: ' || DBMS_LOB.GETLENGTH(l_pdf) || ')');
@@ -839,7 +839,7 @@ BEGIN
   l_binds(2).value := TO_CHAR(l_n);
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, l_tmpl, l_binds);
   DBMS_LOB.FREETEMPORARY(l_tmpl);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -863,7 +863,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 26: inline <color rgb="..."> and <font size="...">');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
   -- Plain text + red-coloured run + bold-red run + font-size-change run
   rad_pdf_template.render(l_doc,
@@ -903,7 +903,7 @@ BEGIN
   l_binds(1).value := 'SALES';
   -- ABSENT key -> FALSE block -> dropped even though tags are uppercase
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, TO_CLOB(
     '<h1>Dept: #DEPT#</h1>'                                        ||
     '<IF bind="ABSENT"><p>Should not appear.</p></IF>'             ||
@@ -929,7 +929,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 28: <LI> case-insensitive inside <ul>/<ol>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   -- Mix uppercase <LI> and lowercase <li> - both must be found
   rad_pdf_template.render(l_doc,
     '<h1>List Test</h1>'                                           ||
@@ -964,7 +964,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 29: <br/> routes through PARA_RUNS even without bold/italic');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Break Test</h1>'                              ||
     '<p>Line one.<br/>Line two.<br/>Line three.</p>'   ||
@@ -990,7 +990,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 30: inline markup inside <h1>-<h6>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Plain heading level 1</h1>'                                        ||
     '<h2>Heading with <b>bold</b> word</h2>'                               ||
@@ -1023,7 +1023,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
   l_opts.default_font_size  := 13;
   l_opts.default_font_style := 'B';
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Font Options Test</h1>'                                   ||
     '<p>This paragraph should be bold 13pt (from options).</p>'   ||
@@ -1067,7 +1067,7 @@ BEGIN
   DBMS_LOB.WRITEAPPEND(l_tmpl, LENGTH(l_chunk), l_chunk);
 
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, l_tmpl);
   DBMS_LOB.FREETEMPORARY(l_tmpl);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1117,7 +1117,7 @@ BEGIN
   -- Case A: tag has allow_query="true" but options.allow_queries = FALSE (default)
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf_template.render(l_doc, l_tmpl_tag);  -- no options passed -> allow_queries=FALSE
     l_pdf := rad_pdf.finalize(l_doc);
     DBMS_LOB.FREETEMPORARY(l_pdf);
@@ -1134,7 +1134,7 @@ BEGIN
   BEGIN
     l_opts.allow_queries := TRUE;
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf_template.render(l_doc, l_tmpl_opt, l_opts);
     l_pdf := rad_pdf.finalize(l_doc);
     DBMS_LOB.FREETEMPORARY(l_pdf);
@@ -1175,7 +1175,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 34: unlimited nesting depth for <color> and <font>');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc,
     '<h1>Nested inline tag test</h1>'                                         ||
     '<p>'
@@ -1232,7 +1232,7 @@ BEGIN
 
   -- Use the no-binds overload: exercises Phase 0 normalisation on that path
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_template.render(l_doc, l_tmpl);
   DBMS_LOB.FREETEMPORARY(l_tmpl);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -1299,7 +1299,7 @@ BEGIN
 
   l_opts.allow_queries := TRUE;
 
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     -- FILTER_VAL is shielded before bind substitution: the payload is
     -- injected as a SQL string literal, not as raw SQL text.
@@ -1355,7 +1355,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 37: <if eq/ne> comparison attributes');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_binds(1).key := 'STATUS'; l_binds(1).value := 'ACTIVE';
   rad_pdf_template.render(l_doc,
     '<if bind="STATUS" eq="active"><p>EQMATCH</p></if>'
@@ -1378,7 +1378,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- eq + ne on the same tag raises c_err_template
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf_template.render(l_doc,
       '<if bind="A" eq="1" ne="2"><p>x</p></if>', l_binds);
@@ -1411,7 +1411,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 38: <qrcode> tag');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_binds(1).key := 'INV'; l_binds(1).value := '2026-0042';
   rad_pdf_template.render(l_doc,
     '<h1>Fattura #INV#</h1>'
@@ -1423,7 +1423,7 @@ BEGIN
   DBMS_LOB.FREETEMPORARY(l_pdf);
 
   -- missing value attribute
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf_template.render(l_doc, '<qrcode size="30mm"/>', l_binds);
     RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: missing value accepted');

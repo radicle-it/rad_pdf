@@ -32,6 +32,7 @@ DROP PACKAGE rad_pdf_layout;
 -- -----------------------------------------------------------------------
 PROMPT --- dropping package rad_pdf_canvas
 DROP PACKAGE rad_pdf_canvas;
+DROP PACKAGE rad_pdf_text;
 
 -- -----------------------------------------------------------------------
 -- Phase 5 — image loader

@@ -6,10 +6,12 @@
 PROMPT === Phase 6 rad_pdf_canvas ===
 
 PROMPT --- rad_pdf_canvas spec
+@@../rad_pdf_text.pks
 @@../rad_pdf_canvas.pks
 SHOW ERRORS PACKAGE rad_pdf_canvas
 
 PROMPT --- rad_pdf_canvas body
+@@../rad_pdf_text.pkb
 @@../rad_pdf_canvas.pkb
 SHOW ERRORS PACKAGE BODY rad_pdf_canvas
 

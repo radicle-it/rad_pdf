@@ -29,7 +29,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 1: bar + line + pie via facade');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_v(1) := 120; l_v(2) := 340; l_v(3) := 90;
   l_l(1) := 'A'; l_l(2) := 'B'; l_l(3) := 'C';
   rad_pdf.bar_chart (l_doc, l_v, 60, 560, 220, 150, p_labels => l_l,
@@ -68,7 +68,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 2: line chart with negative values');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_v(1) := 15; l_v(2) := -8; l_v(3) := 22; l_v(4) := -3;
   rad_pdf.line_chart(l_doc, l_v, 60, 500, 300, 200);
   l_pdf := rad_pdf.finalize(l_doc);
@@ -97,7 +97,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: validation errors');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
   BEGIN  -- empty values
     rad_pdf.bar_chart(l_doc, l_v, 60, 500, 200, 150);
@@ -173,7 +173,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: custom colours, mm units, font restore');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.set_font(l_doc, 'Times', 'B', 14);
   FOR i IN 1 .. 6 LOOP l_v(i) := i * 10; END LOOP;
   l_c(1) := '003366'; l_c(2) := 'CC0000';   -- 2 colours over 6 bars: cycle
@@ -207,7 +207,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 5: charts coexist with QR + bookmark');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_v(1) := 30; l_v(2) := 70;
   rad_pdf.pie_chart(l_doc, l_v, 150, 650, 60);
   rad_pdf.qrcode(l_doc, 'https://radicle.it', 400, 600, 100);

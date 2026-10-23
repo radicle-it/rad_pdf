@@ -27,7 +27,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 1: bookmarked headings produce /Outlines');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.heading(l_doc, 'Chapter 1', 1, p_bookmark => TRUE);
   rad_pdf.write  (l_doc, 'Body.');
   rad_pdf.heading(l_doc, 'Section 1.1', 2, p_bookmark => TRUE);
@@ -65,7 +65,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 2: no bookmarks - no /Outlines in catalog');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.heading(l_doc, 'Plain heading', 1);   -- p_bookmark defaults FALSE
   rad_pdf.write(l_doc, 'Body.');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -96,7 +96,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: canvas mode, explicit y in mm');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_text(l_doc, 'Canvas content', 20, 250, 'mm');
   rad_pdf.add_bookmark(l_doc, 'Canvas anchor', 1, p_y => 250, p_unit => 'mm');
   l_pdf := rad_pdf.finalize(l_doc);
@@ -121,7 +121,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 4: NULL title raises error');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   BEGIN
     rad_pdf.add_bookmark(l_doc, NULL);
     RAISE_APPLICATION_ERROR(-20999, 'ASSERTION FAILED: NULL title accepted');
@@ -154,7 +154,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 5: out-of-range levels are clamped');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_text(l_doc, 'x', 72, 700, 'pt');
   rad_pdf.add_bookmark(l_doc, 'Clamped low',  0);    -- -> 1
   rad_pdf.add_bookmark(l_doc, 'Clamped high', 99);   -- -> 6, nests under prev
@@ -186,7 +186,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 6: UTF-16BE outline title for non-ASCII');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_text(l_doc, 'x', 72, 700, 'pt');
   rad_pdf.add_bookmark(l_doc, UNISTR('Citt\00E0'));   -- "Città"
   l_pdf := rad_pdf.finalize(l_doc);
@@ -219,8 +219,8 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 7: independent bookmark state across documents');
   rad_pdf_styles.load_defaults;
-  l_doc1 := rad_pdf.new_document;
-  l_doc2 := rad_pdf.new_document;
+  l_doc1 := rad_pdf.new_document(p_compress_pages=>FALSE);
+  l_doc2 := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf_canvas.write_text(l_doc1, 'doc1', 72, 700, 'pt');
   rad_pdf_canvas.write_text(l_doc2, 'doc2', 72, 700, 'pt');
   rad_pdf.add_bookmark(l_doc1, 'Doc1 only');
@@ -255,7 +255,7 @@ DECLARE
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 8: bookmarks + watermark + QR coexistence');
   rad_pdf_styles.load_defaults;
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   rad_pdf.set_watermark(l_doc, 'DEMO');
   rad_pdf.heading(l_doc, 'Report', 1, p_bookmark => TRUE);
   rad_pdf.write(l_doc, 'Body.');

@@ -11,6 +11,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
 -- ---------------------------------------------------------------------------
   TYPE t_serial_state IS RECORD (
     pdf_doc     BLOB,
+    doc_buffer  VARCHAR2(32767),
+    compress_pages BOOLEAN := TRUE,
     obj_offsets DBMS_SQL.NUMBER_TABLE,
     pages       DBMS_SQL.BLOB_TABLE,
     page_nr     PLS_INTEGER    := 0,
@@ -43,6 +45,21 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
   END blob_append_raw;
 
 -- ---------------------------------------------------------------------------
+-- Buffered document writes retain logical byte offsets for xref entries.
+-- ---------------------------------------------------------------------------
+  PROCEDURE doc_flush(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    IF g_docs(p_doc).doc_buffer IS NOT NULL THEN
+      blob_append_raw(g_docs(p_doc).pdf_doc,UTL_RAW.CAST_TO_RAW(g_docs(p_doc).doc_buffer));
+      g_docs(p_doc).doc_buffer := NULL;
+    END IF;
+  END doc_flush;
+
+  FUNCTION doc_length(p_doc IN rad_pdf_types.t_doc_handle) RETURN NUMBER IS
+  BEGIN
+    RETURN DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc)+NVL(LENGTHB(g_docs(p_doc).doc_buffer),0);
+  END doc_length;
+
 -- Document lifecycle
 -- ---------------------------------------------------------------------------
   PROCEDURE init_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
@@ -68,6 +85,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
 
     -- Initialise a fresh state record.
     g_docs(p_doc).pdf_doc     := NULL;
+    g_docs(p_doc).doc_buffer  := NULL;
+    g_docs(p_doc).compress_pages := TRUE;
     g_docs(p_doc).obj_offsets.DELETE;
     g_docs(p_doc).pages.DELETE;
     g_docs(p_doc).page_nr     := 0;
@@ -81,6 +100,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     -- PDF header + binary marker comment.  PDF/A 6.1.2: the marker line
     -- must IMMEDIATELY follow the header EOL (no blank line between).
     doc_write(p_doc, '%PDF-1.4');
+    doc_flush(p_doc);
     blob_append_raw(g_docs(p_doc).pdf_doc, HEXTORAW('25E2E3CFD30A'));
   END init_doc;
 
@@ -113,13 +133,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
 -- Document writes (main BLOB)
 -- ---------------------------------------------------------------------------
   PROCEDURE doc_write(p_doc IN rad_pdf_types.t_doc_handle, p_txt IN VARCHAR2) IS
-    l_raw    RAW(32767);
-    c_nl_raw CONSTANT RAW(2) := UTL_RAW.CAST_TO_RAW(c_nl);
   BEGIN
-    IF p_txt IS NOT NULL THEN
-      l_raw := UTL_RAW.CAST_TO_RAW(p_txt);
-      blob_append_raw(g_docs(p_doc).pdf_doc, l_raw);
-      blob_append_raw(g_docs(p_doc).pdf_doc, c_nl_raw);
+    IF p_txt IS NULL THEN RETURN; END IF;
+    IF NVL(LENGTHB(g_docs(p_doc).doc_buffer),0)+LENGTHB(p_txt)+2>28000 THEN
+      doc_flush(p_doc);
+    END IF;
+    IF LENGTHB(p_txt)>27998 THEN
+      blob_append_raw(g_docs(p_doc).pdf_doc,UTL_RAW.CAST_TO_RAW(p_txt));
+      blob_append_raw(g_docs(p_doc).pdf_doc,HEXTORAW('0D0A'));
+    ELSE g_docs(p_doc).doc_buffer := g_docs(p_doc).doc_buffer||p_txt||c_nl;
     END IF;
   END doc_write;
 
@@ -128,6 +150,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
   PROCEDURE doc_write_raw(p_doc IN rad_pdf_types.t_doc_handle, p_raw IN BLOB) IS
     l_len NUMBER := NVL(DBMS_LOB.GETLENGTH(p_raw), 0);
   BEGIN
+    doc_flush(p_doc);
     IF l_len > 0 THEN
       DBMS_LOB.APPEND(g_docs(p_doc).pdf_doc, p_raw);
     END IF;
@@ -141,7 +164,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     l_obj_nr NUMBER := g_docs(p_doc).obj_offsets.COUNT;
   BEGIN
     g_docs(p_doc).obj_offsets(l_obj_nr) :=
-      DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc);
+      doc_length(p_doc);
 
     IF p_inline_dict IS NULL THEN
       doc_write(p_doc, TO_CHAR(l_obj_nr) || ' 0 obj');
@@ -168,20 +191,19 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     l_stream BLOB;
     l_filter VARCHAR2(40) := '';
     l_dlen   NUMBER := NVL(DBMS_LOB.GETLENGTH(p_data), 0);
+    l_owned BOOLEAN := FALSE;
   BEGIN
     l_obj_nr := g_docs(p_doc).obj_offsets.COUNT;
     g_docs(p_doc).obj_offsets(l_obj_nr) :=
-      DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc);
+      doc_length(p_doc);
     doc_write(p_doc, TO_CHAR(l_obj_nr) || ' 0 obj');
 
     IF p_compress AND l_dlen > 0 THEN
       l_stream := rad_pdf_codec.flate_encode(p_data);
+      l_owned := TRUE;
       l_filter  := '/Filter /FlateDecode ';
     ELSE
-      DBMS_LOB.CREATETEMPORARY(l_stream, TRUE, DBMS_LOB.SESSION);
-      IF l_dlen > 0 THEN
-        DBMS_LOB.COPY(l_stream, p_data, l_dlen);
-      END IF;
+      l_stream := p_data; -- borrowed read-only; never freed here
     END IF;
 
     doc_write(p_doc, '<<' || l_filter ||
@@ -195,13 +217,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     doc_write(p_doc, 'endstream');
     doc_write(p_doc, 'endobj');
 
-    IF DBMS_LOB.ISTEMPORARY(l_stream) = 1 THEN
+    IF l_owned AND DBMS_LOB.ISTEMPORARY(l_stream) = 1 THEN
       DBMS_LOB.FREETEMPORARY(l_stream);
     END IF;
     RETURN l_obj_nr;
   EXCEPTION
     WHEN OTHERS THEN
-      IF l_stream IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_stream) = 1 THEN
+      IF l_owned AND DBMS_LOB.ISTEMPORARY(l_stream) = 1 THEN
         DBMS_LOB.FREETEMPORARY(l_stream);
       END IF;
       RAISE;
@@ -213,7 +235,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
   PROCEDURE page_flush(p_doc IN rad_pdf_types.t_doc_handle) IS
     l_raw RAW(32767);
   BEGIN
-    IF NVL(LENGTH(g_docs(p_doc).page_buffer), 0) > 0 THEN
+    IF NVL(LENGTHB(g_docs(p_doc).page_buffer), 0) > 0 THEN
       l_raw := UTL_RAW.CAST_TO_RAW(g_docs(p_doc).page_buffer);
       blob_append_raw(g_docs(p_doc).pages(g_docs(p_doc).page_nr), l_raw);
       g_docs(p_doc).page_buffer := NULL;
@@ -266,13 +288,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
 -- ---------------------------------------------------------------------------
   PROCEDURE page_write(p_doc IN rad_pdf_types.t_doc_handle, p_txt IN VARCHAR2) IS
     c_limit CONSTANT PLS_INTEGER := 28000;
-    l_tlen  PLS_INTEGER := NVL(LENGTH(p_txt), 0) + 1;  -- +1 for trailing newline
+    l_tlen  PLS_INTEGER := NVL(LENGTHB(p_txt), 0) + 1;  -- +1 for trailing newline
     l_blen  PLS_INTEGER;
     l_raw   RAW(32767);
   BEGIN
     IF l_tlen = 1 THEN RETURN; END IF;  -- original was 0; empty string is LENGTH=NULL → +1 = 1
 
-    l_blen := NVL(LENGTH(g_docs(p_doc).page_buffer), 0);
+    l_blen := NVL(LENGTHB(g_docs(p_doc).page_buffer), 0);
 
     IF l_blen + l_tlen > c_limit THEN
       IF l_blen > 0 THEN
@@ -282,8 +304,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
         l_blen := 0;
       END IF;
       IF l_tlen > c_limit THEN
-        l_raw := UTL_RAW.CAST_TO_RAW(p_txt || CHR(10));
-        blob_append_raw(g_docs(p_doc).pages(g_docs(p_doc).page_nr), l_raw);
+        blob_append_raw(g_docs(p_doc).pages(g_docs(p_doc).page_nr),UTL_RAW.CAST_TO_RAW(p_txt));
+        blob_append_raw(g_docs(p_doc).pages(g_docs(p_doc).page_nr),HEXTORAW('0A'));
         RETURN;
       END IF;
     END IF;
@@ -318,7 +340,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
   BEGIN
     page_flush(p_doc);
 
-    l_xref_offset := DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc);
+    l_xref_offset := doc_length(p_doc);
 
     doc_write(p_doc, 'xref');
     doc_write(p_doc, '0 ' || TO_CHAR(l_obj_count));
@@ -331,6 +353,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     doc_write(p_doc, 'trailer');
     doc_write(p_doc, '<< /Root ' || TO_CHAR(p_catalogue_obj) || ' 0 R');
     doc_write(p_doc, '/Info '    || TO_CHAR(p_info_obj)      || ' 0 R');
+    doc_flush(p_doc);
     -- /ID: required by PDF/A (ISO 19005 6.1.3); harmless otherwise.
     -- Derived from the document bytes so far - both halves equal is valid
     -- for a first-generation file.
@@ -350,8 +373,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
 -- ---------------------------------------------------------------------------
   FUNCTION get_doc_copy(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
     l_copy BLOB;
-    l_len  NUMBER := NVL(DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc), 0);
+    l_len  NUMBER;
   BEGIN
+    doc_flush(p_doc);
+    l_len := DBMS_LOB.GETLENGTH(g_docs(p_doc).pdf_doc);
     DBMS_LOB.CREATETEMPORARY(l_copy, TRUE, DBMS_LOB.SESSION);
     IF l_len > 0 THEN
       DBMS_LOB.COPY(l_copy, g_docs(p_doc).pdf_doc, l_len);
@@ -364,6 +389,32 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
       END IF;
       RAISE;
   END get_doc_copy;
+
+  PROCEDURE set_page_compression(p_doc IN rad_pdf_types.t_doc_handle,p_enabled IN BOOLEAN) IS
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    g_docs(p_doc).compress_pages := NVL(p_enabled,TRUE);
+  END;
+  FUNCTION page_compression(p_doc IN rad_pdf_types.t_doc_handle) RETURN BOOLEAN IS
+  BEGIN
+    RETURN g_docs(p_doc).compress_pages;
+  END;
+  PROCEDURE release_page(p_doc IN rad_pdf_types.t_doc_handle,p_page_nr IN PLS_INTEGER) IS
+  BEGIN
+    IF DBMS_LOB.ISTEMPORARY(g_docs(p_doc).pages(p_page_nr))=1 THEN
+      DBMS_LOB.FREETEMPORARY(g_docs(p_doc).pages(p_page_nr));
+    END IF;
+    g_docs(p_doc).pages(p_page_nr) := NULL;
+  END;
+
+  FUNCTION take_doc(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
+    l_result BLOB;
+  BEGIN
+    doc_flush(p_doc);
+    l_result := g_docs(p_doc).pdf_doc;
+    g_docs(p_doc).pdf_doc := NULL; -- transfer ownership to the caller
+    RETURN l_result;
+  END take_doc;
 
 END rad_pdf_serial;
 /

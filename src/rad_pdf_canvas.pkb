@@ -381,6 +381,50 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   END write_text;
 
 -- ---------------------------------------------------------------------------
+  PROCEDURE paint_text(p_doc IN rad_pdf_types.t_doc_handle,
+                       p_text IN VARCHAR2, p_style IN rad_pdf_text.t_style,
+                       p_x IN NUMBER, p_y IN NUMBER,
+                       p_word_spacing IN NUMBER DEFAULT 0) IS
+    l_spacing VARCHAR2(100);
+  BEGIN
+    IF p_text IS NULL THEN RETURN; END IF;
+    IF NVL(p_word_spacing,0)!=0 THEN
+      l_spacing := rad_pdf_codec.fmt(p_word_spacing)||' Tw'||CHR(10);
+    END IF;
+    -- Explicit Tw=0 after justification: text state survives ET.
+    rad_pdf_serial.page_write(p_doc,p_style.prefix||l_spacing
+      ||rad_pdf_codec.fmt(p_x,2)||' '||rad_pdf_codec.fmt(p_y,2)||' Td'||CHR(10)
+      ||rad_pdf_fonts.text_to_pdf_string(p_text,p_style.font_idx)||' Tj'||CHR(10)
+      ||CASE WHEN l_spacing IS NOT NULL THEN '0 Tw'||CHR(10) END||'ET');
+    rad_pdf_fonts.mark_font_used(p_doc,p_style.font_idx);
+  END paint_text;
+
+  PROCEDURE paint_lines(p_doc IN rad_pdf_types.t_doc_handle,p_plan IN rad_pdf_text.t_plan,
+                        p_x IN NUMBER,p_y IN NUMBER,
+                        p_first IN PLS_INTEGER DEFAULT 1,p_last IN PLS_INTEGER DEFAULT NULL) IS
+    l_y NUMBER := p_y;
+    l_x NUMBER;
+    l_extra NUMBER;
+    l_last PLS_INTEGER := NVL(p_last,p_plan.lines.COUNT);
+    l_style PLS_INTEGER;
+  BEGIN
+    FOR r IN p_first..l_last LOOP
+      l_x := p_x+CASE p_plan.alignment
+        WHEN 'C' THEN (p_plan.width-p_plan.lines(r).width)/2
+        WHEN 'R' THEN p_plan.width-p_plan.lines(r).width ELSE 0 END;
+      l_extra := CASE WHEN p_plan.alignment='J' AND NOT p_plan.lines(r).terminal
+                     AND p_plan.lines(r).gaps>0
+        THEN GREATEST(p_plan.width-p_plan.lines(r).width,0)/p_plan.lines(r).gaps ELSE 0 END;
+      FOR f IN p_plan.lines(r).first_fragment..p_plan.lines(r).last_fragment LOOP
+        l_style := p_plan.fragments(f).style_id;
+        paint_text(p_doc,p_plan.fragments(f).text,p_plan.styles(l_style),
+          l_x+p_plan.fragments(f).x+p_plan.fragments(f).gaps_before*l_extra,
+          l_y-p_plan.lines(r).ascent,l_extra);
+      END LOOP;
+      l_y := l_y-p_plan.lines(r).height;
+    END LOOP;
+  END paint_lines;
+
   FUNCTION text_width(p_doc  IN rad_pdf_types.t_doc_handle,
                       p_text IN VARCHAR2) RETURN NUMBER IS
   BEGIN
@@ -391,171 +435,52 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
   END text_width;
 
 -- ---------------------------------------------------------------------------
-  FUNCTION measure_wrapped(p_doc     IN rad_pdf_types.t_doc_handle,
-                           p_text    IN VARCHAR2,
-                           p_width   IN NUMBER,
-                           p_unit    IN rad_pdf_types.t_unit DEFAULT 'pt',
-                           p_leading IN NUMBER          DEFAULT NULL)
-    RETURN NUMBER IS
-    l_w       NUMBER;
-    l_lead    NUMBER;
-    l_fi      PLS_INTEGER;
-    l_fs      NUMBER;
-    l_pos     PLS_INTEGER := 1;
-    l_len     PLS_INTEGER;
-    l_ws      PLS_INTEGER;
-    l_word    VARCHAR2(32767);
-    l_line    VARCHAR2(32767) := '';
-    l_tw      NUMBER;
-    l_lines   PLS_INTEGER    := 0;
+  FUNCTION measure_wrapped(p_doc IN rad_pdf_types.t_doc_handle,
+                           p_text IN VARCHAR2,p_width IN NUMBER,
+                           p_unit IN rad_pdf_types.t_unit DEFAULT 'pt',
+                           p_leading IN NUMBER DEFAULT NULL) RETURN NUMBER IS
+    l_style rad_pdf_text.t_style;
+    l_plan rad_pdf_text.t_plan;
+    l_width NUMBER;
   BEGIN
     ensure_state(p_doc);
-    IF p_text IS NULL OR LENGTH(p_text) = 0 THEN RETURN 0; END IF;
-    l_fi   := g_canvas(p_doc).font_idx;
-    l_fs   := g_canvas(p_doc).font_size;
-    l_w    := CASE WHEN p_width IS NULL
-                   THEN g_canvas(p_doc).fmt.width
-                        - g_canvas(p_doc).margins.right - g_canvas(p_doc).margins.left
-                   ELSE u2pt(p_width, p_unit) END;
-    l_lead := NVL(p_leading, l_fs * 1.2);
-    l_len  := LENGTH(p_text);
-    WHILE l_pos <= l_len LOOP
-      WHILE l_pos <= l_len AND SUBSTR(p_text, l_pos, 1) = ' ' LOOP
-        l_pos := l_pos + 1;
-      END LOOP;
-      EXIT WHEN l_pos > l_len;
-      l_ws := l_pos;
-      WHILE l_pos <= l_len AND SUBSTR(p_text, l_pos, 1) != ' ' LOOP
-        l_pos := l_pos + 1;
-      END LOOP;
-      l_word := SUBSTR(p_text, l_ws, l_pos - l_ws);
-      IF l_line IS NULL OR LENGTH(l_line) = 0 THEN
-        l_line := l_word;
-      ELSE
-        l_tw := rad_pdf_fonts.text_width(l_line || ' ' || l_word, l_fi, l_fs);
-        IF l_tw > l_w THEN
-          l_lines := l_lines + 1;
-          l_line  := l_word;
-        ELSE
-          l_line  := l_line || ' ' || l_word;
-        END IF;
-      END IF;
-    END LOOP;
-    IF l_line IS NOT NULL AND LENGTH(l_line) > 0 THEN
-      l_lines := l_lines + 1;
-    END IF;
-    RETURN l_lines * l_lead;
+    IF p_text IS NULL THEN RETURN 0; END IF;
+    l_width := CASE WHEN p_width IS NULL THEN g_canvas(p_doc).fmt.width
+      -g_canvas(p_doc).margins.left-g_canvas(p_doc).margins.right ELSE u2pt(p_width,p_unit) END;
+    l_style := rad_pdf_text.prepare_style(g_canvas(p_doc).font_idx,g_canvas(p_doc).font_size,
+                                         g_canvas(p_doc).fcolor,p_leading);
+    l_plan := rad_pdf_text.prepare_varchar(p_text,l_style,l_width);
+    RETURN l_plan.height;
   END measure_wrapped;
 
--- ---------------------------------------------------------------------------
-  PROCEDURE write_wrapped(p_doc     IN rad_pdf_types.t_doc_handle,
-                          p_text    IN VARCHAR2,
-                          p_x       IN NUMBER              DEFAULT NULL,
-                          p_y       IN NUMBER              DEFAULT NULL,
-                          p_width   IN NUMBER              DEFAULT NULL,
-                          p_align   IN rad_pdf_types.t_align_h DEFAULT 'L',
-                          p_unit    IN rad_pdf_types.t_unit    DEFAULT 'pt',
-                          p_leading IN NUMBER              DEFAULT NULL) IS
-    l_x       NUMBER;
-    l_y       NUMBER;
-    l_w       NUMBER;
-    l_lead    NUMBER;
-    l_fi      PLS_INTEGER;
-    l_fs      NUMBER;
-    -- Word-wrap locals
-    l_pos     PLS_INTEGER := 1;
-    l_len     PLS_INTEGER;
-    l_wstart  PLS_INTEGER;   -- word start index
-    l_word    VARCHAR2(32767);
-    l_line    VARCHAR2(32767) := '';
-    l_tw      NUMBER;        -- text width of current line candidate
-    l_lw      NUMBER;        -- finalized line width
-    l_off_x   NUMBER;        -- horizontal offset for alignment
-    l_spaces  PLS_INTEGER;   -- space count in current line (for Tw justification)
-    l_word_sp NUMBER;        -- PDF Tw word-spacing value (pt)
-
-    PROCEDURE emit_line(p_last IN BOOLEAN) IS
-    BEGIN
-      l_lw     := rad_pdf_fonts.text_width(l_line, l_fi, l_fs);
-      l_spaces := LENGTH(l_line) - LENGTH(REPLACE(l_line, ' ', ''));
-      IF p_align = 'J' AND NOT p_last AND l_spaces > 0 THEN
-        -- Justified: distribute surplus space across inter-word gaps via Tw
-        l_word_sp := (l_w - l_lw) / l_spaces;
-        rad_pdf_serial.page_write(p_doc, rad_pdf_codec.fmt(l_word_sp) || ' Tw');
-        l_off_x := l_x;
-      ELSE
-        l_word_sp := 0;
-        l_off_x := CASE p_align
-                     WHEN 'R' THEN l_x + (l_w - l_lw)
-                     WHEN 'C' THEN l_x + (l_w - l_lw) / 2
-                     ELSE l_x   -- 'L' and last line of 'J'
-                   END;
-      END IF;
-      rad_pdf_serial.page_write(p_doc,
-        text_block(l_line, l_off_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor));
-      IF l_word_sp != 0 THEN
-        rad_pdf_serial.page_write(p_doc, '0 Tw');  -- reset word spacing
-      END IF;
-      rad_pdf_fonts.mark_font_used(p_doc, l_fi);
-      l_y := l_y - l_lead;
-    END emit_line;
-
+  PROCEDURE write_wrapped(p_doc IN rad_pdf_types.t_doc_handle,
+                          p_text IN VARCHAR2,
+                          p_x IN NUMBER DEFAULT NULL,p_y IN NUMBER DEFAULT NULL,
+                          p_width IN NUMBER DEFAULT NULL,
+                          p_align IN rad_pdf_types.t_align_h DEFAULT 'L',
+                          p_unit IN rad_pdf_types.t_unit DEFAULT 'pt',
+                          p_leading IN NUMBER DEFAULT NULL) IS
+    l_style rad_pdf_text.t_style;
+    l_plan rad_pdf_text.t_plan;
+    l_x NUMBER;
+    l_y NUMBER;
+    l_width NUMBER;
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
     ensure_state(p_doc);
-    IF p_text IS NULL OR LENGTH(p_text) = 0 THEN RETURN; END IF;
-
-    l_fi := g_canvas(p_doc).font_idx;
-    l_fs := g_canvas(p_doc).font_size;
-
-    l_x := CASE WHEN p_x IS NULL THEN g_canvas(p_doc).x
-                ELSE u2pt(p_x, p_unit) END;
-    l_y := CASE WHEN p_y IS NULL THEN g_canvas(p_doc).y
-                ELSE u2pt(p_y, p_unit) END;
-    l_w := CASE WHEN p_width IS NULL
-                THEN g_canvas(p_doc).fmt.width
-                     - g_canvas(p_doc).margins.right - l_x
-                ELSE u2pt(p_width, p_unit) END;
-    l_lead := NVL(p_leading, l_fs * 1.2);
-
-    l_len := LENGTH(p_text);
-
-    -- Iterate words, building lines that fit within l_w
-    WHILE l_pos <= l_len LOOP
-      -- Skip spaces
-      WHILE l_pos <= l_len AND SUBSTR(p_text, l_pos, 1) = ' ' LOOP
-        l_pos := l_pos + 1;
-      END LOOP;
-      EXIT WHEN l_pos > l_len;
-
-      -- Extract next word
-      l_wstart := l_pos;
-      WHILE l_pos <= l_len AND SUBSTR(p_text, l_pos, 1) != ' ' LOOP
-        l_pos := l_pos + 1;
-      END LOOP;
-      l_word := SUBSTR(p_text, l_wstart, l_pos - l_wstart);
-
-      IF l_line IS NULL OR LENGTH(l_line) = 0 THEN
-        l_line := l_word;  -- first word on line (even if wider than l_w)
-      ELSE
-        l_tw := rad_pdf_fonts.text_width(l_line || ' ' || l_word, l_fi, l_fs);
-        IF l_tw > l_w THEN
-          -- Line full: emit it as a non-last line, then start fresh
-          emit_line(FALSE);
-          l_line := l_word;
-        ELSE
-          l_line := l_line || ' ' || l_word;
-        END IF;
-      END IF;
-    END LOOP;
-
-    -- Emit last (or only) line — always L/R/C, never justified
-    IF l_line IS NOT NULL AND LENGTH(l_line) > 0 THEN
-      emit_line(TRUE);
+    IF p_text IS NULL THEN RETURN; END IF;
+    l_x := CASE WHEN p_x IS NULL THEN g_canvas(p_doc).x ELSE u2pt(p_x,p_unit) END;
+    l_y := CASE WHEN p_y IS NULL THEN g_canvas(p_doc).y ELSE u2pt(p_y,p_unit) END;
+    l_width := CASE WHEN p_width IS NULL THEN g_canvas(p_doc).fmt.width
+      -g_canvas(p_doc).margins.right-l_x ELSE u2pt(p_width,p_unit) END;
+    l_style := rad_pdf_text.prepare_style(g_canvas(p_doc).font_idx,g_canvas(p_doc).font_size,
+                                         g_canvas(p_doc).fcolor,p_leading);
+    l_plan := rad_pdf_text.prepare_varchar(p_text,l_style,l_width,p_align);
+    IF l_plan.lines.COUNT>0 THEN
+      paint_lines(p_doc,l_plan,l_x,l_y+l_plan.lines(1).ascent);
     END IF;
-
     g_canvas(p_doc).x := l_x;
-    g_canvas(p_doc).y := l_y;
+    g_canvas(p_doc).y := l_y-l_plan.height;
   END write_wrapped;
 
 -- ---------------------------------------------------------------------------
@@ -1044,7 +969,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     -- Before Pass 1: write the shared watermark stream object once.
     IF l_have_wm THEN
       l_blob  := build_watermark_blob(p_doc);
-      l_wm_nr := rad_pdf_serial.write_stream_obj(p_doc, l_blob, NULL, FALSE);
+      l_wm_nr := rad_pdf_serial.write_stream_obj(p_doc,l_blob,NULL,rad_pdf_serial.page_compression(p_doc));
       IF DBMS_LOB.ISTEMPORARY(l_blob) = 1 THEN
         DBMS_LOB.FREETEMPORARY(l_blob);
       END IF;
@@ -1071,7 +996,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     -- Pass 1: write N content stream objects (pages are 0-indexed)
     FOR i IN 0 .. l_n - 1 LOOP
       l_blob := rad_pdf_serial.get_page_blob(p_doc, i);
-      l_c_nr := rad_pdf_serial.write_stream_obj(p_doc, l_blob, NULL, FALSE);
+      l_c_nr := rad_pdf_serial.write_stream_obj(p_doc,l_blob,NULL,rad_pdf_serial.page_compression(p_doc));
+      rad_pdf_serial.release_page(p_doc,i);
       l_c_nrs(i) := l_c_nr;
       IF i = 0 THEN l_base_nr := l_c_nr; END IF;
     END LOOP;

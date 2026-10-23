@@ -47,7 +47,7 @@ DECLARE
     l_tpl.margin_left := 20; l_tpl.margin_right := 20;
     l_tpl.footer_proc := 'BEGIN rad_pdf_canvas.write_text(#DOC_HANDLE#,'
       ||'''FOOTER #PAGE_NR#/#PAGE_COUNT#'',20,5); END;';
-    l_doc := rad_pdf.new_document(p_template=>l_tpl);
+    l_doc := rad_pdf.new_document(p_template=>l_tpl, p_compress_pages=>FALSE);
   END;
   PROCEDURE check_footers IS
   BEGIN
@@ -170,7 +170,7 @@ BEGIN
   rad_pdf.close_document(l_doc);
 
   -- Font encodings: WinAnsi euro/accent bytes and widths agree.
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_idx := rad_pdf_fonts.find_font(l_doc,'Helvetica','N');
   assert_ok(rad_pdf_fonts.text_to_pdf_string(UNISTR('\00E8\20AC'),l_idx)='(\350\200)',
         'accent and euro encoded as WinAnsi bytes');
@@ -180,9 +180,9 @@ BEGIN
 
   -- Pinned images survive eviction and cache clearing, including another doc.
   rad_pdf_images.set_image_cache_limit(1);
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_img := rad_pdf_images.load_image(l_doc,l_png);
-  l_other := rad_pdf.new_document;
+  l_other := rad_pdf.new_document(p_compress_pages=>FALSE);
   l_other_img := rad_pdf_images.load_image(l_other,l_png);
   l_idx := rad_pdf_images.load_image(l_other,l_gif);
   rad_pdf_images.clear_image_cache;

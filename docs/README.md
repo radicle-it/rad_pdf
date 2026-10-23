@@ -75,11 +75,11 @@ CD src
 In SQL Developer, open `src/install.sql` with *File → Open*, then press **F5** (Run Script)
 while connected as the schema owner.
 
-The installer compiles all 12 packages in dependency order. Each phase prints its name and
-`SHOW ERRORS` output. A successful install ends with:
+The installer declares package interfaces, compiles bodies in dependency order and
+fails if `USER_ERRORS` contains compilation errors. A successful install ends with:
 
 ```
-=== Phase 8 install complete ===
+Install complete.
 ```
 
 **4. Verify the installation**
@@ -103,6 +103,9 @@ If any test fails, run the individual phase test to isolate the issue:
 @tests/phase2_ctx_decoders.sql
 -- ... through phase8_pdf.sql
 ```
+
+See [Rendering performance](PERFORMANCE.md) for the text-plan architecture,
+compression option and measured before/after workloads.
 
 **5. Volumetric benchmark (optional)**
 
@@ -142,7 +145,8 @@ benchmark_large_table: 10 passed, 0 failed.
 DROP PACKAGE rad_pdf_template;
 DROP PACKAGE rad_pdf;
 DROP PACKAGE rad_pdf_table;   DROP PACKAGE rad_pdf_layout;
-DROP PACKAGE rad_pdf_canvas;  DROP PACKAGE rad_pdf_images;
+DROP PACKAGE rad_pdf_canvas;  DROP PACKAGE rad_pdf_text;
+DROP PACKAGE rad_pdf_images;
 DROP PACKAGE rad_pdf_fonts;   DROP PACKAGE rad_pdf_serial;
 DROP PACKAGE rad_pdf_ctx;     DROP PACKAGE rad_pdf_styles;
 DROP PACKAGE rad_pdf_codec;   DROP PACKAGE rad_pdf_units;
@@ -1284,7 +1288,7 @@ At finalize the document gains:
 | Subprogram | Description |
 |---|---|
 | `version` | Return the library version string, e.g. `'1.5.1'`. |
-| `new_document(p_info, p_template)` | Create document. Returns handle. |
+| `new_document(p_info, p_template, p_compress_pages)` | Create document. Returns handle. |
 | `finalize(p_doc)` | Finalise, close handle, return BLOB. Caller must `FREETEMPORARY`. |
 | `save(p_doc, p_dir, p_filename)` | Finalise and write to Oracle directory. |
 | `close_document(p_doc)` | Discard document without producing output. |

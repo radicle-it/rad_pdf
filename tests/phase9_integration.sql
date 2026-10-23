@@ -35,7 +35,7 @@ BEGIN
     l_pdf BLOB;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Annual Report 2026',    1);
     rad_pdf.heading(l_doc, 'Executive Summary',     2);
     rad_pdf.write  (l_doc, 'Lorem ipsum dolor sit amet, consectetur adipiscing '  ||
@@ -73,7 +73,7 @@ BEGIN
     l_cols(2).label := 'Label'; l_cols(2).width := 180;
     l_cols(3).label := 'Sq';    l_cols(3).width := 60;
     l_cols(3).data_fmt.align_h := 'R';
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Sample Table', 1);
     rad_pdf.query2table(l_doc,
       'SELECT LEVEL AS n, ' ||
@@ -103,7 +103,7 @@ BEGIN
     l_cols(1).label := 'Object Type'; l_cols(1).width := 150;
     l_cols(2).label := 'Count';       l_cols(2).width := 80;
     l_cols(2).data_fmt.align_h := 'R';
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Schema Objects', 1);
     OPEN l_rc FOR
       SELECT object_type, COUNT(*) cnt
@@ -147,7 +147,7 @@ BEGIN
       'END;';
     l_info.title  := 'Template Test';
     l_info.author := 'Integration Test';
-    l_doc := rad_pdf.new_document(p_info => l_info, p_template => l_tpl);
+    l_doc := rad_pdf.new_document(p_info => l_info, p_template => l_tpl, p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Template Demo', 1);
     rad_pdf.write  (l_doc, 'This document has a header and footer on every page.');
     rad_pdf.new_page(l_doc);
@@ -175,7 +175,7 @@ BEGIN
       p_font_size  => 11,
       p_font_color => 'CC3300',
       p_leading    => 14);
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.write(l_doc, 'Normal body text.');
     rad_pdf.write(l_doc, 'IMPORTANT: This notice is styled differently.', 'notice');
     rad_pdf.write(l_doc, 'Back to normal text.');
@@ -195,7 +195,7 @@ BEGIN
     l_w   NUMBER;
     l_h   NUMBER;
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.set_page_format(l_doc, 'A4');
     rad_pdf.set_page_orientation(l_doc, 'LANDSCAPE');
     l_w := rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_page_width);
@@ -218,8 +218,8 @@ BEGIN
     l_hdr2 VARCHAR2(10);
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc1 := rad_pdf.new_document;
-    l_doc2 := rad_pdf.new_document;
+    l_doc1 := rad_pdf.new_document(p_compress_pages=>FALSE);
+    l_doc2 := rad_pdf.new_document(p_compress_pages=>FALSE);
     ok('concurrent: handles distinct', l_doc1 <> l_doc2);
     rad_pdf.heading(l_doc1, 'Document One', 1);
     rad_pdf.heading(l_doc2, 'Document Two', 1);
@@ -270,7 +270,7 @@ BEGIN
         'RAD_PDF generates PDF documents natively in PL/SQL without external libraries.' ||
         CHR(10));
     END LOOP;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Long Document Test', 1);
     rad_pdf.add(l_doc, rad_pdf_layout.paragraph(l_clob, 'body'));
     l_pdf := rad_pdf.finalize(l_doc);
@@ -291,7 +291,7 @@ BEGIN
     l_doc rad_pdf_types.t_doc_handle;
     l_pdf BLOB;
   BEGIN
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     -- Direct canvas call on the empty first page (no layout flowables yet)
     rad_pdf_canvas.set_font(l_doc, 'Helvetica', 'B', 14);
     rad_pdf_canvas.write_text(l_doc, 'Canvas watermark', 72, 400, 'pt');
@@ -314,7 +314,7 @@ BEGIN
     l_pdf BLOB;
   BEGIN
     rad_pdf_styles.load_defaults;
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
 
     -- Heading containing em-dash: original crash trigger
     rad_pdf.heading(l_doc, 'Internationalisation Test - Accented Characters', 1);
@@ -363,7 +363,7 @@ BEGIN
         'usable page area without entering an infinite loop or raising ORA-. ';
     END LOOP;
 
-    l_doc := rad_pdf.new_document;
+    l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
     rad_pdf.heading(l_doc, 'Overflow Paragraph Test', 1);
     rad_pdf.add    (l_doc, rad_pdf_layout.paragraph(l_long_txt, 'body'));
 

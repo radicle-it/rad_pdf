@@ -206,6 +206,18 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
 -- Internal API (called by rad_pdf_layout and rad_pdf.finalize — not for application use)
 -- ---------------------------------------------------------------------------
 
+  -- Prepared text paint: immutable font/color prefix shared by many operations.
+  PROCEDURE paint_text(p_doc IN rad_pdf_types.t_doc_handle,
+                       p_text IN VARCHAR2,
+                       p_style IN rad_pdf_text.t_style,
+                       p_x IN NUMBER, p_y IN NUMBER,
+                       p_word_spacing IN NUMBER DEFAULT 0);
+
+  -- Paint a prepared line range at a top-left point; no pagination or measuring.
+  PROCEDURE paint_lines(p_doc IN rad_pdf_types.t_doc_handle,p_plan IN rad_pdf_text.t_plan,
+                        p_x IN NUMBER,p_y IN NUMBER,
+                        p_first IN PLS_INTEGER DEFAULT 1,p_last IN PLS_INTEGER DEFAULT NULL);
+
   -- Execute all page procs for each page, substituting tokens.
   -- p_total: final page count as returned by rad_pdf_serial.page_count.
   PROCEDURE run_page_procs(p_doc    IN rad_pdf_types.t_doc_handle,

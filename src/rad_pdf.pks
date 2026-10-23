@@ -37,9 +37,11 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
   -- Create a new document. Initialises the serial layer, loads standard fonts,
   -- applies optional template and document metadata, and creates the first page.
   -- Returns a handle valid until finalize / save / close_document is called.
+  -- Compress page streams by default; FALSE enables readable content for debugging.
   FUNCTION new_document(
     p_info     IN rad_pdf_types.t_doc_info      DEFAULT NULL,
-    p_template IN rad_pdf_types.t_page_template DEFAULT NULL)
+    p_template IN rad_pdf_types.t_page_template DEFAULT NULL,
+    p_compress_pages IN BOOLEAN DEFAULT TRUE)
     RETURN rad_pdf_types.t_doc_handle;
 
   -- Finalise the document, close the handle, and return the PDF as a BLOB.

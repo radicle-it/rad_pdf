@@ -91,6 +91,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
 -- Internal API (called by rad_pdf_layout during render/measure pass)
 -- ---------------------------------------------------------------------------
 
+  PROCEDURE prepare_table(p_doc IN rad_pdf_types.t_doc_handle,p_table_ref IN PLS_INTEGER);
+
   -- Fetch data (unless streaming), cache it, return total height in pt.
   FUNCTION measure_table(
     p_doc       IN rad_pdf_types.t_doc_handle,

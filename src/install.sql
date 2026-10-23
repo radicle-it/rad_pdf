@@ -29,6 +29,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf_serial.pks
 @@rad_pdf_fonts.pks
 @@rad_pdf_images.pks
+@@rad_pdf_text.pks
 @@rad_pdf_canvas.pks
 @@rad_pdf_layout.pks
 @@rad_pdf_table.pks
@@ -43,6 +44,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf_serial.pkb
 @@rad_pdf_fonts.pkb
 @@rad_pdf_images.pkb
+@@rad_pdf_text.pkb
 @@rad_pdf_canvas.pkb
 @@rad_pdf_layout.pkb
 @@rad_pdf_table.pkb
@@ -80,6 +82,7 @@ PROMPT    @tests/phase17_pdfa.sql          PDF/A-2b conformance (v1.7.0)
 PROMPT
 PROMPT    @tests/phase18_robustness.sql      content / pagination / lifetime regressions
 PROMPT    @tests/phase19_fonts_unicode.sql   cmap / Unicode / embedded-font regressions
+PROMPT    @tests/phase20_text_pipeline.sql   prepared text / buffering / ownership
 PROMPT
 PROMPT  Canvas API     docs/sample01.sql .. sample10.sql
 PROMPT  Template engine docs/sample11.sql, docs/sample12.sql
