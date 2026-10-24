@@ -1502,6 +1502,9 @@ reapplies the budget. Close unused documents promptly.
 | [sample19.sql](sample19.sql) | Bookmarks: navigable outline from headings + manual anchors |
 | [sample20.sql](sample20.sql) | Native charts: bar, line and pie on a dashboard page |
 | [sample21.sql](sample21.sql) | PDF/A-2b: archival-grade conformant document with embedded font |
+| [sample22.sql](sample22.sql) | Swiss CHF/QRR: JSON input, invoice table and integrated payment section |
+| [sample23.sql](sample23.sql) | Swiss EUR/SCOR: typed PL/SQL record, 72 invoice rows and separate payment page |
+| [sample24.sql](sample24.sql) | Swiss CHF/NON: amount and payer left blank, handwritten fields on both parts |
 
 ### Template engine examples (standalone PL/SQL)
 
@@ -1539,6 +1542,9 @@ See **[apex/README.md](apex/README.md)** for APEX-specific installation, streami
 | [apex/apex_sample12.sql](apex/apex_sample12.sql) | Justified paragraph text using `write_wrapped` with `'J'` alignment |
 | [apex/apex_sample13.sql](apex/apex_sample13.sql) | Payment QR code driven by page items (demo app page 3) |
 | [apex/apex_sample14.sql](apex/apex_sample14.sql) | 1D barcode label sheet from a query (demo app page 4) |
+| [apex/apex_sample15.sql](apex/apex_sample15.sql) | Swiss CHF/QRR from JSON; catalog `SWISS_QRR` |
+| [apex/apex_sample16.sql](apex/apex_sample16.sql) | Swiss EUR/SCOR from a PL/SQL record; catalog `SWISS_SCOR` |
+| [apex/apex_sample17.sql](apex/apex_sample17.sql) | Swiss open amount/payer; catalog `SWISS_OPEN` |
 
 **Template engine (progressive curriculum - start at 01, work through to 14):**
 

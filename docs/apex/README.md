@@ -31,7 +31,7 @@ If you want one RAD_PDF installation shared by multiple workspaces:
    @src/install.sql
    ```
 
-2. Grant EXECUTE on all eight packages to each workspace schema (or to PUBLIC):
+2. Grant EXECUTE on the required packages to each workspace schema:
 
    ```sql
    -- connected as RAD_UTILS:
@@ -48,6 +48,7 @@ If you want one RAD_PDF installation shared by multiple workspaces:
    GRANT EXECUTE ON rad_pdf_table    TO <workspace_schema>;
    GRANT EXECUTE ON rad_pdf          TO <workspace_schema>;
    GRANT EXECUTE ON rad_pdf_template TO <workspace_schema>;  -- Phase 9 template engine
+   GRANT EXECUTE ON rad_pdf_swiss    TO <workspace_schema>;  -- Swiss bill/options types
    ```
 
 3. In the workspace schema, create public synonyms if you do not want to prefix
@@ -311,3 +312,100 @@ Start from `apex_template_01.sql` and work through to `apex_template_14.sql`.
 | [apex_template_12.sql](apex_template_12.sql) | Custom default font via `t_template_options` | `P1_DEPTNO`, `P1_FONT_SIZE`, `P1_FONT_STYLE` |
 | [apex_template_13.sql](apex_template_13.sql) | DB-driven templates loaded from a table | `P1_DEPTNO`, `P1_TEMPLATE_NAME` |
 | [apex_template_14.sql](apex_template_14.sql) | Complete department report - all features combined | `P1_DEPTNO`, `P1_NOTES`, `P1_SHOW_COMMS` |
+
+
+## Swiss QR-bill examples
+
+These three self-contained examples use published SIX test accounts and synthetic
+invoice data. They require the full installer with `rad_pdf_swiss`, and no EMP/DEPT
+tables, images, fonts or page items. They are payment-section demonstrations, not
+complete Swiss tax/accounting invoice templates.
+
+| Standalone | APEX process | Catalog value | Behaviour |
+|---|---|---|---|
+| [sample22.sql](../sample22.sql) | [apex_sample15.sql](apex_sample15.sql) | `SWISS_QRR` | CHF, QR-IBAN/QRR, JSON input, two invoice lines, Italian integrated payment section |
+| [sample23.sql](../sample23.sql) | [apex_sample16.sql](apex_sample16.sql) | `SWISS_SCOR` | EUR, ordinary IBAN/SCOR, typed record, 72 rows, English payment page appended after all rows |
+| [sample24.sql](../sample24.sql) | [apex_sample17.sql](apex_sample17.sql) | `SWISS_OPEN` | CHF, ordinary IBAN/NON, amount/debtor omitted, French handwritten fields on receipt and payment part |
+
+### Existing demo app
+
+The local app is `apex/pdf` (its existing deployment file uses ID 125). In cloud
+workspace `RCAPANCIONI`, the live app named/aliased `PDF` is **151**, and its older
+export does not yet have pages 3 and 4. The updates are therefore separate:
+
+- The local catalog receives the three new choices and processes; its other
+  examples are retained. [Local catalog patch](swiss_local_catalog.patch).
+- The cloud update is built from the live export of app 151. It adds pages 3/4,
+  a Swiss-only LOV and shared item, and Home/navigation links. It preserves the
+  existing Home controls, page 2 examples, authentication and app settings.
+  [Incremental cloud patch](swiss_app151.patch).
+
+Both integrations use the same route:
+
+1. Page 4, **Esempi**: choose a Swiss entry in `P4_ESEMPIO` / shared `ESEMPI_LOV`.
+2. **Stampa Pdf** redirects to page 3 with application item `G_ESEMPIO`.
+3. Exactly one Before Header process runs, conditioned on `G_ESEMPIO`.
+4. The process validates/finalizes the PDF before sending HTTP headers, streams
+   the BLOB with fixed filename and no-cache headers, then stops APEX rendering.
+
+Page 4 displays an explanation only for the selected Swiss example. The new page
+3 processes contain the same source as `apex_sample15.sql`–`apex_sample17.sql`.
+The three standalone samples use identical PDF generation code, with SQLcl output
+and BLOB cleanup in place of HTTP delivery.
+
+For another app, create an **Execute Server-side Code** process at **On Load –
+Before Header**, paste one APEX sample, and apply a suitable request condition.
+Do not run all three unconditionally: each terminates the response with a download.
+Keep the `E_STOP_APEX_ENGINE` handler before `WHEN OTHERS` so a successful download
+is not treated as an error. The samples intentionally have no SQLcl `SET` commands
+or trailing `/` in the APEX process source.
+
+### Connecting your invoice service
+
+Replace only the demonstration data with an authorized invoice/TAPI service result.
+Inside Oracle prefer the typed `t_bill`; use JSON at an external service boundary.
+The JSON example demonstrates the versioned contract, not arbitrary ERP JSON.
+Use `rad_pdf_swiss.creditor_reference` when generating a new RF reference; validate
+a stored reference rather than silently recalculating an incorrect check digit.
+
+`INTEGRATED` reserves the lower 115 mm on **every** invoice page and paints the
+payment section only on the last one. `SEPARATE` keeps the full body frame and
+appends a payment page automatically. Do not add a manual page break before it.
+Avoid header/footer callbacks in the lower payment area, and print at 100% size.
+For open payer details leave the **whole** debtor record empty; a partial address
+is rejected. A missing amount is NULL, not zero. QRR is CHF-only under IG 2.4;
+EUR uses an ordinary IBAN with SCOR or NON.
+
+See [Swiss QR-bill](../SWISS_QR_BILL.md) for the complete input contract, font
+coverage rules and validation boundaries. To generate the standalone PDFs:
+
+```sql
+@docs/sample22.sql
+@docs/sample23.sql
+@docs/sample24.sql
+```
+
+The standalone scripts print generated sizes and free the BLOB. To retain a PDF,
+store/stream the BLOB before freeing it, or replace `finalize` with `save` using an
+Oracle directory you control. No directory object is required to run the examples.
+
+### Applying the application source patches
+
+The `apex/` tree is excluded by the repository's existing `.gitignore`; the two
+patches above preserve the source changes in version control without importing
+an unrelated application export into the library repository. Paths are relative
+to an APEXLang **app root**, not this repository root.
+
+Use the local patch only with the matching existing local catalog. For app 151,
+first export the current cloud source, back it up, then check/apply only the cloud
+patch inside that exported app directory:
+
+```sh
+patch --dry-run -p1 -i /absolute/path/docs/apex/swiss_app151.patch
+patch -p1 -i /absolute/path/docs/apex/swiss_app151.patch
+```
+
+Validate with SQLcl `apex validate -input /absolute/path/to/app -workspaceid <id>`.
+Import the checked source into the intended existing app ID only after review.
+Do not import the complete old local ID-125 source over cloud app 151: their base
+pages differ. The incremental patch preserves the cloud version's existing pages.

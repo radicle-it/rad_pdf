@@ -20,7 +20,10 @@ containing JSON matching [the versioned schema](schemas/swiss-qr-bill-v1.json).
 The schema covers syntax; `validate`/`payload` additionally enforce financial
 cross-field rules and checksums. A complete
 [JSON example](schemas/swiss-qr-bill-example.json) and
-[runnable SQL example](sample22.sql) use published sample data.
+[runnable JSON/CHF example](sample22.sql) use published sample data. Additional
+examples cover [typed EUR/SCOR with a separate payment page](sample23.sql) and
+[open amount/debtor fields](sample24.sql). Their matching APEX processes and demo
+catalog integration are described in the [APEX guide](apex/README.md#swiss-qr-bill-examples).
 
 | Input | Meaning |
 |---|---|
@@ -139,6 +142,8 @@ Run after the full installer:
 ```sql
 @tests/phase21_swiss_qr_bill.sql
 @docs/sample22.sql
+@docs/sample23.sql
+@docs/sample24.sql
 ```
 
 The development checks passed 692 assertions: 614 existing regression/stress
