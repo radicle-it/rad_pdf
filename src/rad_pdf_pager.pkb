@@ -672,8 +672,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
 
   -- the rows from..to measured as a group placed together on a page (the first after p_prev), with the bottom border
   -- that closes it
+  -- p_close: with the closing border (FALSE: a part of a larger group, closed by its last part)
   FUNCTION group_h(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, k rad_pdf_ri.t_num_list, p_from PLS_INTEGER, p_to PLS_INTEGER,
-                   p_prev rad_pdf_ri.t_id) RETURN NUMBER IS
+                   p_prev rad_pdf_ri.t_id, p_close BOOLEAN DEFAULT TRUE) RETURN NUMBER IS
     l_h   NUMBER := 0;
     l_dry BOOLEAN := st.dry;
   BEGIN
@@ -682,7 +683,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
       l_h := l_h + do_row(st, p_tbl, k(j), 0, 0, CASE WHEN j = p_from THEN p_prev ELSE k(j - 1) END, FALSE, st.pg, st.guess);
     END LOOP;
     -- R2: the closing border of the group's last row, reserved always: the group may end the table or its part on a page
-    l_h := l_h + bottom_border(st, p_tbl, k(p_to), 0, 0, FALSE);
+    IF p_close THEN l_h := l_h + bottom_border(st, p_tbl, k(p_to), 0, 0, FALSE); END IF;
     st.dry := l_dry;
     RETURN l_h;
   END group_h;
@@ -782,7 +783,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
         new_page(st);
         l_prev := NULL;
         IF j > l_hdr AND l_hdr > 0 THEN                  -- the header rows repeated, with the row: one group
-          l_need := group_h(st, p_id, k, 1, l_hdr, NULL);
+          l_need := group_h(st, p_id, k, 1, l_hdr, NULL, FALSE);     -- one closing border: the row's (codex-055)
           FOR h IN 1 .. l_hdr LOOP l_prev := k(h); END LOOP;
           l_need := l_need + group_h(st, p_id, k, j, l_to, l_prev);
           IF l_need > height_of(st, st.pg) + 0.001 THEN

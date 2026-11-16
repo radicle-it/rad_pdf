@@ -10,7 +10,8 @@
 --   6. fonts: the D3 substitutes, the original first, a missing file, fsType refused; images; refusals;
 --   7. codex-052: the gap in keep chains, header rows + row as one group, fields and zones measured per page, cell
 --      borders on every side, 500 pages, a word of several runs;
---   8. codex-054: the closing border of every portion of a table, PAGE in a continuation, borders by grid segment.
+--   8. codex-054: the closing border of every portion of a table, PAGE in a continuation, borders by grid segment;
+--   9. codex-055: the repeated group counts one closing border (its boundary, accepted and refused).
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
@@ -582,6 +583,25 @@ BEGIN
       assert_ok(ln('^1 L 56\.7 [^ ]+ 156\.7 [^ ]+ 1 #FF0000') IS NOT NULL AND ln('^1 L 156\.7 [^ ]+ 356\.7 [^ ]+ 2 #00FF00') IS NOT NULL
                 AND near(yo(ln('^1 T .* Span ')) - yo(ln('^1 T .* A ')), 10 * c_line + 2),
                 'R4: an explicit top (1 red) against an upper bottom (2 green): each segment resolved, the row as high as its widest');
+    END IF;
+  END LOOP;
+
+  -- 9. codex-055: the repeated group (header rows + a row) counts ONE closing border
+  FOR v IN 1 .. 2 LOOP
+    start_i;
+    t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(300), rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 2, '000000')));
+    r := rad_pdf_ri.row_(q, t, 'Y'); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Head');                -- 13.499 pt
+    r := rad_pdf_ri.row_(q, t); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Short');
+    cf.mar_top := 698.501953125 + CASE v WHEN 1 THEN 0 ELSE 2 END;                                       -- 712.001 pt (+2)
+    r := rad_pdf_ri.row_(q, t); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Tall');
+    cf.mar_top := 0;
+    IF v = 1 THEN
+      dump_it;
+      assert_ok(pages = 2 AND pg(ln('^[0-9]+ T .* Tall ')) = 2 AND ln('^2 T .* Head ') IS NOT NULL,
+                'R2: header + a row + one closing border = 727.5 pt on a body of 728.5: accepted (codex-055 boundary)');
+    ELSE
+      assert_ok(refused(rad_pdf_pager.c_err_layout, '[PDF_LAYOUT] the header rows and a table row of 729.5 pt are taller than the page'),
+                'R2: the same 2 pt taller (729.5 pt): refused');
     END IF;
   END LOOP;
 
