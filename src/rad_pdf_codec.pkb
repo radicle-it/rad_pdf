@@ -403,6 +403,37 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
   END adler32;
 
 -- ---------------------------------------------------------------------------
+  FUNCTION base64_encode(p_blob IN BLOB) RETURN CLOB IS
+    l_out   CLOB;
+    l_pos   PLS_INTEGER := 1;
+    l_len   PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_blob), 0);
+    l_chunk CONSTANT PLS_INTEGER := 23808;              -- a multiple of 3 and of 48: no padding inside the text
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_out, TRUE);
+    WHILE l_pos <= l_len LOOP
+      DBMS_LOB.APPEND(l_out, TRANSLATE(UTL_RAW.CAST_TO_VARCHAR2(UTL_ENCODE.BASE64_ENCODE(
+        DBMS_LOB.SUBSTR(p_blob, l_chunk, l_pos))), 'x' || CHR(10) || CHR(13), 'x'));
+      l_pos := l_pos + l_chunk;
+    END LOOP;
+    RETURN l_out;
+  END base64_encode;
+
+  FUNCTION base64_decode(p_clob IN CLOB, p_offset IN PLS_INTEGER DEFAULT 1) RETURN BLOB IS
+    l_out   BLOB;
+    l_pos   PLS_INTEGER := NVL(p_offset, 1);
+    l_len   PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_clob), 0);
+    l_chunk CONSTANT PLS_INTEGER := 31744;              -- a multiple of 4
+    l_raw   RAW(32767);
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_out, TRUE);
+    WHILE l_pos <= l_len LOOP
+      l_raw := UTL_ENCODE.BASE64_DECODE(UTL_RAW.CAST_TO_RAW(DBMS_LOB.SUBSTR(p_clob, l_chunk, l_pos)));
+      IF l_raw IS NOT NULL THEN DBMS_LOB.WRITEAPPEND(l_out, UTL_RAW.LENGTH(l_raw), l_raw); END IF;
+      l_pos := l_pos + l_chunk;
+    END LOOP;
+    RETURN l_out;
+  END base64_decode;
+
   FUNCTION sha256_hex(p_blob IN BLOB) RETURN VARCHAR2 IS
   BEGIN
     RETURN LOWER(RAWTOHEX(DBMS_CRYPTO.HASH(p_blob, DBMS_CRYPTO.HASH_SH256)));

@@ -15,6 +15,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   (-20840) on every violation; canonical JSON serialization read back through the
   builder. Tests: `tests/phase23_ri.sql`; the quote template built by hand and its
   page count against Word's export: `tests/word/quote_ri.py`.
+- `rad_pdf_merge`: the data merge of the Word evolution (middleware-docs 96a §5,
+  §6.3). A template RI + a print schema (the shape of `prt_schema_field`) + the
+  JSON data give a sealed **instance** (`rad_pdf_ri.new_instance`: data in runs,
+  no tag nor region). Checks the schema, the template against it (publication)
+  and the data (every print), reading only the resolved references; images in the
+  Oracle data-URL form decoded by the shared PNG/JPEG decoders; budgets of 96a §8.
+  Errors `[PRT_SCHEMA]` (-20843), `[PRT_DATA]` (-20841) with the path,
+  `[PDF_BUDGET]` (-20842). Tests: `tests/phase24_merge.sql`; the quote and its
+  negative samples through the merge: `tests/word/quote_ri.py`.
+- `rad_pdf_codec.base64_encode` / `base64_decode` for LOBs (shared by the RI and
+  the merge).
 
 ### Fixed
 

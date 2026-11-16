@@ -1,0 +1,147 @@
+{
+ "doc_type": "SAL_QUOTE",
+ "schema_version": 1,
+ "source": "middleware-docs 96a §5.3 (f7d60d2); nullable by the rule of §5.1",
+ "fields": [
+  {
+   "path": "quote.no",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "quote.title",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "quote.date",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "quote.valid_until",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "quote.reference",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "company.name",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "company.address",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "company.vat",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "company.logo",
+   "type": "IMAGE",
+   "required": "N"
+  },
+  {
+   "path": "customer.name",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "customer.address",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "customer.vat",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "intro_text",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "closing_text",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "payment_term",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines",
+   "type": "ARRAY",
+   "required": "Y"
+  },
+  {
+   "path": "lines[].description",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "lines[].amount",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "lines[].line_no",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines[].code",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines[].qty",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines[].uom",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines[].unit_price",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "lines[].discount",
+   "type": "TEXT",
+   "required": "N"
+  },
+  {
+   "path": "has_discount",
+   "type": "BOOLEAN",
+   "required": "Y"
+  },
+  {
+   "path": "totals.net",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "totals.vat",
+   "type": "TEXT",
+   "required": "Y"
+  },
+  {
+   "path": "totals.gross",
+   "type": "TEXT",
+   "required": "Y"
+  }
+ ]
+}

@@ -100,7 +100,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
     nodes      t_nodes,
     children   t_children,
     images     t_images,
-    section_id t_id);
+    section_id t_id,
+    instance   t_flag := 'N');                           -- Y: the merged document (data in runs, no tag nor region)
 
   -- the font a template asks for and its variants used (R B I X = regular bold italic bold-italic): computed at seal
   TYPE t_font_req IS RECORD (name VARCHAR2(100), variants VARCHAR2(4));
@@ -110,6 +111,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
   -- Builder
   -- ---------------------------------------------------------------------------
   FUNCTION new_ri RETURN t_ri;
+  -- the merged document (rad_pdf_merge): the same nodes, data in runs, tags and regions refused
+  FUNCTION new_instance RETURN t_ri;
 
   -- the one section, with its five zones
   FUNCTION section(p_ri IN OUT NOCOPY t_ri, p_page_w IN NUMBER, p_page_h IN NUMBER, p_orientation IN CHAR,

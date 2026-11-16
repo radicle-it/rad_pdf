@@ -37,6 +37,14 @@ CREATE OR REPLACE PACKAGE rad_pdf_codec AUTHID DEFINER IS
   FUNCTION sha256_hex(p_blob IN BLOB) RETURN VARCHAR2;
 
 -- ---------------------------------------------------------------------------
+-- Base64 of LOBs (no line breaks): the RI serialization and the data-URL images of the merge
+-- ---------------------------------------------------------------------------
+  -- The caller frees the returned temporary LOB.
+  FUNCTION base64_encode(p_blob IN BLOB) RETURN CLOB;
+  -- p_offset: the first character of the base64 text in p_clob (after a data-URL prefix, say).
+  FUNCTION base64_decode(p_clob IN CLOB, p_offset IN PLS_INTEGER DEFAULT 1) RETURN BLOB;
+
+-- ---------------------------------------------------------------------------
 -- PDF numeric formatting
 -- ---------------------------------------------------------------------------
 

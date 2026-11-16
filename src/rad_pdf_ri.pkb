@@ -143,11 +143,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     END IF;
   END check_ref;
 
+  -- an instance (the merged document) holds the data: no tag, no region
+  PROCEDURE check_template(p_ri IN t_ri, p_what IN VARCHAR2) IS
+  BEGIN
+    IF p_ri.instance = 'Y' THEN fail('an instance holds no ' || p_what || ': the merge has resolved it'); END IF;
+  END check_template;
+
   FUNCTION region(p_ri IN OUT NOCOPY t_ri, p_in IN t_id, p_what IN VARCHAR2, p_family IN VARCHAR2,
                   p_kind IN VARCHAR2, p_scope IN VARCHAR2, p_path IN VARCHAR2) RETURN t_id IS
     l t_node;
   BEGIN
     check_open(p_ri);
+    check_template(p_ri, p_what);
     require_in(p_ri, p_in, p_what, p_family);
     IF p_kind IS NULL OR p_kind NOT IN ('LOOP', 'SECTION') THEN fail(p_what || ': kind LOOP or SECTION'); END IF;
     check_ref(p_what, p_scope, p_path);
@@ -168,6 +175,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     l_id := add_node(l_ri, NULL, l);
     RETURN l_ri;
   END new_ri;
+
+  FUNCTION new_instance RETURN t_ri IS
+    l_ri t_ri := new_ri;
+  BEGIN
+    l_ri.instance := 'Y';
+    RETURN l_ri;
+  END new_instance;
 
   FUNCTION section(p_ri IN OUT NOCOPY t_ri, p_page_w IN NUMBER, p_page_h IN NUMBER, p_orientation IN CHAR,
                    p_mar_top IN NUMBER, p_mar_bottom IN NUMBER, p_mar_left IN NUMBER, p_mar_right IN NUMBER,
@@ -361,6 +375,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   BEGIN
     check_open(p_ri);
     require_in(p_ri, p_in, 'tag', 'INLINE');
+    check_template(p_ri, 'tag');
     IF p_op IS NULL OR p_op NOT IN ('FIELD', 'IMAGE', 'PAGEBREAK') THEN fail('tag op FIELD, IMAGE or PAGEBREAK'); END IF;
     check_ref('tag', p_scope, p_path);
     IF p_op = 'PAGEBREAK' THEN check_break_place(p_ri, p_in, 'a PAGEBREAK tag'); END IF;
@@ -623,37 +638,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     RETURN o;
   END j_node;
 
-  FUNCTION b64(p_blob IN BLOB) RETURN CLOB IS
-    l_out CLOB;
-    l_pos PLS_INTEGER := 1;
-    l_len PLS_INTEGER := dbms_lob.getlength(p_blob);
-    l_chunk CONSTANT PLS_INTEGER := 23808;              -- a multiple of 3 and of 48
-  BEGIN
-    dbms_lob.createtemporary(l_out, TRUE);
-    WHILE l_pos <= l_len LOOP
-      dbms_lob.append(l_out, translate(utl_raw.cast_to_varchar2(utl_encode.base64_encode(
-        dbms_lob.substr(p_blob, l_chunk, l_pos))), 'x' || chr(10) || chr(13), 'x'));
-      l_pos := l_pos + l_chunk;
-    END LOOP;
-    RETURN l_out;
-  END b64;
-
-  FUNCTION unb64(p_clob IN CLOB) RETURN BLOB IS
-    l_out BLOB;
-    l_pos PLS_INTEGER := 1;
-    l_len PLS_INTEGER := dbms_lob.getlength(p_clob);
-    l_chunk CONSTANT PLS_INTEGER := 31744;              -- a multiple of 4
-    l_raw RAW(32767);
-  BEGIN
-    dbms_lob.createtemporary(l_out, TRUE);
-    WHILE l_pos <= l_len LOOP
-      l_raw := utl_encode.base64_decode(utl_raw.cast_to_raw(dbms_lob.substr(p_clob, l_chunk, l_pos)));
-      dbms_lob.writeappend(l_out, utl_raw.length(l_raw), l_raw);
-      l_pos := l_pos + l_chunk;
-    END LOOP;
-    RETURN l_out;
-  END unb64;
-
   FUNCTION to_json(p_ri IN t_ri) RETURN CLOB IS
     o  json_object_t := json_object_t();
     a  json_array_t := json_array_t();
@@ -663,11 +647,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   BEGIN
     validate(p_ri);                                      -- the consume boundary: the sealed flag is not trusted
     o.put('ri_version', p_ri.ri_version);
+    IF p_ri.instance = 'Y' THEN o.put('instance', 'Y'); END IF;    -- absent for a template: its dump is unchanged
     FOR i IN 1 .. p_ri.images.COUNT LOOP
       t := json_object_t();
       t.put('id', i); t.put('format', p_ri.images(i).format); t.put('px_w', p_ri.images(i).px_w);
       t.put('px_h', p_ri.images(i).px_h); t.put('sha256', p_ri.images(i).sha256);
-      l_b64 := b64(p_ri.images(i).bytes);
+      l_b64 := rad_pdf_codec.base64_encode(p_ri.images(i).bytes);
       t.put('bytes', l_b64);
       dbms_lob.freetemporary(l_b64);
       a.append(t);
@@ -879,10 +864,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       fail('ri_version ' || rn(o, 'ri_version') || ' (this engine reads ' || c_ri_version || ')');
     END IF;
     l_ri := new_ri;
+    IF o.has('instance') THEN
+      IF rs(o, 'instance') <> 'Y' THEN fail('member instance is Y or absent'); END IF;
+      l_ri.instance := 'Y';
+    END IF;
     a := ra(o, 'images');
     FOR i IN 0 .. a.get_size - 1 LOOP
       t := ao(a, i, 'image');
-      l_bytes := unb64(rc(t, 'bytes'));
+      l_bytes := rad_pdf_codec.base64_decode(rc(t, 'bytes'));
       l_id := add_image(l_ri, l_bytes, rs(t, 'format'), rn(t, 'px_w'), rn(t, 'px_h'));
       dbms_lob.freetemporary(l_bytes);
       IF rn(t, 'id') <> l_id THEN fail('image ' || l_id || ': its id is ' || rn(t, 'id')); END IF;
@@ -949,7 +938,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
         fail('image ' || i || ': the hash does not match its bytes');
       END IF;
     END LOOP;
+    IF nvl(p_ri.instance, '#') NOT IN ('Y', 'N') THEN fail('instance must be Y or N'); END IF;
     q := new_ri;
+    q.instance := p_ri.instance;
     q.images := p_ri.images;                              -- the same locators, checked above; q owns nothing to free
     l_visited(1) := TRUE;
     replay(p_ri, q, 1, 1, l_seen, l_visited);

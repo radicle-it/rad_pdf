@@ -16,6 +16,7 @@ PROMPT
 -- Phase 8 — public facade
 -- -----------------------------------------------------------------------
 PROMPT --- dropping package rad_pdf
+DROP PACKAGE rad_pdf_merge;
 DROP PACKAGE rad_pdf_ri;
 DROP PACKAGE rad_pdf;
 DROP PACKAGE rad_pdf_doc;
