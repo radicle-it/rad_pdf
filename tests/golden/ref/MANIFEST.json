@@ -1,7 +1,11 @@
 {
  "clock": "TIMESTAMP '2026-01-01 00:00:00'",
- "commit": "919da6a",
+ "commit": "b65d1534ba71c01ca1c3248e16fb3dd9672da616",
  "files": {
+  "cid_subset.sql": {
+   "cid_subset_1": "d1d2ac9f4eb8e97fd43b95df12a3ff830a30440f076e7ea8fedad14d09aba966",
+   "cid_subset_2": "1cad9ce536164617f60519e6700a4e232e2bbdc4bb30714d77525e071a2e5147"
+  },
   "many_pages.sql": {
    "many_pages_1": "fac23ca537d7456831db5e16a6aa41610ed4856c7fef1a865ed0dadc5f7a9ac3"
   },
@@ -86,7 +90,7 @@
   },
   "two_docs_preloaded_ttf.sql": {
    "two_docs_preloaded_ttf_1": "7fe8c9a047340a4db8778e8fcc19c274bb0a7ddcdfadc2e754bdfc89bb9f58bf",
-   "two_docs_preloaded_ttf_2": "dfdffa04532d7dbb1beb236812f814570d8f51a0944f7bc7d9919efc29808d5c"
+   "two_docs_preloaded_ttf_2": "1c05b7aa4905cab5a198aa34b894ce4c7dbbbfab9b1ded803b474188e08f72db"
   },
   "two_docs_template_styles.sql": {
    "two_docs_template_styles_1": "bba51df724477780f25c9d5cb200b5f694650c1e007486400e0b6e5853714aa4",
@@ -94,6 +98,6 @@
    "two_docs_template_styles_3": "304639d2bb1530c8c95dd8e6b545f92400a6b13bdf01025d116bc22245e050a2"
   }
  },
- "note": "baseline references: recorded with the sources of 919da6a (7109e6f + the fixed clock), before A2-A6; many_pages_1 with the sources of fd65981 (before A6, VARCHAR2 resources). Not re-recorded after the changes on purpose: check compares the changes with the code before them.",
+ "note": "Re-recorded at b65d153 (doc 96 E1, Roberto 2026-11-16). Against the previous references (manifest of 9d92542): 32 documents byte-identical; two_docs_preloaded_ttf_2 changes by A2 (pages identical, PIXELS: FirstChar 65->67, only its own characters); cid_subset_1/2 added, the only CID documents: against references recorded before the subset tag (285e5f9) PIXELS identical and the decompressed files differ only by the tag, the xref offsets and /ID; veraPDF PASS on pdfa_1, pdfa_2, cid_subset_2.",
  "src_dirty": false
 }

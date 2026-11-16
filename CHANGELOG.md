@@ -7,6 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ### Fixed
 
+- Embedded subset fonts (CID/Type0) carry the six-letter subset tag of ISO 32000-1
+  §9.6.4 in `/BaseFont` and `/FontName` (`TAG+Name`). The tag is deterministic: a
+  hash of the font and of the document's glyph set, so documents stay reproducible.
 - Render complete CLOB paragraphs across pages; measure and draw inline text with
   the same line metrics, including mixed font sizes and explicit line breaks.
 - Continue content at the actual end of SQL/refcursor tables and apply headers and
