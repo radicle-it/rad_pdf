@@ -25,7 +25,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_docx AUTHID DEFINER AS
 
   c_err_docx   CONSTANT PLS_INTEGER := -20846;          -- [PDF_DOCX]
   c_err_budget CONSTANT PLS_INTEGER := -20842;          -- [PDF_BUDGET]
-  c_max_depth  CONSTANT PLS_INTEGER := 64;              -- XML nesting (96a §8)
+  c_max_depth    CONSTANT PLS_INTEGER := 64;            -- XML nesting (96a §8)
+  c_max_elements CONSTANT PLS_INTEGER := 200000;        -- XML elements of one read, all parts (proposed with B4)
 
   -- one entry of the report (96a §7.3)
   TYPE t_issue IS RECORD (

@@ -49,14 +49,18 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   direct with theme fonts; every element on an allowlist (supported, ignored, a
   WARNING or an ERROR of the degradation matrix, `matrix_text`); the tags of §6
   (lexical across runs, regions ROW > PARAGRAPHS > INLINE, paths resolved once
-  against the schema). `[PDF_DOCX]` -20846. Tests: `tests/word/docx_cases.py`
+  against the schema); toggles (bold, italic) as ECMA-376 §17.7.3 with Word's
+  reset in paragraph styles; at most 200,000 XML elements per read; paragraphs of
+  any length. Every ZIP entry has its CRC-32 and size checked, local headers
+  agree with the central directory. `[PDF_DOCX]` -20846. Tests: `tests/word/docx_cases.py`
   (positive templates, warnings, the errors of the matrix and of the tags, the
   hostile packages, a session that reads again after a refusal, no temporary LOB
   left); the quote read from its .docx gives the hand-built RI
   (`tests/word/quote_ri.py`).
 - `rad_pdf_codec.inflate_raw`: raw deflate with the output bounded during
-  decompression (`c_err_inflate_limit` -20847); `flate_decode` shares it and now
-  reads its input in chunks (same output).
+  decompression (`c_err_inflate_limit` -20847); `flate_decode` shares it, reads
+  its input in chunks and decodes through 9-bit lookup tables with a hex table
+  for the output: same output, about 50 times faster (0.9 us per byte measured).
 
 ### Fixed (Word evolution)
 

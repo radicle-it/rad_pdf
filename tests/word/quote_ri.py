@@ -56,7 +56,8 @@ def ascii_json(path):
 WORD_PDF = SAMPLES / 'sal_quote_v1_word.pdf'
 DOCX = SAMPLES / 'sal_quote_v1.docx'
 # the reader's report on the quote: no error; these warnings, each once (96a section 7.2)
-READ_WARNINGS = [('KEEP_LINES', 'style Heading1'), ('TAB_CENTER', 'style Header'), ('TAB_CENTER', 'style Footer')]
+READ_WARNINGS = [('KEEP_LINES', 'style Heading1'), ('TAB_CENTER', 'style Header'), ('TAB_CENTER', 'style Footer'),
+                 ('WIDOW', 'document')]       # widow control is on unless turned off (ECMA-376 17.3.1.44)
 
 
 def b64_appends(path, var='l_b64'):

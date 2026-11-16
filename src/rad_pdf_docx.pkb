@@ -32,9 +32,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     first  PLS_INTEGER,
     last   PLS_INTEGER,
     nxt    PLS_INTEGER,
-    txt    VARCHAR2(32767),
-    attrs  VARCHAR2(32767));                             -- ' p:name=value' pairs, values URI-encoded
+    txt    VARCHAR2(32767),                              -- w:t / w:instrText: at most c_chunk characters
+    more   rad_pdf_ri.t_num_list,                        -- a longer w:t: the index of its other pieces in t_ctx.long
+    attrs  VARCHAR2(32767),                              -- ' p:name=value' pairs, values URI-encoded
+    ign    VARCHAR2(4000));                              -- the root only: the namespaces its mc:Ignorable declares
   TYPE t_els IS TABLE OF t_el INDEX BY PLS_INTEGER;
+  TYPE t_strs IS TABLE OF VARCHAR2(32767) INDEX BY PLS_INTEGER;
+  c_chunk CONSTANT PLS_INTEGER := 2000;                 -- characters per text piece (8000 bytes at most in UTF-8)
 
   TYPE t_rel IS RECORD (kind VARCHAR2(100), target VARCHAR2(400), external BOOLEAN);
   TYPE t_rels IS TABLE OF t_rel INDEX BY VARCHAR2(200);
@@ -52,9 +56,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   TYPE t_tabops IS TABLE OF t_tabop;
   TYPE t_pp IS RECORD (align CHAR(1), ind_left NUMBER, ind_right NUMBER, ind_first NUMBER, space_before NUMBER,
                        space_after NUMBER, line_mult NUMBER, keep_next CHAR(1), break_before CHAR(1),
-                       tabs t_tabops := t_tabops());
+                       widow CHAR(1), tabs t_tabops := t_tabops());
+  -- a table's properties (style chain, then direct): the effective values decide the diagnostics
   TYPE t_tp IS RECORD (borders rad_pdf_ri.t_borders, mar_top NUMBER, mar_bottom NUMBER, mar_left NUMBER,
-                       mar_right NUMBER);
+                       mar_right NUMBER, jc VARCHAR2(20), ind NUMBER, layout VARCHAR2(10));
 
   -- the model of pass A: containers, blocks, tokens
   TYPE t_obj IS RECORD (
@@ -136,6 +141,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     regs      t_regs,
     images    t_nmap,                                    -- image part -> resource
     text_w    NUMBER,                                    -- the width between the margins
+    long      t_strs,                                    -- the pieces of long w:t beyond their first one
+    elements  NUMBER := 0,                               -- XML elements read so far
+    compat_ts BOOLEAN := FALSE,                          -- settings: overrideTableStyleFontSizeAndJustification
     even_odd  BOOLEAN := FALSE);
 
   -- ===========================================================================
@@ -364,18 +372,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     RETURN rad_pdf_zip.extract(c.docx, c.z, l_i);
   END part_bytes;
 
-  -- one XML part flattened by one XMLTABLE query: no DTD and no entity (refused before parsing), UTF-8 only
+  -- one XML part flattened by one XMLTABLE query: no DTD and no entity (refused before parsing), UTF-8 only; the
+  -- element count (c_max_elements over the whole read) and the depth (c_max_depth) checked BEFORE the flattening;
+  -- a w:t longer than c_chunk characters comes back in pieces (no VARCHAR2 limit on a paragraph)
   FUNCTION load_xml(c IN OUT NOCOPY t_ctx, p_name IN VARCHAR2) RETURN t_els IS
     l_b    BLOB := part_bytes(c, p_name);
     l_x    XMLTYPE;
     l_els  t_els;
     l_head RAW(4);
-    TYPE t_row IS RECORD (depth PLS_INTEGER, nm VARCHAR2(100), uri VARCHAR2(300), txt VARCHAR2(32767), attrs VARCHAR2(32767));
+    l_n    NUMBER;
+    l_deep NUMBER;
+    TYPE t_row IS RECORD (ord PLS_INTEGER, depth PLS_INTEGER, nm VARCHAR2(100), uri VARCHAR2(300), tlen NUMBER,
+                          txt VARCHAR2(32767), attrs VARCHAR2(32767));
     TYPE t_rows IS TABLE OF t_row;
     l_rows  t_rows;
     TYPE t_stack IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
     l_stack t_stack;
     l_p     PLS_INTEGER;
+    l_long  CLOB;
   BEGIN
     l_head := dbms_lob.substr(l_b, 4, 1);
     IF utl_raw.substr(l_head, 1, 2) IN (hextoraw('FFFE'), hextoraw('FEFF')) THEN
@@ -390,13 +404,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
       WHEN OTHERS THEN refuse('part "' || p_name || '" is not well-formed XML (' || substr(sqlerrm, 1, 200) || ')');
     END;
     dbms_lob.freetemporary(l_b);
-    SELECT depth, nm, uri, txt, attrs BULK COLLECT INTO l_rows
+    -- the budgets first, cheaply: how many elements, and the first one deeper than allowed (found early in a deep
+    -- part: the walk stops at it)
+    SELECT count(*) INTO l_n FROM xmltable('$x//*' PASSING l_x AS "x");
+    c.elements := c.elements + l_n;
+    IF c.elements > c_max_elements THEN
+      over('more than ' || c_max_elements || ' XML elements (part "' || p_name || '")');
+    END IF;
+    SELECT count(*) INTO l_deep
+      FROM xmltable('($x/descendant::*[count(ancestor::*) > $d])[1]' PASSING l_x AS "x", CAST(c_max_depth AS NUMBER) AS "d");
+    IF l_deep > 0 THEN over('part "' || p_name || '" nests XML deeper than ' || c_max_depth); END IF;
+    SELECT ord, depth, nm, uri, tlen, txt, attrs BULK COLLECT INTO l_rows
       FROM xmltable('$x//*' PASSING l_x AS "x" COLUMNS
              ord   FOR ORDINALITY,
              depth NUMBER          PATH 'count(ancestor::*)',
              nm    VARCHAR2(100)   PATH 'local-name(.)',
              uri   VARCHAR2(300)   PATH 'namespace-uri(.)',
-             txt   VARCHAR2(32767) PATH 'if (local-name(.) = ("t", "instrText")) then string(.) else ""',
+             tlen  NUMBER          PATH 'if (local-name(.) = ("t", "instrText")) then string-length(.) else 0',
+             txt   VARCHAR2(32767) PATH 'if (local-name(.) = ("t", "instrText")) then substring(string(.), 1, 2000) else ""',
              attrs VARCHAR2(32767) PATH 'string-join(for $a in @* return concat(
                  if (namespace-uri($a) = "http://schemas.openxmlformats.org/wordprocessingml/2006/main") then "w:"
                  else if (namespace-uri($a) = "http://schemas.openxmlformats.org/officeDocument/2006/relationships") then "r:"
@@ -405,7 +430,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
                  local-name($a), "=", encode-for-uri(string($a))), " ")')
      ORDER BY ord;
     FOR i IN 1 .. l_rows.COUNT LOOP
-      IF l_rows(i).depth > c_max_depth THEN over('part "' || p_name || '" nests XML deeper than ' || c_max_depth); END IF;
       l_els(i).depth := l_rows(i).depth;
       l_els(i).nm    := l_rows(i).nm;
       l_els(i).uri   := l_rows(i).uri;
@@ -413,6 +437,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
       l_els(i).txt   := l_rows(i).txt;
       l_els(i).attrs := l_rows(i).attrs;
       IF l_els(i).ns = 'strict' THEN refuse('Strict Open XML is not supported (part "' || p_name || '")'); END IF;
+      IF l_rows(i).tlen > c_chunk THEN
+        -- the rest of a long text, read as a CLOB and cut into pieces of c_chunk characters
+        SELECT t INTO l_long FROM xmltable('($x//*)[$n]' PASSING l_x AS "x", CAST(l_rows(i).ord AS NUMBER) AS "n"
+                                           COLUMNS t CLOB PATH 'string(.)');
+        l_els(i).more := rad_pdf_ri.t_num_list();
+        FOR j IN 1 .. ceil(l_rows(i).tlen / c_chunk) - 1 LOOP
+          c.long(c.long.COUNT + 1) := dbms_lob.substr(l_long, c_chunk, j * c_chunk + 1);
+          l_els(i).more.EXTEND;
+          l_els(i).more(j) := c.long.COUNT;
+        END LOOP;
+        dbms_lob.freetemporary(l_long);
+      END IF;
       l_stack(l_rows(i).depth) := i;
       IF l_rows(i).depth > 0 THEN
         l_p := l_stack(l_rows(i).depth - 1);
@@ -421,10 +457,19 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
         l_els(l_p).last := i;
       END IF;
     END LOOP;
+    -- the namespaces the root declares ignorable (mc:Ignorable): its prefixes resolved on the root
+    IF l_rows.COUNT > 0 THEN
+      SELECT ign INTO l_els(1).ign
+        FROM xmltable('$x/*' PASSING l_x AS "x" COLUMNS ign VARCHAR2(4000) PATH
+               'string-join(for $p in tokenize(normalize-space(string(@*[local-name(.) = "Ignorable" and
+                 namespace-uri(.) = "http://schemas.openxmlformats.org/markup-compatibility/2006"])), " ")
+                 return string(namespace-uri-for-prefix($p, .)), " ")');
+    END IF;
     RETURN l_els;
   EXCEPTION
     WHEN OTHERS THEN
       IF l_b IS NOT NULL AND dbms_lob.istemporary(l_b) = 1 THEN dbms_lob.freetemporary(l_b); END IF;
+      IF l_long IS NOT NULL AND dbms_lob.istemporary(l_long) = 1 THEN dbms_lob.freetemporary(l_long); END IF;
       RAISE;
   END load_xml;
 
@@ -600,8 +645,57 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   -- property layers: each procedure lays the properties of one element over the ones in hand, and reports the
   -- elements it does not support (p_once for styles: one report per style)
   -- ---------------------------------------------------------------------------
+  -- ---------------------------------------------------------------------------
+  -- property layers: one procedure per property element (rPr, pPr, tblPr, tcPr, borders, margins), the SAME for a
+  -- style and for direct formatting; each lays its element over the properties in hand and classifies EVERY child:
+  -- applied, ignored (no visible effect), a WARNING or an ERROR. p_once: a style reports once.
+  -- ---------------------------------------------------------------------------
+
+  -- an element of a Word extension namespace (w14, w15 ...): ignorable only when the part declares its namespace
+  -- in mc:Ignorable AND the element is a known one; a known text effect is a warning; anything else is an ERROR
+  -- (an unknown container may hold text that would vanish)
+  PROCEDURE ext_issue(c IN OUT NOCOPY t_ctx, x IN t_els, p_k IN PLS_INTEGER, p_part VARCHAR2, p_pos VARCHAR2,
+                      p_near VARCHAR2, p_once BOOLEAN) IS
+    l_ign BOOLEAN := instr(' ' || x(1).ign || ' ', ' ' || x(p_k).uri || ' ') > 0;
+  BEGIN
+    IF l_ign AND x(p_k).nm IN ('ligatures', 'numForm', 'numSpacing', 'stylisticSets', 'cntxtAlts', 'collapsed',
+                                'footnoteColumns', 'conflictMode') THEN
+      NULL;
+    ELSIF l_ign AND x(p_k).nm IN ('glow', 'shadow', 'reflection', 'textOutline', 'textFill', 'props3d', 'scene3d') THEN
+      issue(c, 'RUN_EFFECT', x(p_k).nm, p_part, p_pos, p_near, TRUE);
+    ELSE
+      issue(c, 'ELEMENT', CASE WHEN l_ign THEN 'unknown extension ' ELSE 'extension not declared ignorable ' END
+                          || x(p_k).nm || ' {' || x(p_k).uri || '}', p_part, p_pos, p_near, p_once);
+    END IF;
+  END ext_issue;
+
+  -- the common head of every classifier: TRUE when the child is dealt with here (extension, foreign, revision)
+  FUNCTION other_child(c IN OUT NOCOPY t_ctx, x IN t_els, p_k IN PLS_INTEGER, p_part VARCHAR2, p_pos VARCHAR2,
+                       p_near VARCHAR2, p_once BOOLEAN) RETURN BOOLEAN;
+
+  FUNCTION is_revision(e IN t_el) RETURN BOOLEAN IS
+  BEGIN
+    RETURN e.ns = 'w' AND e.nm IN ('ins', 'del', 'moveFrom', 'moveTo', 'rPrChange', 'pPrChange', 'tblPrChange',
+                                    'tcPrChange', 'trPrChange', 'sectPrChange', 'tblGridChange', 'cellIns', 'cellDel',
+                                    'cellMerge', 'numberingChange', 'moveFromRangeStart', 'moveFromRangeEnd',
+                                    'moveToRangeStart', 'moveToRangeEnd', 'tblPrExChange');
+  END is_revision;
+
+  FUNCTION other_child(c IN OUT NOCOPY t_ctx, x IN t_els, p_k IN PLS_INTEGER, p_part VARCHAR2, p_pos VARCHAR2,
+                       p_near VARCHAR2, p_once BOOLEAN) RETURN BOOLEAN IS
+  BEGIN
+    IF x(p_k).ns = 'ext' THEN ext_issue(c, x, p_k, p_part, p_pos, p_near, p_once); RETURN TRUE; END IF;
+    IF x(p_k).ns <> 'w' THEN
+      issue(c, CASE WHEN x(p_k).ns = 'mc' THEN 'DRAWING' ELSE 'ELEMENT' END, x(p_k).ns || ':' || x(p_k).nm,
+            p_part, p_pos, p_near, p_once);
+      RETURN TRUE;
+    END IF;
+    IF is_revision(x(p_k)) THEN issue(c, 'REVISION', 'w:' || x(p_k).nm, p_part, p_pos, p_near, p_once); RETURN TRUE; END IF;
+    RETURN FALSE;
+  END other_child;
+
   PROCEDURE border_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, b IN OUT NOCOPY rad_pdf_ri.t_border,
-                      p_part VARCHAR2, p_pos VARCHAR2, p_once BOOLEAN) IS
+                      p_part VARCHAR2, p_pos VARCHAR2) IS
     l_v VARCHAR2(30) := attr(x(p_i), 'w:val');
   BEGIN
     IF l_v IN ('nil', 'none') THEN b.style := 'NONE'; b.width := 0; b.color := '000000'; RETURN; END IF;
@@ -618,51 +712,64 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     IF p_i IS NULL THEN RETURN; END IF;
     k := x(p_i).first;
     WHILE k IS NOT NULL LOOP
-      CASE
-        WHEN x(k).nm = 'top' THEN border_of(c, x, k, b.top, p_part, p_pos, p_once);
-        WHEN x(k).nm = 'bottom' THEN border_of(c, x, k, b.bottom, p_part, p_pos, p_once);
-        WHEN x(k).nm IN ('left', 'start') THEN border_of(c, x, k, b.lft, p_part, p_pos, p_once);
-        WHEN x(k).nm IN ('right', 'end') THEN border_of(c, x, k, b.rgt, p_part, p_pos, p_once);
-        WHEN x(k).nm = 'insideH' THEN border_of(c, x, k, b.inside_h, p_part, p_pos, p_once);
-        WHEN x(k).nm = 'insideV' THEN border_of(c, x, k, b.inside_v, p_part, p_pos, p_once);
-        WHEN x(k).nm IN ('tl2br', 'tr2bl') THEN issue(c, 'BORDER_STYLE', 'diagonal', p_part, p_pos, NULL, TRUE);
-        ELSE issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in borders', p_part, p_pos, NULL, p_once);
-      END CASE;
+      IF NOT other_child(c, x, k, p_part, p_pos, NULL, p_once) THEN
+        CASE
+          WHEN x(k).nm = 'top' THEN border_of(c, x, k, b.top, p_part, p_pos);
+          WHEN x(k).nm = 'bottom' THEN border_of(c, x, k, b.bottom, p_part, p_pos);
+          WHEN x(k).nm IN ('left', 'start') THEN border_of(c, x, k, b.lft, p_part, p_pos);
+          WHEN x(k).nm IN ('right', 'end') THEN border_of(c, x, k, b.rgt, p_part, p_pos);
+          WHEN x(k).nm = 'insideH' THEN border_of(c, x, k, b.inside_h, p_part, p_pos);
+          WHEN x(k).nm = 'insideV' THEN border_of(c, x, k, b.inside_v, p_part, p_pos);
+          WHEN x(k).nm IN ('tl2br', 'tr2bl') THEN issue(c, 'BORDER_STYLE', 'diagonal', p_part, p_pos, NULL, TRUE);
+          ELSE issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in borders', p_part, p_pos, NULL, p_once);
+        END CASE;
+      END IF;
       k := x(k).nxt;
     END LOOP;
   END borders_of;
 
-  PROCEDURE margins_of(x IN t_els, p_i IN PLS_INTEGER, t IN OUT NOCOPY t_tp) IS
+  -- tblCellMar / tcMar: twips (dxa) only; another unit is approximated as nothing
+  PROCEDURE margins_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, t IN OUT NOCOPY t_tp,
+                       p_part VARCHAR2, p_pos VARCHAR2, p_once BOOLEAN) IS
     k PLS_INTEGER;
     v NUMBER;
   BEGIN
     IF p_i IS NULL THEN RETURN; END IF;
     k := x(p_i).first;
     WHILE k IS NOT NULL LOOP
-      v := CASE WHEN nvl(attr(x(k), 'w:type'), 'dxa') = 'dxa' THEN pts(attr(x(k), 'w:w'), 20) END;
-      IF v IS NOT NULL THEN
-        CASE
-          WHEN x(k).nm = 'top' THEN t.mar_top := v;
-          WHEN x(k).nm = 'bottom' THEN t.mar_bottom := v;
-          WHEN x(k).nm IN ('left', 'start') THEN t.mar_left := v;
-          WHEN x(k).nm IN ('right', 'end') THEN t.mar_right := v;
-          ELSE NULL;
-        END CASE;
+      IF NOT other_child(c, x, k, p_part, p_pos, NULL, p_once) THEN
+        IF x(k).nm NOT IN ('top', 'bottom', 'left', 'start', 'right', 'end') THEN
+          issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in cell margins', p_part, p_pos, NULL, p_once);
+        ELSIF nvl(attr(x(k), 'w:type'), 'dxa') <> 'dxa' THEN
+          issue(c, 'TABLE_LAYOUT', 'cell margin of type ' || attr(x(k), 'w:type'), p_part, p_pos, NULL, TRUE);
+        ELSE
+          v := pts(attr(x(k), 'w:w'), 20);
+          CASE
+            WHEN x(k).nm = 'top' THEN t.mar_top := v;
+            WHEN x(k).nm = 'bottom' THEN t.mar_bottom := v;
+            WHEN x(k).nm IN ('left', 'start') THEN t.mar_left := v;
+            ELSE t.mar_right := v;
+          END CASE;
+        END IF;
       END IF;
       k := x(k).nxt;
     END LOOP;
   END margins_of;
 
-  -- revision marks inside a property element (rPrChange, pPrChange, ins, del ...)
-  FUNCTION is_revision(e IN t_el) RETURN BOOLEAN IS
+  -- a toggle property (b, i: ECMA-376 §17.7.3): absolute in docDefaults and in direct formatting; in a table or a
+  -- character style ('T') a true value flips the state reached so far and a false one leaves it; in a paragraph style
+  -- ('P') Word sets the state to the value given ([MS-OI29500] 2.1.258, Part 1 §17.7.8), so it is absolute there too
+  PROCEDURE toggle(p_cur IN OUT CHAR, e IN t_el, p_mode IN CHAR) IS
   BEGIN
-    RETURN e.ns = 'w' AND e.nm IN ('ins', 'del', 'moveFrom', 'moveTo', 'rPrChange', 'pPrChange', 'tblPrChange',
-                                    'tcPrChange', 'trPrChange', 'sectPrChange', 'tblGridChange', 'cellIns', 'cellDel',
-                                    'cellMerge', 'numberingChange', 'moveFromRangeStart', 'moveFromRangeEnd',
-                                    'moveToRangeStart', 'moveToRangeEnd');
-  END is_revision;
+    IF p_mode = 'T' THEN
+      IF onoff(e) = 'Y' THEN p_cur := CASE nvl(p_cur, 'N') WHEN 'Y' THEN 'N' ELSE 'Y' END; END IF;
+    ELSE
+      p_cur := onoff(e);
+    END IF;
+  END toggle;
 
-  PROCEDURE rpr_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, r IN OUT NOCOPY t_rp,
+  -- rPr; p_mode: D direct or docDefaults, P paragraph style, T table or character style
+  PROCEDURE rpr_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, r IN OUT NOCOPY t_rp, p_mode IN CHAR,
                    p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN) IS
     k   PLS_INTEGER;
     l_t VARCHAR2(100);
@@ -671,11 +778,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     IF p_i IS NULL THEN RETURN; END IF;
     k := x(p_i).first;
     WHILE k IS NOT NULL LOOP
-      IF x(k).ns = 'ext' THEN NULL;                                         -- w14/w15 extensions: ignorable
-      ELSIF x(k).ns <> 'w' THEN issue(c, 'ELEMENT', x(k).ns || ':' || x(k).nm, p_part, p_pos, p_near, p_once);
-      ELSIF is_revision(x(k)) THEN issue(c, 'REVISION', 'w:' || x(k).nm, p_part, p_pos, p_near, p_once);
-      ELSE
+      IF NOT other_child(c, x, k, p_part, p_pos, p_near, p_once) THEN
         CASE x(k).nm
+          WHEN 'rStyle' THEN NULL;                         -- the character style: applied by the caller, before
           WHEN 'rFonts' THEN
             l_t := attr(x(k), 'w:asciiTheme');
             IF l_t IS NOT NULL THEN
@@ -683,8 +788,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
             ELSIF attr(x(k), 'w:ascii') IS NOT NULL THEN
               r.font := attr(x(k), 'w:ascii');
             END IF;
-          WHEN 'b' THEN r.bold := onoff(x(k));
-          WHEN 'i' THEN r.italic := onoff(x(k));
+          WHEN 'b' THEN toggle(r.bold, x(k), p_mode);
+          WHEN 'i' THEN toggle(r.italic, x(k), p_mode);
           WHEN 'u' THEN
             l_u := nvl(attr(x(k), 'w:val'), 'single');
             r.underline := CASE WHEN l_u = 'none' THEN 'N' ELSE 'Y' END;
@@ -698,7 +803,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
           ELSE
             IF x(k).nm IN ('bCs', 'iCs', 'szCs', 'lang', 'noProof', 'webHidden', 'specVanish', 'kern', 'cs',
                            'eastAsianLayout', 'snapToGrid', 'oMath') THEN
-              NULL;                                                         -- no visible effect on Latin text
+              NULL;                                        -- no visible effect on Latin text
             ELSIF x(k).nm IN ('caps', 'smallCaps', 'strike', 'dstrike', 'vertAlign', 'spacing', 'position', 'w',
                               'effect', 'shadow', 'outline', 'emboss', 'imprint', 'bdr', 'shd', 'em', 'fitText',
                               'vanish') THEN
@@ -717,21 +822,21 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   END rpr_of;
 
   PROCEDURE tabs_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, p IN OUT NOCOPY t_pp,
-                    p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2) IS
+                    p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN) IS
     k   PLS_INTEGER;
     l_v VARCHAR2(20);
     l_o t_tabop;
   BEGIN
     k := x(p_i).first;
     WHILE k IS NOT NULL LOOP
-      IF is_el(x(k), 'w', 'tab') THEN
+      IF other_child(c, x, k, p_part, p_pos, p_near, p_once) THEN NULL;
+      ELSIF x(k).nm <> 'tab' THEN issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in tab stops', p_part, p_pos, p_near, p_once);
+      ELSE
         l_v := attr(x(k), 'w:val');
         l_o.pos := pts(attr(x(k), 'w:pos'), 20);
         l_o.kind := CASE WHEN l_v IN ('left', 'start') THEN 'L' WHEN l_v IN ('right', 'end') THEN 'R'
                          WHEN l_v = 'decimal' THEN 'D' WHEN l_v = 'clear' THEN 'X' END;
-        IF l_v IN ('center', 'bar') THEN issue(c, 'TAB_CENTER', l_v, p_part, p_pos, p_near, TRUE);
-        ELSIF l_o.kind IS NULL THEN issue(c, 'TAB_CENTER', l_v, p_part, p_pos, p_near, TRUE);
-        END IF;
+        IF l_o.kind IS NULL THEN issue(c, 'TAB_CENTER', l_v, p_part, p_pos, p_near, TRUE); END IF;
         IF nvl(attr(x(k), 'w:leader'), 'none') <> 'none' AND l_o.kind <> 'X' THEN
           issue(c, 'TAB_LEADER', attr(x(k), 'w:leader'), p_part, p_pos, p_near, TRUE);
         END IF;
@@ -751,14 +856,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     IF p_i IS NULL THEN RETURN; END IF;
     k := x(p_i).first;
     WHILE k IS NOT NULL LOOP
-      IF x(k).ns = 'ext' THEN NULL;
-      ELSIF x(k).ns <> 'w' THEN issue(c, 'ELEMENT', x(k).ns || ':' || x(k).nm, p_part, p_pos, p_near, p_once);
-      ELSIF is_revision(x(k)) THEN issue(c, 'REVISION', 'w:' || x(k).nm, p_part, p_pos, p_near, p_once);
-      ELSE
+      IF NOT other_child(c, x, k, p_part, p_pos, p_near, p_once) THEN
         CASE x(k).nm
-          WHEN 'pStyle' THEN NULL;                                         -- read by the caller
+          WHEN 'pStyle' THEN NULL;                         -- read by the caller
           WHEN 'keepNext' THEN p.keep_next := onoff(x(k));
           WHEN 'pageBreakBefore' THEN p.break_before := onoff(x(k));
+          WHEN 'widowControl' THEN p.widow := onoff(x(k));   -- reported on its effective value (final_para)
           WHEN 'jc' THEN
             l_v := attr(x(k), 'w:val');
             p.align := CASE WHEN l_v IN ('left', 'start') THEN 'L' WHEN l_v = 'center' THEN 'C'
@@ -791,19 +894,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
                OR attr(x(k), 'w:hangingChars') IS NOT NULL OR attr(x(k), 'w:firstLineChars') IS NOT NULL THEN
               issue(c, 'INDENT', 'indent in characters', p_part, p_pos, p_near, TRUE);
             END IF;
-          WHEN 'tabs' THEN tabs_of(c, x, k, p, p_part, p_pos, p_near);
-          WHEN 'rPr' THEN                                                 -- the paragraph mark: only revisions matter
+          WHEN 'tabs' THEN tabs_of(c, x, k, p, p_part, p_pos, p_near, p_once);
+          WHEN 'rPr' THEN                                  -- the paragraph mark: only revisions and unknowns matter
             q := x(k).first;
             WHILE q IS NOT NULL LOOP
-              IF is_revision(x(q)) THEN issue(c, 'REVISION', 'w:' || x(q).nm, p_part, p_pos, p_near, p_once); END IF;
+              IF NOT other_child(c, x, q, p_part, p_pos, p_near, p_once) THEN NULL; END IF;
               q := x(q).nxt;
             END LOOP;
           WHEN 'sectPr' THEN issue(c, 'SECTION', 'a section break', p_part, p_pos, p_near, p_once);
           WHEN 'numPr' THEN issue(c, 'LIST', NULL, p_part, p_pos, p_near, TRUE);
           WHEN 'keepLines' THEN
             IF onoff(x(k)) = 'Y' THEN issue(c, 'KEEP_LINES', NULL, p_part, p_pos, p_near, TRUE); END IF;
-          WHEN 'widowControl' THEN
-            IF onoff(x(k)) = 'Y' THEN issue(c, 'WIDOW', NULL, p_part, p_pos, p_near, TRUE); END IF;
           WHEN 'contextualSpacing' THEN
             IF onoff(x(k)) = 'Y' THEN issue(c, 'CONTEXTUAL', NULL, p_part, p_pos, p_near, TRUE); END IF;
           WHEN 'framePr' THEN issue(c, 'ANCHORED', 'a frame', p_part, p_pos, p_near, p_once);
@@ -825,47 +926,118 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     END LOOP;
   END ppr_of;
 
-  -- the style chains (basedOn first): a cycle or a chain deeper than 20 is cut
-  PROCEDURE para_style(c IN OUT NOCOPY t_ctx, p_id IN VARCHAR2, p IN OUT NOCOPY t_pp, r IN OUT NOCOPY t_rp,
-                       p_depth IN PLS_INTEGER DEFAULT 0) IS
+  -- tblPr, of a table style or of a table: the same classification; jc, tblInd and tblLayout are judged on their
+  -- effective values by the caller
+  PROCEDURE tblpr_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, t IN OUT NOCOPY t_tp,
+                     p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN) IS
+    k PLS_INTEGER;
   BEGIN
-    IF p_id IS NULL OR NOT c.styles.EXISTS(p_id) OR p_depth > 20 THEN RETURN; END IF;
-    para_style(c, c.styles(p_id).based_on, p, r, p_depth + 1);
-    ppr_of(c, c.sx, c.styles(p_id).ppr, p, c.sp, 'style ' || p_id, NULL, TRUE);
-    rpr_of(c, c.sx, c.styles(p_id).rpr, r, c.sp, 'style ' || p_id, NULL, TRUE);
-  END para_style;
+    IF p_i IS NULL THEN RETURN; END IF;
+    k := x(p_i).first;
+    WHILE k IS NOT NULL LOOP
+      IF NOT other_child(c, x, k, p_part, p_pos, p_near, p_once) THEN
+        CASE x(k).nm
+          WHEN 'tblBorders' THEN borders_of(c, x, k, t.borders, p_part, p_pos, p_once);
+          WHEN 'tblCellMar' THEN margins_of(c, x, k, t, p_part, p_pos, p_once);
+          WHEN 'jc' THEN t.jc := nvl(attr(x(k), 'w:val'), 'left');
+          WHEN 'tblInd' THEN
+            t.ind := CASE WHEN nvl(attr(x(k), 'w:type'), 'dxa') = 'dxa' THEN nvl(pts(attr(x(k), 'w:w'), 20), 0) ELSE 1 END;
+          WHEN 'tblLayout' THEN t.layout := nvl(attr(x(k), 'w:type'), 'autofit');
+          WHEN 'tblpPr' THEN issue(c, 'ANCHORED', 'a floating table', p_part, p_pos, p_near, p_once);
+          WHEN 'bidiVisual' THEN
+            IF onoff(x(k)) = 'Y' THEN issue(c, 'RTL', 'a right-to-left table', p_part, p_pos, p_near, p_once); END IF;
+          WHEN 'tblCellSpacing' THEN issue(c, 'TABLE_LAYOUT', 'cell spacing', p_part, p_pos, p_near, TRUE);
+          WHEN 'shd' THEN issue(c, 'TABLE_LAYOUT', 'table shading', p_part, p_pos, p_near, TRUE);
+          ELSE
+            IF x(k).nm NOT IN ('tblStyle', 'tblW', 'tblLook', 'tblCaption', 'tblDescription', 'tblStyleRowBandSize',
+                               'tblStyleColBandSize', 'tblOverlap') THEN
+              issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in a table format', p_part, p_pos, p_near, p_once);
+            END IF;
+        END CASE;
+      END IF;
+      k := x(k).nxt;
+    END LOOP;
+  END tblpr_of;
 
-  PROCEDURE char_style(c IN OUT NOCOPY t_ctx, p_id IN VARCHAR2, r IN OUT NOCOPY t_rp, p_depth IN PLS_INTEGER DEFAULT 0) IS
+  -- tcPr, of a table style (the default of every cell) or of a cell; p_width: the dxa width of tcW (cells only)
+  PROCEDURE tcpr_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, f IN OUT NOCOPY rad_pdf_ri.t_cell_fmt,
+                    p_width OUT NUMBER, p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN) IS
+    k   PLS_INTEGER;
+    l_v VARCHAR2(40);
+    t   t_tp;
   BEGIN
-    IF p_id IS NULL OR NOT c.styles.EXISTS(p_id) OR p_depth > 20 THEN RETURN; END IF;
-    char_style(c, c.styles(p_id).based_on, r, p_depth + 1);
-    rpr_of(c, c.sx, c.styles(p_id).rpr, r, c.sp, 'style ' || p_id, NULL, TRUE);
-  END char_style;
+    IF p_i IS NULL THEN RETURN; END IF;
+    k := x(p_i).first;
+    WHILE k IS NOT NULL LOOP
+      IF NOT other_child(c, x, k, p_part, p_pos, p_near, p_once) THEN
+        CASE x(k).nm
+          WHEN 'gridSpan' THEN f.grid_span := nvl(num(attr(x(k), 'w:val')), 1);
+          WHEN 'tcW' THEN
+            IF nvl(attr(x(k), 'w:type'), 'dxa') = 'dxa' AND pts(attr(x(k), 'w:w'), 20) > 0 THEN
+              p_width := pts(attr(x(k), 'w:w'), 20);
+            END IF;
+          WHEN 'tcBorders' THEN borders_of(c, x, k, f.borders, p_part, p_pos, p_once);
+          WHEN 'shd' THEN
+            l_v := attr(x(k), 'w:fill');
+            IF l_v IS NOT NULL AND lower(l_v) <> 'auto' THEN f.shading := color(l_v); END IF;
+            IF nvl(attr(x(k), 'w:val'), 'clear') NOT IN ('clear', 'nil') THEN
+              issue(c, 'SHADING', 'pattern ' || attr(x(k), 'w:val'), p_part, p_pos, p_near, TRUE);
+            END IF;
+          WHEN 'tcMar' THEN
+            margins_of(c, x, k, t, p_part, p_pos, p_once);
+            f.mar_top := nvl(t.mar_top, f.mar_top); f.mar_bottom := nvl(t.mar_bottom, f.mar_bottom);
+            f.mar_left := nvl(t.mar_left, f.mar_left); f.mar_right := nvl(t.mar_right, f.mar_right);
+          WHEN 'vMerge' THEN issue(c, 'VMERGE', NULL, p_part, p_pos, p_near);
+          WHEN 'vAlign' THEN
+            IF nvl(attr(x(k), 'w:val'), 'top') <> 'top' THEN issue(c, 'VALIGN', NULL, p_part, p_pos, p_near); END IF;
+          WHEN 'hMerge' THEN issue(c, 'GRID', 'w:hMerge', p_part, p_pos, p_near, p_once);
+          WHEN 'textDirection' THEN
+            IF nvl(attr(x(k), 'w:val'), 'lrTb') NOT IN ('lrTb', 'tb') THEN
+              issue(c, 'RTL', 'text direction', p_part, p_pos, p_near, p_once);
+            END IF;
+          ELSE
+            IF x(k).nm NOT IN ('noWrap', 'tcFitText', 'hideMark', 'cnfStyle', 'headers') THEN
+              issue(c, 'ELEMENT', 'w:' || x(k).nm || ' in a cell format', p_part, p_pos, p_near, p_once);
+            END IF;
+        END CASE;
+      END IF;
+      k := x(k).nxt;
+    END LOOP;
+  END tcpr_of;
 
-  PROCEDURE table_style(c IN OUT NOCOPY t_ctx, p_id IN VARCHAR2, t IN OUT NOCOPY t_tp, p IN OUT NOCOPY t_pp,
-                        r IN OUT NOCOPY t_rp, p_depth IN PLS_INTEGER DEFAULT 0) IS
+  -- one style and its basedOn chain (the chain first): the same visit for the three kinds; p_kind decides the
+  -- toggle mode of its runs (P for a paragraph style, T for a table or character style) and the parts it reads
+  PROCEDURE apply_style(c IN OUT NOCOPY t_ctx, p_id IN VARCHAR2, p_kind IN VARCHAR2, p IN OUT NOCOPY t_pp,
+                        r IN OUT NOCOPY t_rp, t IN OUT NOCOPY t_tp, f IN OUT NOCOPY rad_pdf_ri.t_cell_fmt,
+                        p_depth IN PLS_INTEGER DEFAULT 0) IS
     l_pos VARCHAR2(200) := 'style ' || p_id;
+    l_w   NUMBER;
   BEGIN
     IF p_id IS NULL OR NOT c.styles.EXISTS(p_id) OR p_depth > 20 THEN RETURN; END IF;
-    table_style(c, c.styles(p_id).based_on, t, p, r, p_depth + 1);
-    IF c.styles(p_id).cond THEN issue(c, 'TABLE_CONDITIONAL', p_id, c.sp, l_pos, NULL, TRUE); END IF;
-    IF c.styles(p_id).tblpr IS NOT NULL THEN
-      borders_of(c, c.sx, child(c.sx, c.styles(p_id).tblpr, 'w', 'tblBorders'), t.borders, c.sp, l_pos, TRUE);
-      margins_of(c.sx, child(c.sx, c.styles(p_id).tblpr, 'w', 'tblCellMar'), t);
+    IF nvl(c.styles(p_id).kind, p_kind) <> p_kind THEN RETURN; END IF;     -- a reference to a style of another kind
+    apply_style(c, c.styles(p_id).based_on, p_kind, p, r, t, f, p_depth + 1);
+    IF p_kind = 'table' THEN
+      IF c.styles(p_id).cond THEN issue(c, 'TABLE_CONDITIONAL', p_id, c.sp, l_pos, NULL, TRUE); END IF;
+      tblpr_of(c, c.sx, c.styles(p_id).tblpr, t, c.sp, l_pos, NULL, TRUE);
+      tcpr_of(c, c.sx, c.styles(p_id).tcpr, f, l_w, c.sp, l_pos, NULL, TRUE);
+      IF c.compat_ts AND (c.styles(p_id).ppr IS NOT NULL OR c.styles(p_id).rpr IS NOT NULL) THEN
+        issue(c, 'TABLE_LAYOUT', 'Word''s overrideTableStyleFontSizeAndJustification is not modelled', c.sp, l_pos,
+              NULL, TRUE);
+      END IF;
     END IF;
-    IF c.styles(p_id).tcpr IS NOT NULL THEN issue(c, 'TABLE_LAYOUT', 'cell formats of ' || p_id, c.sp, l_pos, NULL, TRUE); END IF;
-    ppr_of(c, c.sx, c.styles(p_id).ppr, p, c.sp, l_pos, NULL, TRUE);
-    rpr_of(c, c.sx, c.styles(p_id).rpr, r, c.sp, l_pos, NULL, TRUE);
-  END table_style;
+    IF p_kind <> 'character' THEN ppr_of(c, c.sx, c.styles(p_id).ppr, p, c.sp, l_pos, NULL, TRUE); END IF;
+    rpr_of(c, c.sx, c.styles(p_id).rpr, r, CASE p_kind WHEN 'paragraph' THEN 'P' ELSE 'T' END, c.sp, l_pos, NULL, TRUE);
+  END apply_style;
 
   -- the layers under the direct formatting of a paragraph: docDefaults -> table style -> paragraph style
   PROCEDURE base_layers(c IN OUT NOCOPY t_ctx, p_style IN VARCHAR2, p IN OUT NOCOPY t_pp, r IN OUT NOCOPY t_rp) IS
     t t_tp;
+    f rad_pdf_ri.t_cell_fmt;
   BEGIN
     ppr_of(c, c.sx, c.dd_ppr, p, c.sp, 'docDefaults', NULL, TRUE);
-    rpr_of(c, c.sx, c.dd_rpr, r, c.sp, 'docDefaults', NULL, TRUE);
-    IF c.tbl_style IS NOT NULL THEN table_style(c, c.tbl_style, t, p, r); END IF;
-    para_style(c, nvl(p_style, c.def_para), p, r);
+    rpr_of(c, c.sx, c.dd_rpr, r, 'D', c.sp, 'docDefaults', NULL, TRUE);
+    IF c.tbl_style IS NOT NULL THEN apply_style(c, c.tbl_style, 'table', p, r, t, f); END IF;
+    apply_style(c, nvl(p_style, c.def_para), 'paragraph', p, r, t, f);
   END base_layers;
 
   FUNCTION final_fmt(r IN t_rp) RETURN rad_pdf_ri.t_run_fmt IS
@@ -894,6 +1066,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     f.space_after := nvl(p.space_after, 0);
     f.line_mult := nvl(p.line_mult, 1);
     f.keep_next := nvl(p.keep_next, 'N');
+    -- widow control: on unless the hierarchy turns it off (ECMA-376 §17.3.1.44); the paginator does not apply it
+    IF nvl(p.widow, 'Y') = 'Y' THEN
+      issue(c, 'WIDOW', 'on for every paragraph that does not turn it off', p_part, 'document', NULL, TRUE);
+    END IF;
     IF f.ind_left < 0 OR f.ind_right < 0 OR f.ind_left + f.ind_first < 0 THEN
       issue(c, 'INDENT', 'negative indent', p_part, p_pos, p_near);
       f.ind_left := greatest(f.ind_left, 0);
@@ -945,7 +1121,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   BEGIN
     -- adjacent text of one format is one run (Word splits runs for its own bookkeeping)
     IF t.kind = 'TEXT' AND n >= c.objs(p_para).t1 AND n > 0 AND c.toks(n).kind = 'TEXT' AND c.toks(n).para = p_para
-       AND same_fmt(c.toks(n).fmt, t.fmt) THEN
+       AND same_fmt(c.toks(n).fmt, t.fmt) AND length(c.toks(n).text) + length(t.text) <= 2 * c_chunk THEN
       c.toks(n).text := c.toks(n).text || t.text;
       RETURN;
     END IF;
@@ -956,29 +1132,35 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
 
   -- the atoms of one paragraph become its tokens: tags found in each span of text (96a §6.1: lexical, across runs)
 
+  -- one span of text atoms (consecutive TEXT, any formats) into tokens: tags found lexically across the atoms (96a
+  -- §6.1). The span is read through a small window -- the atoms (at most c_chunk characters each) enter one by one,
+  -- the text before a tag or with no pending "{" leaves at once -- so a paragraph has no length limit and a tag may
+  -- straddle two atoms or two pieces of a long w:t
   PROCEDURE scan_span(c IN OUT NOCOPY t_ctx, a IN t_atoms, p_from IN PLS_INTEGER, p_to IN PLS_INTEGER,
                       p_para IN PLS_INTEGER) IS
-    l_s     VARCHAR2(32767);
+    c_tag   CONSTANT VARCHAR2(100) := '^\{[#/%?]?[A-Za-z_][A-Za-z0-9_]*(\.([A-Za-z_][A-Za-z0-9_]*|[0-9]+))*\}';
+    c_reach CONSTANT PLS_INTEGER := 500;                -- the longest tag looked for after a "{"
+    l_s     VARCHAR2(32767);                             -- the window: text not emitted yet
     TYPE t_offs IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
-    l_start t_offs;
+    l_start t_offs;                                      -- where atom k starts in the window (<= 0: partly gone)
+    l_last  PLS_INTEGER;                                 -- the last atom in the window
     l_i     PLS_INTEGER := 1;
-    l_seg   PLS_INTEGER := 1;
     l_p     PLS_INTEGER;
-    l_m     VARCHAR2(500);
+    l_m     VARCHAR2(600);
     t       t_tok;
 
     FUNCTION atom_at(p_off IN PLS_INTEGER) RETURN PLS_INTEGER IS
     BEGIN
-      FOR k IN REVERSE p_from .. p_to LOOP
+      FOR k IN REVERSE p_from .. l_last LOOP
         IF l_start(k) <= p_off THEN RETURN k; END IF;
       END LOOP;
       RETURN p_from;
     END atom_at;
 
-    PROCEDURE text(p_a IN PLS_INTEGER, p_b IN PLS_INTEGER) IS                -- characters p_a .. p_b - 1
-      l_k  PLS_INTEGER;
-      l_e  PLS_INTEGER;
-      l_x  PLS_INTEGER := p_a;
+    PROCEDURE text(p_b IN PLS_INTEGER) IS                -- emits the window's characters 1 .. p_b - 1
+      l_k PLS_INTEGER;
+      l_e PLS_INTEGER;
+      l_x PLS_INTEGER := 1;
     BEGIN
       WHILE l_x < p_b LOOP
         l_k := atom_at(l_x);
@@ -989,31 +1171,53 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
         l_x := l_e;
       END LOOP;
     END text;
+
+    PROCEDURE drop_to(p_n IN PLS_INTEGER) IS            -- the window starts at its character p_n
+    BEGIN
+      l_s := substr(l_s, p_n);
+      FOR k IN p_from .. l_last LOOP l_start(k) := l_start(k) - (p_n - 1); END LOOP;
+    END drop_to;
+
+    PROCEDURE scan(p_final IN BOOLEAN) IS
+    BEGIN
+      LOOP
+        l_p := CASE WHEN l_s IS NULL THEN 0 ELSE instr(l_s, '{', l_i) END;
+        IF l_p = 0 THEN                                  -- nothing pending: all of it leaves
+          text(nvl(length(l_s), 0) + 1);
+          l_s := NULL;
+          FOR k IN p_from .. l_last LOOP l_start(k) := -1000000; END LOOP;
+          l_i := 1;
+          EXIT;
+        END IF;
+        l_m := regexp_substr(substr(l_s, l_p, c_reach), c_tag);
+        IF l_m IS NULL AND NOT p_final AND length(l_s) - l_p < c_reach THEN
+          text(l_p);                                     -- a tag may go on in the next atom: wait for it
+          drop_to(l_p);
+          l_i := 1;
+          EXIT;
+        ELSIF l_m IS NULL THEN
+          issue(c, 'TAG_SYNTAX', NULL, c.objs(p_para).part, c.objs(p_para).pos, substr(l_s, l_p, 40));
+          l_i := l_p + 1;
+        ELSE
+          text(l_p);
+          t := NULL;
+          t.kind := 'TAG';
+          t.fmt := a(atom_at(l_p)).fmt;                  -- the format of the piece holding "{"
+          t.op := CASE WHEN substr(l_m, 2, 1) IN ('#', '/', '%', '?') THEN substr(l_m, 2, 1) ELSE 'F' END;
+          t.path := CASE WHEN t.op = 'F' THEN substr(l_m, 2, length(l_m) - 2) ELSE substr(l_m, 3, length(l_m) - 3) END;
+          add_tok(c, p_para, t);
+          drop_to(l_p + length(l_m));
+          l_i := 1;
+        END IF;
+      END LOOP;
+    END scan;
   BEGIN
     FOR k IN p_from .. p_to LOOP
       l_start(k) := nvl(length(l_s), 0) + 1;
+      l_last := k;
       l_s := l_s || a(k).text;
+      scan(k = p_to);
     END LOOP;
-    LOOP
-      l_p := instr(l_s, '{', l_i);
-      EXIT WHEN l_p = 0;
-      l_m := regexp_substr(substr(l_s, l_p, 500), '^\{[#/%?]?[A-Za-z_][A-Za-z0-9_]*(\.([A-Za-z_][A-Za-z0-9_]*|[0-9]+))*\}');
-      IF l_m IS NULL THEN
-        issue(c, 'TAG_SYNTAX', NULL, c.objs(p_para).part, c.objs(p_para).pos, substr(l_s, l_p, 40));
-        l_i := l_p + 1;
-      ELSE
-        text(l_seg, l_p);
-        t := NULL;
-        t.kind := 'TAG';
-        t.fmt := a(atom_at(l_p)).fmt;                    -- the format of the piece holding "{"
-        t.op := CASE WHEN substr(l_m, 2, 1) IN ('#', '/', '%', '?') THEN substr(l_m, 2, 1) ELSE 'F' END;
-        t.path := CASE WHEN t.op = 'F' THEN substr(l_m, 2, length(l_m) - 2) ELSE substr(l_m, 3, length(l_m) - 3) END;
-        add_tok(c, p_para, t);
-        l_seg := l_p + length(l_m);
-        l_i := l_seg;
-      END IF;
-    END LOOP;
-    text(l_seg, nvl(length(l_s), 0) + 1);
   END scan_span;
 
   FUNCTION field_code(p_instr IN VARCHAR2) RETURN VARCHAR2 IS
@@ -1173,15 +1377,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
       l_rpr PLS_INTEGER := child(c.x, p_r, 'w', 'rPr');
     BEGIN
       IF l_rpr IS NOT NULL AND child(c.x, l_rpr, 'w', 'rStyle') IS NOT NULL THEN
-        char_style(c, attr(c.x(child(c.x, l_rpr, 'w', 'rStyle')), 'w:val'), r);
+        DECLARE p t_pp; t t_tp; cf rad_pdf_ri.t_cell_fmt; BEGIN
+          apply_style(c, attr(c.x(child(c.x, l_rpr, 'w', 'rStyle')), 'w:val'), 'character', p, r, t, cf);
+        END;
       END IF;
-      rpr_of(c, c.x, l_rpr, r, c.part, p_pos, l_near, FALSE);
+      rpr_of(c, c.x, l_rpr, r, 'D', c.part, p_pos, l_near, FALSE);
       f := final_fmt(r);
       k := c.x(p_r).first;
       WHILE k IS NOT NULL LOOP
-        IF c.x(k).ns = 'ext' THEN NULL;
-        ELSIF c.x(k).ns = 'mc' THEN issue(c, 'DRAWING', 'mc:' || c.x(k).nm, c.part, p_pos, l_near);
-        ELSIF c.x(k).ns <> 'w' THEN issue(c, 'ELEMENT', c.x(k).ns || ':' || c.x(k).nm, c.part, p_pos, l_near);
+        IF c.x(k).ns <> 'w' AND other_child(c, c.x, k, c.part, p_pos, l_near, FALSE) THEN NULL;
         ELSIF c.x(k).nm = 'rPr' THEN NULL;
         ELSIF c.x(k).nm = 'fldChar' THEN
           l_v := attr(c.x(k), 'w:fldCharType');
@@ -1204,7 +1408,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
           NULL;                                          -- the instruction's or the result's content
         ELSE
           CASE c.x(k).nm
-            WHEN 't' THEN atom('TEXT', c.x(k).txt, f);
+            WHEN 't' THEN
+              atom('TEXT', c.x(k).txt, f);
+              IF c.x(k).more IS NOT NULL THEN
+                FOR j IN 1 .. c.x(k).more.COUNT LOOP atom('TEXT', c.long(c.x(k).more(j)), f); END LOOP;
+              END IF;
             WHEN 'tab' THEN atom('TAB');
             WHEN 'ptab' THEN issue(c, 'TAB_LEADER', 'positional tab', c.part, p_pos, l_near, TRUE); atom('TAB');
             WHEN 'cr' THEN atom('BR');
@@ -1214,7 +1422,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
               ELSIF l_v = 'column' THEN issue(c, 'SECTION', 'a column break', c.part, p_pos, l_near);
               ELSE atom('BR');
               END IF;
-            WHEN 'noBreakHyphen' THEN atom('TEXT', '-', f);
+            WHEN 'noBreakHyphen' THEN
+              issue(c, 'RUN_EFFECT', 'a non-breaking hyphen drawn as a hyphen', c.part, p_pos, l_near, TRUE);
+              atom('TEXT', '-', f);
             WHEN 'softHyphen' THEN NULL;
             WHEN 'lastRenderedPageBreak' THEN NULL;
             WHEN 'sym' THEN issue(c, 'SYMBOL', attr(c.x(k), 'w:font') || ' ' || attr(c.x(k), 'w:char'), c.part, p_pos, l_near);
@@ -1244,10 +1454,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
       k PLS_INTEGER := c.x(p_parent).first;
     BEGIN
       WHILE k IS NOT NULL LOOP
-        IF c.x(k).ns = 'ext' THEN NULL;
-        ELSIF c.x(k).ns = 'mc' THEN issue(c, 'DRAWING', 'mc:' || c.x(k).nm, c.part, p_pos, l_near);
-        ELSIF c.x(k).ns <> 'w' THEN issue(c, 'ELEMENT', c.x(k).ns || ':' || c.x(k).nm, c.part, p_pos, l_near);
-        ELSIF is_revision(c.x(k)) THEN issue(c, 'REVISION', 'w:' || c.x(k).nm, c.part, p_pos, l_near);
+        IF other_child(c, c.x, k, c.part, p_pos, l_near, FALSE) THEN NULL;
         ELSE
           CASE c.x(k).nm
             WHEN 'pPr' THEN NULL;
@@ -1262,7 +1469,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
                 l_ffmt := final_fmt(r0);
                 IF child(c.x, k, 'w', 'r') IS NOT NULL AND child(c.x, child(c.x, k, 'w', 'r'), 'w', 'rPr') IS NOT NULL THEN
                   DECLARE r t_rp := r0; BEGIN
-                    rpr_of(c, c.x, child(c.x, child(c.x, k, 'w', 'r'), 'w', 'rPr'), r, c.part, p_pos, l_near, FALSE);
+                    rpr_of(c, c.x, child(c.x, child(c.x, k, 'w', 'r'), 'w', 'rPr'), r, 'D', c.part, p_pos, l_near, FALSE);
                     l_ffmt := final_fmt(r);
                   END;
                 END IF;
@@ -1323,187 +1530,152 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   -- one w:tbl (never inside a cell: 96a §7.2)
   PROCEDURE walk_table(c IN OUT NOCOPY t_ctx, p_el IN PLS_INTEGER, p_container IN PLS_INTEGER, p_prefix IN VARCHAR2) IS
     l_pos    VARCHAR2(200) := p_prefix;
+    l_near   VARCHAR2(100) := text_of(c.x, p_el);
     l_tpr    PLS_INTEGER := child(c.x, p_el, 'w', 'tblPr');
     l_style  VARCHAR2(200);
     t        t_tp;
     p0       t_pp;
     r0       t_rp;
+    l_cf0    rad_pdf_ri.t_cell_fmt;                      -- the cells' default: the table style's tcPr, the margins
+    l_cf     rad_pdf_ri.t_cell_fmt;
     l_tbl    PLS_INTEGER;
     l_row    PLS_INTEGER;
     l_cell   PLS_INTEGER;
     l_grid   rad_pdf_ri.t_num_list := rad_pdf_ri.t_num_list();
-    l_first  rad_pdf_ri.t_num_list := rad_pdf_ri.t_num_list();
-    l_one    BOOLEAN := TRUE;                            -- the first row: one cell per grid column, widths in dxa
+    l_saved  VARCHAR2(200) := c.tbl_style;
     l_nrow   PLS_INTEGER := 0;
     l_ncell  PLS_INTEGER;
-    l_saved  VARCHAR2(200) := c.tbl_style;
+    l_w      NUMBER;
+    l_sum    NUMBER := 0;
     k        PLS_INTEGER;
     q        PLS_INTEGER;
     m        PLS_INTEGER;
-    l_tcpr   PLS_INTEGER;
-    l_cf     rad_pdf_ri.t_cell_fmt;
-    ct       t_tp;
-    l_v      VARCHAR2(40);
-    l_near   VARCHAR2(100) := text_of(c.x, p_el);
-    l_jc     VARCHAR2(20) := 'left';
-    l_sum    NUMBER := 0;
-
-    PROCEDURE table_pr IS
-      j PLS_INTEGER := c.x(l_tpr).first;
-    BEGIN
-      WHILE j IS NOT NULL LOOP
-        IF c.x(j).ns = 'ext' THEN NULL;
-        ELSIF is_revision(c.x(j)) THEN issue(c, 'REVISION', 'w:' || c.x(j).nm, c.part, l_pos, l_near);
-        ELSE
-          CASE c.x(j).nm
-            WHEN 'tblBorders' THEN borders_of(c, c.x, j, t.borders, c.part, l_pos, FALSE);
-            WHEN 'tblCellMar' THEN margins_of(c.x, j, t);
-            WHEN 'tblpPr' THEN issue(c, 'ANCHORED', 'a floating table', c.part, l_pos, l_near);
-            WHEN 'bidiVisual' THEN IF onoff(c.x(j)) = 'Y' THEN issue(c, 'RTL', 'a right-to-left table', c.part, l_pos, l_near); END IF;
-            WHEN 'jc' THEN l_jc := nvl(attr(c.x(j), 'w:val'), 'left');
-            WHEN 'tblInd' THEN
-              IF nvl(pts(attr(c.x(j), 'w:w'), 20), 0) <> 0 THEN issue(c, 'TABLE_LAYOUT', 'indent', c.part, l_pos, l_near); END IF;
-            WHEN 'tblLayout' THEN
-              IF nvl(attr(c.x(j), 'w:type'), 'autofit') <> 'fixed' THEN issue(c, 'TABLE_LAYOUT', 'autofit', c.part, l_pos, l_near); END IF;
-            WHEN 'tblCellSpacing' THEN issue(c, 'TABLE_LAYOUT', 'cell spacing', c.part, l_pos, l_near);
-            WHEN 'shd' THEN issue(c, 'TABLE_LAYOUT', 'table shading', c.part, l_pos, l_near);
-            ELSE
-              IF c.x(j).nm NOT IN ('tblStyle', 'tblW', 'tblLook', 'tblCaption', 'tblDescription', 'tblStyleRowBandSize',
-                                   'tblStyleColBandSize', 'tblOverlap') THEN
-                issue(c, 'ELEMENT', 'w:' || c.x(j).nm || ' in a table format', c.part, l_pos, l_near);
-              END IF;
-          END CASE;
-        END IF;
-        j := c.x(j).nxt;
-      END LOOP;
-    END table_pr;
+    -- every cell: its row, span and dxa width, for the grid and its diagnostics
+    TYPE t_cw IS RECORD (row PLS_INTEGER, span PLS_INTEGER, w NUMBER);
+    TYPE t_cws IS TABLE OF t_cw INDEX BY PLS_INTEGER;
+    l_cws    t_cws;
+    l_col    PLS_INTEGER;
+    l_exp    NUMBER;
+    l_rowpos VARCHAR2(200);
+    l_rownear VARCHAR2(100);
   BEGIN
     IF l_tpr IS NOT NULL AND child(c.x, l_tpr, 'w', 'tblStyle') IS NOT NULL THEN
       l_style := attr(c.x(child(c.x, l_tpr, 'w', 'tblStyle')), 'w:val');
     END IF;
     l_style := nvl(l_style, c.def_table);
-    table_style(c, l_style, t, p0, r0);
-    IF l_tpr IS NOT NULL THEN table_pr; END IF;
+    -- the table's properties: its style chain, then its own tblPr, classified by the same procedures
+    apply_style(c, l_style, 'table', p0, r0, t, l_cf0);
+    tblpr_of(c, c.x, l_tpr, t, c.part, l_pos, l_near, FALSE);
     c.tbl_style := l_style;
     l_tbl := new_obj(c, 'TABLE', p_container, l_pos, l_near);
     c.objs(l_tbl).borders := t.borders;
+    l_cf0.grid_span := 1;
+    l_cf0.mar_top := nvl(t.mar_top, 0); l_cf0.mar_bottom := nvl(t.mar_bottom, 0);
+    l_cf0.mar_left := nvl(t.mar_left, 0); l_cf0.mar_right := nvl(t.mar_right, 0);
     -- the grid
     q := child(c.x, p_el, 'w', 'tblGrid');
     k := CASE WHEN q IS NOT NULL THEN c.x(q).first END;
     WHILE k IS NOT NULL LOOP
-      IF is_el(c.x(k), 'w', 'gridCol') THEN
-        l_grid.EXTEND; l_grid(l_grid.COUNT) := nvl(pts(attr(c.x(k), 'w:w'), 20), 0);
-      ELSIF is_revision(c.x(k)) THEN issue(c, 'REVISION', 'w:' || c.x(k).nm, c.part, l_pos, l_near);
+      IF other_child(c, c.x, k, c.part, l_pos, l_near, FALSE) THEN NULL;
+      ELSIF c.x(k).nm = 'gridCol' THEN l_grid.EXTEND; l_grid(l_grid.COUNT) := nvl(pts(attr(c.x(k), 'w:w'), 20), 0);
+      ELSE issue(c, 'ELEMENT', 'w:' || c.x(k).nm || ' in a table grid', c.part, l_pos, l_near);
       END IF;
       k := c.x(k).nxt;
     END LOOP;
     -- the rows
     k := c.x(p_el).first;
     WHILE k IS NOT NULL LOOP
-      IF c.x(k).ns = 'w' AND c.x(k).nm = 'tr' THEN
+      IF other_child(c, c.x, k, c.part, l_pos, l_near, FALSE) THEN NULL;
+      ELSIF c.x(k).nm IN ('tblPr', 'tblGrid', 'bookmarkStart', 'bookmarkEnd', 'proofErr', 'permStart', 'permEnd') THEN NULL;
+      ELSIF c.x(k).nm <> 'tr' THEN issue(c, 'ELEMENT', 'w:' || c.x(k).nm || ' in a table', c.part, l_pos, l_near);
+      ELSE
         l_nrow := l_nrow + 1;
-        l_row := new_obj(c, 'ROW', l_tbl, p_prefix || ', row ' || l_nrow, text_of(c.x, k));
+        l_rowpos := p_prefix || ', row ' || l_nrow;
+        l_rownear := text_of(c.x, k);
+        l_row := new_obj(c, 'ROW', l_tbl, l_rowpos, l_rownear);
         c.objs(l_row).header := 'N';
         c.objs(l_row).cant := 'N';
         l_ncell := 0;
         q := c.x(k).first;
         WHILE q IS NOT NULL LOOP
-          IF c.x(q).ns = 'ext' THEN NULL;
-          ELSIF c.x(q).ns <> 'w' THEN issue(c, 'ELEMENT', c.x(q).ns || ':' || c.x(q).nm, c.part, c.objs(l_row).pos, c.objs(l_row).near);
-          ELSIF is_revision(c.x(q)) THEN issue(c, 'REVISION', 'w:' || c.x(q).nm, c.part, c.objs(l_row).pos, c.objs(l_row).near);
+          IF other_child(c, c.x, q, c.part, l_rowpos, l_rownear, FALSE) THEN NULL;
           ELSIF c.x(q).nm = 'trPr' THEN
             m := c.x(q).first;
             WHILE m IS NOT NULL LOOP
-              IF is_revision(c.x(m)) THEN issue(c, 'REVISION', 'w:' || c.x(m).nm, c.part, c.objs(l_row).pos, c.objs(l_row).near);
+              IF other_child(c, c.x, m, c.part, l_rowpos, l_rownear, FALSE) THEN NULL;
               ELSIF c.x(m).nm = 'tblHeader' THEN c.objs(l_row).header := onoff(c.x(m));
               ELSIF c.x(m).nm = 'cantSplit' THEN c.objs(l_row).cant := onoff(c.x(m));
-              ELSIF c.x(m).nm = 'trHeight' THEN issue(c, 'ROW_HEIGHT', NULL, c.part, c.objs(l_row).pos, c.objs(l_row).near);
-              ELSIF c.x(m).nm IN ('gridBefore', 'gridAfter', 'wBefore', 'wAfter') THEN
-                IF nvl(num(attr(c.x(m), 'w:val')), 0) <> 0 OR c.x(m).nm IN ('wBefore', 'wAfter') AND nvl(num(attr(c.x(m), 'w:w')), 0) <> 0 THEN
-                  issue(c, 'GRID', 'w:' || c.x(m).nm, c.part, c.objs(l_row).pos, c.objs(l_row).near);
-                END IF;
-              ELSIF c.x(m).nm = 'tblCellSpacing' THEN issue(c, 'TABLE_LAYOUT', 'cell spacing', c.part, c.objs(l_row).pos, c.objs(l_row).near);
-              ELSIF c.x(m).nm = 'hidden' THEN issue(c, 'ELEMENT', 'a hidden row', c.part, c.objs(l_row).pos, c.objs(l_row).near);
-              ELSIF c.x(m).ns = 'ext' OR c.x(m).nm IN ('jc', 'cnfStyle', 'divId') THEN NULL;
-              ELSE issue(c, 'ELEMENT', 'w:' || c.x(m).nm || ' in a row format', c.part, c.objs(l_row).pos, c.objs(l_row).near);
+              ELSIF c.x(m).nm = 'trHeight' THEN issue(c, 'ROW_HEIGHT', NULL, c.part, l_rowpos, l_rownear);
+              ELSIF c.x(m).nm IN ('gridBefore', 'gridAfter') THEN
+                IF nvl(num(attr(c.x(m), 'w:val')), 0) <> 0 THEN issue(c, 'GRID', 'w:' || c.x(m).nm, c.part, l_rowpos, l_rownear); END IF;
+              ELSIF c.x(m).nm IN ('wBefore', 'wAfter') THEN
+                IF nvl(num(attr(c.x(m), 'w:w')), 0) <> 0 THEN issue(c, 'GRID', 'w:' || c.x(m).nm, c.part, l_rowpos, l_rownear); END IF;
+              ELSIF c.x(m).nm = 'tblCellSpacing' THEN issue(c, 'TABLE_LAYOUT', 'cell spacing', c.part, l_rowpos, l_rownear);
+              ELSIF c.x(m).nm = 'hidden' THEN issue(c, 'ELEMENT', 'a hidden row', c.part, l_rowpos, l_rownear);
+              ELSIF c.x(m).nm IN ('jc', 'cnfStyle', 'divId') THEN NULL;
+              ELSE issue(c, 'ELEMENT', 'w:' || c.x(m).nm || ' in a row format', c.part, l_rowpos, l_rownear);
               END IF;
               m := c.x(m).nxt;
             END LOOP;
-          ELSIF c.x(q).nm = 'tblPrEx' THEN issue(c, 'TABLE_LAYOUT', 'row exceptions', c.part, c.objs(l_row).pos, c.objs(l_row).near);
+          ELSIF c.x(q).nm = 'tblPrEx' THEN issue(c, 'TABLE_LAYOUT', 'row exceptions', c.part, l_rowpos, l_rownear);
           ELSIF c.x(q).nm = 'tc' THEN
             l_ncell := l_ncell + 1;
-            l_cell := new_obj(c, 'CELL', l_row, p_prefix || ', row ' || l_nrow || ', cell ' || l_ncell, text_of(c.x, q));
-            l_cf := NULL;
-            l_cf.grid_span := 1;
-            ct := t;
-            l_cf.mar_top := nvl(t.mar_top, 0); l_cf.mar_bottom := nvl(t.mar_bottom, 0);
-            l_cf.mar_left := nvl(t.mar_left, 0); l_cf.mar_right := nvl(t.mar_right, 0);
-            ct.mar_top := NULL; ct.mar_bottom := NULL; ct.mar_left := NULL; ct.mar_right := NULL;
-            l_tcpr := child(c.x, q, 'w', 'tcPr');
-            m := CASE WHEN l_tcpr IS NOT NULL THEN c.x(l_tcpr).first END;
-            WHILE m IS NOT NULL LOOP
-              IF c.x(m).ns = 'ext' THEN NULL;
-              ELSIF is_revision(c.x(m)) THEN issue(c, 'REVISION', 'w:' || c.x(m).nm, c.part, c.objs(l_cell).pos, c.objs(l_cell).near);
-              ELSE
-                CASE c.x(m).nm
-                  WHEN 'gridSpan' THEN l_cf.grid_span := nvl(num(attr(c.x(m), 'w:val')), 1);
-                  WHEN 'tcW' THEN
-                    IF l_nrow = 1 THEN
-                      IF nvl(attr(c.x(m), 'w:type'), 'dxa') = 'dxa' AND pts(attr(c.x(m), 'w:w'), 20) > 0 THEN
-                        l_first.EXTEND; l_first(l_first.COUNT) := pts(attr(c.x(m), 'w:w'), 20);
-                      ELSE l_one := FALSE;
-                      END IF;
-                    END IF;
-                  WHEN 'tcBorders' THEN borders_of(c, c.x, m, l_cf.borders, c.part, c.objs(l_cell).pos, FALSE);
-                  WHEN 'shd' THEN
-                    l_v := attr(c.x(m), 'w:fill');
-                    IF l_v IS NOT NULL AND lower(l_v) <> 'auto' THEN l_cf.shading := color(l_v); END IF;
-                    IF nvl(attr(c.x(m), 'w:val'), 'clear') NOT IN ('clear', 'nil') THEN
-                      issue(c, 'SHADING', 'pattern ' || attr(c.x(m), 'w:val'), c.part, c.objs(l_cell).pos, c.objs(l_cell).near);
-                    END IF;
-                  WHEN 'tcMar' THEN
-                    margins_of(c.x, m, ct);
-                    l_cf.mar_top := nvl(ct.mar_top, l_cf.mar_top); l_cf.mar_bottom := nvl(ct.mar_bottom, l_cf.mar_bottom);
-                    l_cf.mar_left := nvl(ct.mar_left, l_cf.mar_left); l_cf.mar_right := nvl(ct.mar_right, l_cf.mar_right);
-                  WHEN 'vMerge' THEN issue(c, 'VMERGE', NULL, c.part, c.objs(l_cell).pos, c.objs(l_cell).near);
-                  WHEN 'vAlign' THEN
-                    IF nvl(attr(c.x(m), 'w:val'), 'top') <> 'top' THEN issue(c, 'VALIGN', NULL, c.part, c.objs(l_cell).pos, c.objs(l_cell).near); END IF;
-                  WHEN 'hMerge' THEN issue(c, 'GRID', 'w:hMerge', c.part, c.objs(l_cell).pos, c.objs(l_cell).near);
-                  WHEN 'textDirection' THEN
-                    IF nvl(attr(c.x(m), 'w:val'), 'lrTb') NOT IN ('lrTb', 'tb') THEN issue(c, 'RTL', 'text direction', c.part, c.objs(l_cell).pos, c.objs(l_cell).near); END IF;
-                  ELSE
-                    IF c.x(m).nm NOT IN ('noWrap', 'tcFitText', 'hideMark', 'cnfStyle', 'headers') THEN
-                      issue(c, 'ELEMENT', 'w:' || c.x(m).nm || ' in a cell format', c.part, c.objs(l_cell).pos, c.objs(l_cell).near);
-                    END IF;
-                END CASE;
-              END IF;
-              m := c.x(m).nxt;
-            END LOOP;
-            IF l_nrow = 1 AND l_cf.grid_span <> 1 THEN l_one := FALSE; END IF;
+            l_cell := new_obj(c, 'CELL', l_row, l_rowpos || ', cell ' || l_ncell, text_of(c.x, q));
+            l_cf := l_cf0;
+            l_w := NULL;
+            tcpr_of(c, c.x, child(c.x, q, 'w', 'tcPr'), l_cf, l_w, c.part, c.objs(l_cell).pos, c.objs(l_cell).near, FALSE);
             c.objs(l_cell).cell := l_cf;
-            walk_blocks(c, q, l_cell, p_prefix || ', row ' || l_nrow || ', cell ' || l_ncell || ', ', TRUE);
+            l_cws(l_cws.COUNT + 1).row := l_nrow;
+            l_cws(l_cws.COUNT).span := l_cf.grid_span;
+            l_cws(l_cws.COUNT).w := l_w;
+            walk_blocks(c, q, l_cell, l_rowpos || ', cell ' || l_ncell || ', ', TRUE);
           ELSIF c.x(q).nm IN ('bookmarkStart', 'bookmarkEnd', 'proofErr', 'permStart', 'permEnd') THEN NULL;
-          ELSE issue(c, 'ELEMENT', 'w:' || c.x(q).nm || ' in a row', c.part, c.objs(l_row).pos, c.objs(l_row).near);
+          ELSE issue(c, 'ELEMENT', 'w:' || c.x(q).nm || ' in a row', c.part, l_rowpos, l_rownear);
           END IF;
           q := c.x(q).nxt;
         END LOOP;
-      ELSIF c.x(k).ns = 'w' AND c.x(k).nm IN ('tblPr', 'tblGrid', 'bookmarkStart', 'bookmarkEnd', 'proofErr', 'permStart', 'permEnd') THEN
-        NULL;
-      ELSIF c.x(k).ns = 'ext' THEN NULL;
-      ELSIF is_revision(c.x(k)) THEN issue(c, 'REVISION', 'w:' || c.x(k).nm, c.part, l_pos, l_near);
-      ELSE issue(c, 'ELEMENT', c.x(k).ns || ':' || c.x(k).nm || ' in a table', c.part, l_pos, l_near);
       END IF;
       k := c.x(k).nxt;
     END LOOP;
-    -- the column widths: Word lays a fixed table out from its cells' widths and recomputes tblGrid from them, so the
-    -- first row decides when it has one dxa-wide cell per grid column; tblGrid otherwise
-    IF l_one AND l_first.COUNT = l_grid.COUNT AND l_grid.COUNT > 0 THEN l_grid := l_first; END IF;
+    -- the column widths. Word lays a fixed table out from its cells' preferred widths (tcW) and rewrites tblGrid
+    -- from them: when the FIRST row has one dxa-wide cell per grid column, its widths are the grid; tblGrid
+    -- otherwise. Any cell whose width then differs from its columns by more than 1 pt is reported (approximated).
+    DECLARE
+      l_first rad_pdf_ri.t_num_list := rad_pdf_ri.t_num_list();
+      l_ok    BOOLEAN := TRUE;
+    BEGIN
+      FOR i IN 1 .. l_cws.COUNT LOOP
+        IF l_cws(i).row = 1 THEN
+          IF l_cws(i).span <> 1 OR l_cws(i).w IS NULL THEN l_ok := FALSE; ELSE l_first.EXTEND; l_first(l_first.COUNT) := l_cws(i).w; END IF;
+        END IF;
+      END LOOP;
+      IF l_ok AND l_first.COUNT = l_grid.COUNT AND l_grid.COUNT > 0 THEN l_grid := l_first; END IF;
+    END;
     c.objs(l_tbl).grid := l_grid;
-    -- the alignment matters only for a table narrower than the text (1 pt of tolerance)
+    l_col := 0;
+    FOR i IN 1 .. l_cws.COUNT LOOP
+      IF i = 1 OR l_cws(i).row <> l_cws(i - 1).row THEN l_col := 0; END IF;
+      l_exp := 0;
+      FOR j IN l_col + 1 .. l_col + l_cws(i).span LOOP
+        IF j <= l_grid.COUNT THEN l_exp := l_exp + l_grid(j); END IF;
+      END LOOP;
+      l_col := l_col + l_cws(i).span;
+      IF l_cws(i).w IS NOT NULL AND abs(l_cws(i).w - l_exp) > 1 THEN
+        issue(c, 'TABLE_LAYOUT', 'cell widths that differ from the columns: the columns are used', c.part, l_pos, l_near, TRUE);
+      END IF;
+      IF i = l_cws.COUNT OR l_cws(i + 1).row <> l_cws(i).row THEN
+        IF l_col <> l_grid.COUNT THEN
+          issue(c, 'GRID', 'row ' || l_cws(i).row || ' spans ' || l_col || ' of ' || l_grid.COUNT || ' columns', c.part, l_pos, l_near);
+        END IF;
+      END IF;
+    END LOOP;
+    -- the effective table properties that the RI does not carry
     FOR i IN 1 .. l_grid.COUNT LOOP l_sum := l_sum + l_grid(i); END LOOP;
-    IF l_jc NOT IN ('left', 'start') AND l_sum < c.text_w - 1 THEN
-      issue(c, 'TABLE_LAYOUT', 'alignment ' || l_jc, c.part, l_pos, l_near);
+    IF nvl(t.jc, 'left') NOT IN ('left', 'start') AND l_sum < c.text_w - 1 THEN
+      issue(c, 'TABLE_LAYOUT', 'alignment ' || t.jc, c.part, l_pos, l_near);
     END IF;
+    IF nvl(t.ind, 0) <> 0 THEN issue(c, 'TABLE_LAYOUT', 'indent', c.part, l_pos, l_near); END IF;
+    IF nvl(t.layout, 'autofit') <> 'fixed' THEN issue(c, 'TABLE_LAYOUT', 'autofit', c.part, l_pos, l_near); END IF;
     c.tbl_style := l_saved;
   EXCEPTION
     WHEN OTHERS THEN
@@ -1518,10 +1690,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     l_nt   PLS_INTEGER := 0;
   BEGIN
     WHILE k IS NOT NULL LOOP
-      IF c.x(k).ns = 'ext' THEN NULL;
-      ELSIF c.x(k).ns = 'mc' THEN issue(c, 'DRAWING', 'mc:' || c.x(k).nm, c.part, p_prefix || 'after paragraph ' || l_np, NULL);
-      ELSIF c.x(k).ns <> 'w' THEN issue(c, 'ELEMENT', c.x(k).ns || ':' || c.x(k).nm, c.part, p_prefix || 'after paragraph ' || l_np, NULL);
-      ELSIF is_revision(c.x(k)) THEN issue(c, 'REVISION', 'w:' || c.x(k).nm, c.part, p_prefix || 'after paragraph ' || l_np, text_of(c.x, k));
+      IF other_child(c, c.x, k, c.part, p_prefix || 'after paragraph ' || l_np, text_of(c.x, k), FALSE) THEN NULL;
       ELSE
         CASE c.x(k).nm
           WHEN 'p' THEN
@@ -1860,6 +2029,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
       END IF;
       k := child(l_sx, 1, 'w', 'evenAndOddHeaders');
       l_even := k IS NOT NULL AND onoff(l_sx(k)) = 'Y';
+      k := descendant(l_sx, 1, 'w', 'compatSetting');
+      WHILE k IS NOT NULL LOOP                           -- the compatibility switches: only one matters here
+        IF attr(l_sx(k), 'w:name') = 'overrideTableStyleFontSizeAndJustification' AND attr(l_sx(k), 'w:val') = '1' THEN
+          c.compat_ts := TRUE;
+        END IF;
+        k := l_sx(k).nxt;
+        IF k IS NOT NULL AND NOT is_el(l_sx(k), 'w', 'compatSetting') THEN k := NULL; END IF;
+      END LOOP;
       l_sx.DELETE;
     END IF;
     -- the body
@@ -1873,8 +2050,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     IF l_sect IS NOT NULL AND NOT is_el(c.x(l_sect), 'w', 'sectPr') THEN l_sect := NULL; END IF;
     k := CASE WHEN l_sect IS NOT NULL THEN c.x(l_sect).first END;
     WHILE k IS NOT NULL LOOP
-      IF c.x(k).ns <> 'w' THEN NULL;
-      ELSIF is_revision(c.x(k)) THEN issue(c, 'REVISION', 'w:' || c.x(k).nm, c.part, 'section');
+      IF other_child(c, c.x, k, c.part, 'section', NULL, FALSE) THEN NULL;
       ELSE
         CASE c.x(k).nm
           WHEN 'pgSz' THEN

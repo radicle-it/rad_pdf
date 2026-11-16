@@ -118,11 +118,12 @@ def png_header_only(w, h):
     return png(1, 1)[:16] + struct.pack('>II', w, h) + png(1, 1)[24:]
 
 
-def docx(*blocks, styles=STYLES, sect=SECT, rels=(), parts=None, ct=(), doc_xml=None, settings=None):
+def docx(*blocks, styles=STYLES, sect=SECT, rels=(), parts=None, ct=(), doc_xml=None, settings=None, ignorable=None):
     """a minimal .docx: blocks = the body's XML pieces; rels = (Id, type suffix, target[, external]);
-    parts = {name: bytes}; ct = extra Override"""
+    parts = {name: bytes}; ct = extra Override; ignorable = the mc:Ignorable prefixes of the document"""
     body = ''.join(blocks)
-    doc = doc_xml or f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {NS}><w:body>{body}{sect}</w:body></w:document>'
+    ign = f' mc:Ignorable="{ignorable}"' if ignorable else ''
+    doc = doc_xml or f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {NS}{ign}><w:body>{body}{sect}</w:body></w:document>'
     ext = ' TargetMode="External"'
     rl = ''.join(f'<Relationship Id="{r[0]}" Type="{REL}{r[1]}" Target="{r[2]}"'
                  f'{ext if len(r) > 3 and r[3] else ""}/>' for r in rels)
@@ -160,22 +161,35 @@ def hdr(body, kind='hdr'):
 # a ZIP writer that can lie (hostile packages)
 # ---------------------------------------------------------------------------------------------------------------
 def raw_zip(entries, central_extra=None):
-    """entries: dicts name, data, method (0/8), flags, usize/csize overrides, offset (point the central record at
-    another local header); central_extra: more central records (dicts like entries, with 'offset')"""
+    """entries: dicts name, data, method (0/8), flags, usize/csize/crc overrides (both records), local (a dict of
+    overrides for the local header only: method, flags, crc, csize, usize), dd (sizes in a data descriptor: bit 3,
+    zeros in the local header, the descriptor after the data), raw (the compressed bytes as given), offset (point the
+    central record at another local header); central_extra: more central records (dicts with 'offset')"""
     out, central, offs = BytesIO(), [], {}
     for e in entries:
         data = e['data']
-        comp = data if e.get('method', 8) == 0 else zlib.compressobj(9, zlib.DEFLATED, -15).compress(data) + zlib.compressobj(9, zlib.DEFLATED, -15).flush()
-        if e.get('method', 8) == 8:
+        method = e.get('method', 8)
+        if 'raw' in e:
+            comp = e['raw']
+        elif method == 8:
             co = zlib.compressobj(9, zlib.DEFLATED, -15)
             comp = co.compress(data) + co.flush()
-        crc = zlib.crc32(data) & 0xffffffff
+        else:
+            comp = data
+        crc = e.get('crc', zlib.crc32(data) & 0xffffffff)
         name = e['name'].encode('utf-8')
         us, cs = e.get('usize', len(data)), e.get('csize', len(comp))
+        flags = e.get('flags', 0) | (8 if e.get('dd') else 0)
+        loc = dict(method=method, flags=flags, crc=crc, csize=cs, usize=us)
+        if e.get('dd'):
+            loc.update(crc=0, csize=0, usize=0)
+        loc.update(e.get('local', {}))
         offs[e['name']] = out.tell()
-        out.write(struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, e.get('flags', 0), e.get('method', 8), 0, 0, crc, cs, us,
-                              len(name), 0) + name + comp)
-        central.append((name, e.get('flags', 0), e.get('method', 8), crc, cs, us, e.get('offset', offs[e['name']])))
+        out.write(struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, loc['flags'], loc['method'], 0, 0, loc['crc'],
+                              loc['csize'], loc['usize'], len(name), 0) + name + comp)
+        if e.get('dd'):
+            out.write(struct.pack('<IIII', 0x08074b50, crc, cs, us))
+        central.append((name, flags, method, crc, cs, us, e.get('offset', offs[e['name']])))
     for c in central_extra or []:
         central.append((c['name'].encode(), 0, c.get('method', 0), c.get('crc', 0), c['csize'], c['usize'], c['offset']))
     cd = out.tell()
@@ -207,6 +221,57 @@ def bomb_text(n, keep=0.02):
     block = 1000
     k = max(1, int(block * keep))
     return b''.join(bytes(rnd.getrandbits(8) for _ in range(k)) + b'\0' * (block - k) for _ in range(n // block))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# structural checks on the RI (the canonical JSON parsed): each returns None or what is wrong
+# ---------------------------------------------------------------------------------------------------------------
+def nodes(n, kind=None):
+    if kind is None or n.get('kind') == kind:
+        yield n
+    for k in n.get('children', []):
+        yield from nodes(k, kind)
+
+
+def body(ri):
+    return next(z for z in nodes(ri['document'], 'zone') if z['name'] == 'body')
+
+
+def fmt_is(text, **want):
+    """the run whose text is TEXT has these format fields"""
+    def check(ri):
+        runs = [r for r in nodes(ri['document'], 'run') if r['text'] == text]
+        if not runs:
+            return f'no run "{text[:30]}"'
+        got = {k: runs[0]['fmt'][k] for k in want}
+        return None if got == want else f'run "{text[:30]}": {got} instead of {want}'
+    return check
+
+
+def para_text(i, want):
+    """the i-th paragraph of the body: its runs and tags in order ({path} for a tag) make WANT"""
+    def check(ri):
+        paras = list(nodes(body(ri), 'paragraph'))
+        got = ''.join(n['text'] if n['kind'] == 'run' else '{' + n['path'] + '}' if n['kind'] == 'tag' else ''
+                      for n in nodes(paras[i]) if n is not paras[i])
+        return None if got == want else f'paragraph {i}: {len(got)} characters, differs from the {len(want)} expected at ' \
+            f'{next((j for j, (x, y) in enumerate(zip(got, want)) if x != y), min(len(got), len(want)))}'
+    return check
+
+
+def grid_is(*cols):
+    def check(ri):
+        g = next(nodes(ri['document'], 'table'))['grid']
+        return None if [round(x, 2) for x in g] == list(cols) else f'grid {g}'
+    return check
+
+
+def field_fmt(code, **want):
+    def check(ri):
+        f = [n for n in nodes(ri['document'], 'field') if n['code'] == code]
+        got = {k: f[0]['fmt'][k] for k in want} if f else None
+        return None if got == want else f'field {code}: {got} instead of {want}'
+    return check
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -283,6 +348,94 @@ case('pos_tab_clear', docx(P('a', '<w:r><w:tab/></w:r>', 'b', ppr='<w:pStyle w:v
                            styles=STYLES + '<w:style w:type="paragraph" w:styleId="Tabbed"><w:pPr><w:tabs>'
                                   '<w:tab w:val="left" w:pos="2000"/><w:tab w:val="right" w:pos="3000"/></w:tabs></w:pPr></w:style>'),
      'RI', ['"tabs":[{"pos":150,"kind":"R"},{"pos":200,"kind":"D"}]'])
+
+# ---- codex-062 R1: character styles, their chain, the direct override ------------------------------------------
+CHAR_STYLES = (STYLES + '<w:style w:type="character" w:styleId="CBase"><w:rPr><w:color w:val="00AA00"/><w:sz w:val="24"/>'
+               '<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/></w:rPr></w:style>'
+               '<w:style w:type="character" w:styleId="CChild"><w:basedOn w:val="CBase"/><w:rPr><w:i/><w:sz w:val="28"/>'
+               '</w:rPr></w:style>')
+case('pos_char_style', docx(P(R('styled', '<w:rStyle w:val="CChild"/>'),
+                              R('override', '<w:rStyle w:val="CChild"/><w:sz w:val="30"/><w:color w:val="0000FF"/>'),
+                              R('plain')), styles=CHAR_STYLES),
+     'RI', [fmt_is('styled', font='Courier New', size=14, italic='Y', bold='N', color='00AA00'),
+            fmt_is('override', font='Courier New', size=15, italic='Y', color='0000FF'),
+            fmt_is('plain', font='Arial', size=10, italic='N', color='000000')])
+
+# ---- codex-062 R2: toggles (ECMA-376 §17.7.3; paragraph styles as Word does, [MS-OI29500] 2.1.258) --------------
+TOGGLE_STYLES = (STYLES
+                 + '<w:style w:type="paragraph" w:styleId="PBold"><w:rPr><w:b/></w:rPr></w:style>'
+                 + '<w:style w:type="paragraph" w:styleId="PBold2"><w:basedOn w:val="PBold"/><w:rPr><w:b/></w:rPr></w:style>'
+                 + '<w:style w:type="paragraph" w:styleId="PItal"><w:rPr><w:i/></w:rPr></w:style>'
+                 + '<w:style w:type="character" w:styleId="CB"><w:rPr><w:b/></w:rPr></w:style>'
+                 + '<w:style w:type="character" w:styleId="CB2"><w:basedOn w:val="CB"/><w:rPr><w:b/></w:rPr></w:style>'
+                 + '<w:style w:type="character" w:styleId="CBoff"><w:rPr><w:b w:val="0"/></w:rPr></w:style>'
+                 + '<w:style w:type="character" w:styleId="CI"><w:rPr><w:i/></w:rPr></w:style>')
+case('pos_toggles', docx(
+    P(R('cchain', '<w:rStyle w:val="CB2"/>')),
+    P(R('para and char', '<w:rStyle w:val="CB"/>'), R('para, char off', '<w:rStyle w:val="CBoff"/>'),
+      R('direct off', '<w:b w:val="0"/>'), R('direct on', '<w:rStyle w:val="CB"/><w:b/>'), ppr='<w:pStyle w:val="PBold"/>'),
+    P(R('italic twice', '<w:rStyle w:val="CI"/>'), ppr='<w:pStyle w:val="PItal"/>'),
+    styles=TOGGLE_STYLES),
+    'RI', [fmt_is('cchain', bold='N'), fmt_is('para and char', bold='N'), fmt_is('para, char off', bold='Y'),
+           fmt_is('direct off', bold='N'), fmt_is('direct on', bold='Y'), fmt_is('italic twice', italic='N')])
+case('pos_para_style_reset', docx(P(R('pchain'), ppr='<w:pStyle w:val="PBold2"/>'), styles=TOGGLE_STYLES),
+     'RI', [fmt_is('pchain', bold='Y')])
+
+# ---- codex-062 R4: paragraphs beyond 32 KB, multibyte text, tags across pieces ----------------------------------
+def words(n, alphabet, seed):
+    """n characters of varied text (a repeated letter would trip the compression ratio)"""
+    import random
+    rnd = random.Random(seed)
+    return ''.join(rnd.choice(alphabet) for _ in range(n))
+
+
+LATIN, MULTI = 'abcdefghijklmnopqrstuvwxyz ', '\u00e8\u00e0\u00f9\u20ac\u00df\u0142 '
+L1, L2, L3, L4 = words(19997, LATIN, 1), words(25000, MULTI, 2), words(1999, LATIN, 3), words(43000, LATIN, 4)
+case('pos_long_paragraph', docx(P(R(L1 + '{na'), R('me}' + L2, '<w:i/>')), P(R(L3 + '{name}' + L4))),
+     'RI', [para_text(0, L1 + '{name}' + L2), para_text(1, L3 + '{name}' + L4), fmt_is(L3, italic='N')])
+
+# ---- codex-062 R3: every context classified, extensions only when declared ignorable ---------------------------
+case('err_style_tblpr_unknown', docx(TBL(TR(TC(P('a')), TC(P('b'))), tblpr='<w:tblStyle w:val="Odd"/>'),
+                                     styles=STYLES + '<w:style w:type="table" w:styleId="Odd"><w:tblPr><w:foo/></w:tblPr></w:style>'),
+     'ERRORS', {'ELEMENT'})
+case('err_direct_tblpr_unknown', docx(TBL(TR(TC(P('a')), TC(P('b'))), tblpr='<w:foo/>')), 'ERRORS', {'ELEMENT'})
+case('warn_table_props_coherent', docx(
+    TBL(TR(TC(P('a')), TC(P('b'))), tblpr='<w:tblStyle w:val="Spaced"/>'),
+    TBL(TR(TC(P('c')), TC(P('d'))), tblpr='<w:tblCellSpacing w:w="40" w:type="dxa"/>'),
+    styles=STYLES + '<w:style w:type="table" w:styleId="Spaced"><w:tblPr><w:tblCellSpacing w:w="40" w:type="dxa"/>'
+                    '</w:tblPr></w:style>'), 'WARNS', {'TABLE_LAYOUT'})
+case('err_cellmar_unknown', docx(TBL(TR(TC(P('a')), TC(P('b'))), tblpr='<w:tblCellMar><w:foo w:w="10"/></w:tblCellMar>')),
+     'ERRORS', {'ELEMENT'})
+case('err_sectpr_foreign', docx(P('x'), sect=SECT.replace('</w:sectPr>', '<o:foo xmlns:o="urn:example:other"/></w:sectPr>')),
+     'ERRORS', {'ELEMENT'})
+case('err_ext_undeclared', docx(P(R('kept'), '<w14:container><w:r><w:t>hidden text</w:t></w:r></w14:container>')),
+     'ERRORS', {'ELEMENT'})
+case('err_ext_unknown', docx(P(R('kept'), '<w14:container><w:r><w:t>hidden text</w:t></w:r></w14:container>'),
+                             ignorable='w14'), 'ERRORS', {'ELEMENT'})
+case('pos_ext_known', docx(P(R('x', '<w14:ligatures w14:val="standard"/>')), ignorable='w14'),
+     'RI', [fmt_is('x', bold='N')])
+
+# ---- codex-062 R6: widow control on its effective value ---------------------------------------------------------
+WIDOW_OFF = STYLES.replace('<w:spacing w:after="0"/>', '<w:spacing w:after="0"/><w:widowControl w:val="0"/>')
+case('warn_widow_default', docx(P('x')), 'RI', [('WARN', 'WIDOW')])
+case('pos_widow_off', docx(P('x')), 'RI', [('NOWARN', 'WIDOW')])
+CASES['pos_widow_off'] = (docx(P('x'), styles=WIDOW_OFF), 'RI', [('NOWARN', 'WIDOW')])
+case('warn_widow_direct_on', docx(P('x', ppr='<w:widowControl/>'), styles=WIDOW_OFF), 'RI', [('WARN', 'WIDOW')])
+
+# ---- codex-062 choices 2 and 7: grid diagnostics, field format, non-breaking hyphen -----------------------------
+case('warn_grid_rows_differ', docx(TBL(TR(TC(P('a')), TC(P('b'))),
+                                       TR(TC(P('c'), tcpr='<w:tcW w:w="3000" w:type="dxa"/>'),
+                                          TC(P('d'), tcpr='<w:tcW w:w="1000" w:type="dxa"/>')))),
+     'RI', [('WARN', 'TABLE_LAYOUT'), grid_is(100, 100)])
+case('pos_grid_span_first_row', docx(TBL(TR(TC(P('a'), tcpr='<w:tcW w:w="4000" w:type="dxa"/><w:gridSpan w:val="2"/>')),
+                                         TR(TC(P('b')), TC(P('c'))))),
+     'RI', [grid_is(100, 100), ('NOWARN', 'TABLE_LAYOUT')])
+case('pos_field_format', docx(P('<w:r><w:rPr><w:b/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>'
+                                '<w:r><w:rPr><w:i/></w:rPr><w:instrText> PAGE </w:instrText></w:r>'
+                                '<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:u w:val="single"/></w:rPr>'
+                                '<w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>')),
+     'RI', [field_fmt('PAGE', bold='Y', italic='N', underline='N')])
+case('warn_no_break_hyphen', docx(P(R('a'), '<w:r><w:noBreakHyphen/></w:r>', R('b'))), 'WARNS', {'RUN_EFFECT'})
 
 # ---- warnings: drawn approximately, reported -----------------------------------------------------------------
 case('warn_matrix', docx(
@@ -390,6 +543,40 @@ case('pkg_strict', docx('', doc_xml='<?xml version="1.0"?><w:document xmlns:w="h
                         '<w:body><w:p/></w:body></w:document>'), 'RAISE', ('PDF_DOCX', 'Strict'))
 
 
+# ---- codex-062 R5: the integrity of every entry and of the local headers (APPNOTE 4.4) ------------------------
+def with_entry(name, **over):
+    """BASE rebuilt with one entry changed (or added when absent)"""
+    ents = entries_of(BASE)
+    if not any(e['name'] == name for e in ents):
+        ents.append({'name': name, 'data': over.pop('data', b'<a/>')})
+    return raw_zip([dict(e, **over) if e['name'] == name else e for e in ents])
+
+
+case('pkg_crc_stored', with_entry('word/styles.xml', method=0, crc=0x12345678), 'RAISE', ('PDF_DOCX', 'CRC-32 mismatch'))
+case('pkg_crc_native', with_entry('word/styles.xml', crc=0x12345678), 'RAISE', ('PDF_DOCX', 'cannot be decompressed'))
+case('pkg_crc_bounded', raw_zip([dict(e, crc=0x12345678) if e['name'] == 'word/media/image1.png' else e
+                                 for e in entries_of(CASES['pos_bounded_inflate'][0])]), 'RAISE', None)
+case('pkg_empty_malformed', with_entry('word/empty.bin', data=b'', raw=b'\xff\xff', csize=2), 'RAISE', None)
+case('pkg_local_method', with_entry('word/styles.xml', local={'method': 0}), 'RAISE', ('PDF_DOCX', 'methods differ'))
+case('pkg_local_encrypted', with_entry('word/styles.xml', local={'flags': 1}), 'RAISE', ('PDF_DOCX', 'encrypted (local header)'))
+case('pkg_local_crc', with_entry('word/styles.xml', local={'crc': 7}), 'RAISE', ('PDF_DOCX', 'CRC or sizes differ'))
+case('pos_data_descriptor', raw_zip([dict(e, dd=True) for e in entries_of(BASE)]), 'RI', ['"text":"Hello "'])
+case('pos_empty_entry', with_entry('word/empty.bin', data=b''), 'RI', ['"text":"Hello "'])
+
+def words_list(n):
+    import random
+    rnd = random.Random(5)
+    return [''.join(rnd.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(24)) for _ in range(n)]
+
+
+# ---- the budget of the XML itself, measured (codex-062): very deep and very many elements --------------------
+case('pkg_deep_xml', docx(P(R('x'), ''.join(f'<w:customXml w:element="e{w}">' for w in words_list(5000))
+                            + '</w:customXml>' * 5000)),
+     'RAISE', ('PDF_DOCX', 'not well-formed'))          # 5000 levels: Oracle's parser refuses it (ORA-31011) first
+case('pkg_many_elements', docx(''.join(f'<w:p w:rsidR="{i:08X}"/>' for i in range(210000))),
+     'RAISE', ('PDF_BUDGET', 'XML elements'))
+
+
 def overlap_zip():
     """a stored entry whose data holds the local header of another entry, both in the central directory"""
     inner_name = b'word/b.xml'
@@ -406,6 +593,8 @@ def overlap_zip():
 
 
 CASES['pkg_overlap'] = (overlap_zip(), 'RAISE', ('PDF_DOCX', 'overlap'))
+CASES['pkg_crc_bounded'] = (CASES['pkg_crc_bounded'][0], 'RAISE', ('PDF_DOCX', 'CRC-32 mismatch'))
+CASES['pkg_empty_malformed'] = (CASES['pkg_empty_malformed'][0], 'RAISE', ('PDF_DOCX', 'empty entry'))
 # no state across reads: in ONE session, a template, a refused package, a template in error, the first template
 # again -- the last read identical to the first (run as one batch, see run())
 SESSION = [('session_first', 'pos_nested_scopes'), ('session_refused', 'pkg_lying_size'),
@@ -455,10 +644,13 @@ DECLARE
     b  BLOB;
     r  rad_pdf_docx.t_result;
     j  CLOB;
+    t0 NUMBER;
   BEGIN
     b := rad_pdf_codec.base64_decode(p_b64);
+    t0 := DBMS_UTILITY.GET_TIME;
     BEGIN
       r := rad_pdf_docx.read(b, l_sch);
+      DBMS_OUTPUT.PUT_LINE('TIME:' || p_name || ':' || (DBMS_UTILITY.GET_TIME - t0));
       j := rad_pdf_docx.report_json(r);
       out_lob('REP:' || p_name || ':', j);
       DBMS_LOB.FREETEMPORARY(j);
@@ -470,6 +662,7 @@ DECLARE
       END IF;
     EXCEPTION
       WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('TIME:' || p_name || ':' || (DBMS_UTILITY.GET_TIME - t0));
         DBMS_OUTPUT.PUT_LINE('RAISED:' || p_name || ':' || REGEXP_SUBSTR(SQLERRM, '[^' || CHR(10) || ']+'));
     END;
     DBMS_LOB.FREETEMPORARY(b);
@@ -491,7 +684,7 @@ def run(names):
         for line in out.splitlines():
             if line.startswith('LOBS:'):
                 got.setdefault('lobs', {}).setdefault(line.split(':')[1], []).append(int(line.split(':')[2]))
-            for tag in ('REP', 'RI', 'RAISED'):
+            for tag in ('REP', 'RI', 'RAISED', 'TIME'):
                 if line.startswith(tag + ':'):
                     name, _, rest = line[len(tag) + 1:].partition(':')
                     got.setdefault(name, {}).setdefault(tag, []).append(rest)
@@ -520,9 +713,13 @@ def main():
             good = rep is not None and not errs and expect <= warns and bool(ri)
             detail = f'warnings {sorted(warns)}, errors {sorted(errs)}' if rep else f'raised {raised}'
         elif kind == 'RI':
-            missing = [t for t in expect if t not in ri]
-            good = rep is not None and not errs and bool(ri) and not missing
-            detail = (f'missing {missing}' if missing else 'all texts found') if rep else f'raised {raised}'
+            parsed = json.loads(ri) if ri else None
+            missing = [t for t in expect if isinstance(t, str) and t not in ri]
+            wrong = [m for m in (t(parsed) for t in expect if callable(t) and parsed) if m]
+            missing += [t for t in expect if isinstance(t, tuple) and t[0] == 'NOWARN' and t[1] in warns]
+            missing += [t for t in expect if isinstance(t, tuple) and t[0] == 'WARN' and t[1] not in warns]
+            good = rep is not None and not errs and bool(ri) and not missing and not wrong
+            detail = (f'missing {missing} {wrong}' if missing or wrong else 'all checks pass') if rep else f'raised {raised}'
             if rep and errs:
                 detail = f'errors {sorted(errs)}: ' + '; '.join(i['message'] for i in rep['issues'] if i['severity'] == 'ERROR')
         elif kind == 'RAISE':
@@ -530,7 +727,8 @@ def main():
             good = raised is not None and f'[{code}]' in raised and text in raised
             detail = f'raised {raised}' if raised else f'not refused: errors {sorted(errs)}'
         ok = ok and good
-        print(f'{"ok  " if good else "FAIL"} {n:32s} {kind:7s} {detail[:220]}')
+        cs = g.get('TIME', ['?'])[0]
+        print(f'{"ok  " if good else "FAIL"} {n:32s} {kind:7s} {int(cs) / 100 if cs.isdigit() else cs:6} s  {detail[:200]}')
     first, again = got.get('session_first', {}), got.get('session_again', {})
     good = (bool(first.get('RI')) and first.get('RI') == again.get('RI') and first.get('REP') == again.get('REP')
             and 'RAISED' in got.get('session_refused', {}) and 'REP' in got.get('session_error', {}))

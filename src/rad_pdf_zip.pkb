@@ -127,10 +127,34 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
       IF u(p_zip, l_lh + 26, 2) <> l_nlen OR dbms_lob.substr(p_zip, l_nlen, l_lh + 30) <> l_raw THEN
         refuse('entry "' || l_e.name || '": local and central names differ');
       END IF;
+      -- the local metadata agrees with the central record (APPNOTE 4.4): method, no encryption, and, unless the
+      -- sizes follow in a data descriptor (bit 3), the same CRC-32 and sizes
+      IF u(p_zip, l_lh + 8, 2) <> l_e.method THEN refuse('entry "' || l_e.name || '": local and central methods differ'); END IF;
+      IF bitand(u(p_zip, l_lh + 6, 2), 65) <> 0 THEN refuse('entry "' || l_e.name || '": encrypted (local header)'); END IF;
+      IF bitand(u(p_zip, l_lh + 6, 2), 8) = 0 AND bitand(l_flags, 8) = 0
+         AND (dbms_lob.substr(p_zip, 4, l_lh + 14) <> l_e.crc32 OR u(p_zip, l_lh + 18, 4) <> l_e.csize
+              OR u(p_zip, l_lh + 22, 4) <> l_e.usize) THEN
+        refuse('entry "' || l_e.name || '": local and central CRC or sizes differ');
+      END IF;
       l_e.data_off := l_lh + 30 + l_nlen + u(p_zip, l_lh + 28, 2);
       IF l_e.data_off + l_e.csize > l_cd THEN refuse('entry "' || l_e.name || '" runs into the central directory'); END IF;
       IF l_e.usize > c_max_ratio * greatest(l_e.csize, 1) THEN
         over('entry "' || l_e.name || '": compression ratio above ' || c_max_ratio);
+      END IF;
+      -- an empty entry is checked here, whether it is read or not: no CRC, and a deflate stream that yields nothing
+      IF l_e.usize = 0 THEN
+        IF l_e.crc32 <> hextoraw('00000000') OR (l_e.method = 0 AND l_e.csize <> 0) THEN
+          refuse('empty entry "' || l_e.name || '" with a CRC or bytes');
+        ELSIF l_e.method = 8 THEN
+          DECLARE
+            l_b BLOB;
+          BEGIN
+            l_b := rad_pdf_codec.inflate_raw(p_zip, l_e.data_off, l_e.csize, 0);
+            dbms_lob.freetemporary(l_b);
+          EXCEPTION
+            WHEN OTHERS THEN refuse('empty entry "' || l_e.name || '": its deflate stream is not empty or not valid');
+          END;
+        END IF;
       END IF;
       l_sum := l_sum + l_e.usize;
       IF l_sum > c_max_bytes THEN over('the archive declares more than ' || c_max_bytes || ' decompressed bytes'); END IF;
@@ -160,26 +184,40 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
     RETURN 0;
   END find;
 
+  -- the CRC-32 of some bytes, little-endian like the ZIP records: the trailer of UTL_COMPRESS's gzip output
+  FUNCTION crc32(p_b IN BLOB) RETURN RAW IS
+    l_g BLOB;
+    l_r RAW(4);
+  BEGIN
+    IF nvl(dbms_lob.getlength(p_b), 0) = 0 THEN RETURN hextoraw('00000000'); END IF;
+    l_g := utl_compress.lz_compress(p_b);
+    l_r := dbms_lob.substr(l_g, 4, dbms_lob.getlength(l_g) - 7);
+    dbms_lob.freetemporary(l_g);
+    RETURN l_r;
+  END crc32;
+
   -- One entry. Two paths, both bounded by the budget whatever the declared size says:
   --   native   UTL_COMPRESS.LZ_UNCOMPRESS on a gzip envelope carrying the central CRC-32 and size (both verified by
   --            Oracle), only when even a lying entry cannot exceed the budget: deflate expands at most 1032:1 (RFC 1951
   --            limit, zlib technical notes), so csize * c_max_expand bytes at most;
   --   bounded  rad_pdf_codec.inflate_raw otherwise: the bytes are counted DURING decompression and the read stops at
   --            the first byte beyond the declared size.
+  -- Stored entries are copied. Every entry ends with its size and its CRC-32 checked (APPNOTE 4.4.7), an empty one
+  -- included (its deflate stream is decoded: nothing may come out).
   -- (UTL_COMPRESS's piecewise API is not used: each LZ_UNCOMPRESS_OPEN leaves an abstract LOB in the session.)
   FUNCTION extract(p_zip IN BLOB, p_z IN OUT NOCOPY t_zip, p_index IN PLS_INTEGER) RETURN BLOB IS
-    l_e   t_entry := p_z.entries(p_index);
-    l_gz  BLOB;
-    l_out BLOB;
-    l_n   NUMBER;
+    l_e      t_entry := p_z.entries(p_index);
+    l_gz     BLOB;
+    l_out    BLOB;
+    l_n      NUMBER;
+    l_native BOOLEAN := FALSE;
   BEGIN
     IF p_z.used + l_e.usize > c_max_bytes THEN over('more than ' || c_max_bytes || ' decompressed bytes'); END IF;
-    IF l_e.usize = 0 THEN
+    IF l_e.method = 0 THEN
       dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
-    ELSIF l_e.method = 0 THEN
-      dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
-      dbms_lob.copy(l_out, p_zip, l_e.csize, 1, l_e.data_off);
-    ELSIF l_e.csize * c_max_expand + 1024 <= c_max_bytes - p_z.used THEN
+      IF l_e.csize > 0 THEN dbms_lob.copy(l_out, p_zip, l_e.csize, 1, l_e.data_off); END IF;
+    ELSIF l_e.usize > 0 AND l_e.csize * c_max_expand + 1024 <= c_max_bytes - p_z.used THEN
+      l_native := TRUE;
       dbms_lob.createtemporary(l_gz, TRUE, dbms_lob.session);
       dbms_lob.writeappend(l_gz, 10, c_gzip_head);
       IF l_e.csize > 0 THEN dbms_lob.copy(l_gz, p_zip, l_e.csize, 11, l_e.data_off); END IF;
@@ -193,6 +231,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
       END;
       dbms_lob.freetemporary(l_gz);
     ELSE
+      -- the bounded path, also for an empty entry: its deflate stream is decoded too (nothing may come out)
       BEGIN
         l_out := rad_pdf_codec.inflate_raw(p_zip, l_e.data_off, l_e.csize, l_e.usize);
       EXCEPTION
@@ -203,8 +242,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
           refuse('entry "' || l_e.name || '" cannot be decompressed (' || substr(sqlerrm, 1, 200) || ')');
       END;
     END IF;
-    l_n := dbms_lob.getlength(l_out);
+    l_n := nvl(dbms_lob.getlength(l_out), 0);
     IF l_n <> l_e.usize THEN refuse('entry "' || l_e.name || '" does not have its declared size'); END IF;
+    -- the CRC-32 of every entry (the native path has it verified by Oracle already)
+    IF NOT l_native AND crc32(l_out) <> l_e.crc32 THEN refuse('entry "' || l_e.name || '": CRC-32 mismatch'); END IF;
     p_z.used := p_z.used + l_n;
     RETURN l_out;
   EXCEPTION
