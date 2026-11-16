@@ -144,6 +144,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     long      t_strs,                                    -- the pieces of long w:t beyond their first one
     elements  NUMBER := 0,                               -- XML elements read so far
     compat_ts BOOLEAN := FALSE,                          -- settings: overrideTableStyleFontSizeAndJustification
+    widow     BOOLEAN := FALSE,                          -- a paragraph with widow control in effect
     even_odd  BOOLEAN := FALSE);
 
   -- ===========================================================================
@@ -1067,9 +1068,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     f.line_mult := nvl(p.line_mult, 1);
     f.keep_next := nvl(p.keep_next, 'N');
     -- widow control: on unless the hierarchy turns it off (ECMA-376 §17.3.1.44); the paginator does not apply it
-    IF nvl(p.widow, 'Y') = 'Y' THEN
-      issue(c, 'WIDOW', 'on for every paragraph that does not turn it off', p_part, 'document', NULL, TRUE);
-    END IF;
+    IF nvl(p.widow, 'Y') = 'Y' THEN c.widow := TRUE; END IF;     -- reported once, at the end of the read
     IF f.ind_left < 0 OR f.ind_right < 0 OR f.ind_left + f.ind_first < 0 THEN
       issue(c, 'INDENT', 'negative indent', p_part, p_pos, p_near);
       f.ind_left := greatest(f.ind_left, 0);
@@ -2114,6 +2113,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     FOR i IN 1 .. 5 LOOP
       IF c.objs(l_zones(i)).t1 IS NOT NULL THEN regions(c, l_zones(i)); END IF;
     END LOOP;
+    IF c.widow THEN
+      issue(c, 'WIDOW', 'on for every paragraph that does not turn it off', l_main, 'document');
+    END IF;
     c.x.DELETE;
     c.sx.DELETE;
     -- the RI, when nothing is in error
