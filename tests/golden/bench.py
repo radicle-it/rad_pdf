@@ -2,7 +2,8 @@
 """The golden-PDF bench of RAD_PDF: the same documents, the same bytes.
 
     python3 tests/golden/bench.py install           install src/ in the test schema (src/install.sql)
-    python3 tests/golden/bench.py record            run the corpus and write the reference PDFs to tests/golden/ref/
+    python3 tests/golden/bench.py record [NOTE]     run the corpus and write the reference PDFs to tests/golden/ref/,
+                                                    NOTE (why the references change) in MANIFEST.json
     python3 tests/golden/bench.py check [NAME ...]  run the corpus again and compare it with the references
     python3 tests/golden/bench.py selftest          the comparison levels on synthetic PDFs, record and check on a
                                                     simulated database (no database)
@@ -152,7 +153,7 @@ def run(outdir, only=None):
     per_file, problems = {}, []
     for f in selected(only):
         script, required = instrument(f)
-        if not required:
+        if not required and f.name not in KNOWN_FAILING:
             problems.append(f'{f.name}: frees no l_pdf -- no document')
             continue
         rc, out = sqlcl(script, cwd=f.parent)
@@ -261,7 +262,7 @@ def main():
         print(out[-1500:] if rc or bad else 'installed: src/install.sql, no error')
         sys.exit(1 if rc or bad else 0)
     if cmd == 'record':
-        do_record()
+        do_record(' '.join(sys.argv[2:]))
         return
     if cmd == 'check':
         do_check(sys.argv[2:] or None)
@@ -271,7 +272,7 @@ def main():
     sys.exit(__doc__)
 
 
-def do_record():
+def do_record(note=''):
     stage = Path(tempfile.mkdtemp(prefix='rad_pdf_golden_record_'))
     per_file, problems = run(stage)
     if problems:
@@ -281,7 +282,7 @@ def do_record():
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(['git', 'status', '--porcelain', 'src'], cwd=ROOT, capture_output=True,
                                 text=True).stdout.strip())
-    manifest = {'commit': commit, 'src_dirty': dirty, 'clock': CLOCK,
+    manifest = {'commit': commit, 'src_dirty': dirty, 'clock': CLOCK, 'note': note,
                 'files': {f: {d: sha256(stage / f'{d}.pdf') for d in docs} for f, docs in per_file.items()}}
     (stage / 'MANIFEST.json').write_text(json.dumps(manifest, indent=1, sort_keys=True) + '\n')
     # publish: copy beside, then swap; the old references stay until the new ones are complete

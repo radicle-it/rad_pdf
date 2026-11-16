@@ -606,6 +606,35 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   END parse_ttf_tables;
 
 -- ---------------------------------------------------------------------------
+-- PRIVATE: the subset tag of an embedded subset font (ISO 32000-1 §9.6.4): six uppercase letters and '+' before the
+-- PostScript name, in /BaseFont and /FontName. Deterministic, never random (the golden bench compares bytes): the
+-- SHA-256 of the font name, its index and the glyph ids of this document's subset, six bytes mapped to A-Z, so
+-- different subsets get different tags and the same subset the same tag.
+-- ---------------------------------------------------------------------------
+  FUNCTION subset_tag(p_doc IN rad_pdf_types.t_doc_handle, p_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
+    l_used t_pls_tab := doc_used(p_doc, p_idx);
+    l_src  BLOB;
+    l_gid  PLS_INTEGER;
+    l_hex  VARCHAR2(64);
+    l_tag  VARCHAR2(6);
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_src, TRUE, DBMS_LOB.CALL);
+    DBMS_LOB.WRITEAPPEND(l_src, UTL_RAW.LENGTH(UTL_RAW.CAST_TO_RAW(g_fonts(p_idx).name || ':' || p_idx || ':')),
+                         UTL_RAW.CAST_TO_RAW(g_fonts(p_idx).name || ':' || p_idx || ':'));
+    l_gid := l_used.FIRST;
+    WHILE l_gid IS NOT NULL LOOP
+      DBMS_LOB.WRITEAPPEND(l_src, LENGTH(l_gid || ','), UTL_RAW.CAST_TO_RAW(l_gid || ','));
+      l_gid := l_used.NEXT(l_gid);
+    END LOOP;
+    l_hex := rad_pdf_codec.sha256_hex(l_src);
+    DBMS_LOB.FREETEMPORARY(l_src);
+    FOR i IN 1 .. 6 LOOP
+      l_tag := l_tag || CHR(65 + MOD(TO_NUMBER(SUBSTR(l_hex, 2 * i - 1, 2), 'XX'), 26));
+    END LOOP;
+    RETURN l_tag;
+  END subset_tag;
+
+-- ---------------------------------------------------------------------------
 -- PRIVATE: TTF glyph subsetting
 -- Fixes DBMS_LOB.APPEND(BLOB, RAW) -> DBMS_LOB.WRITEAPPEND throughout.
 -- ---------------------------------------------------------------------------
@@ -1369,6 +1398,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_first     PLS_INTEGER;   -- simple TrueType: the first and last code this document used
     l_last      PLS_INTEGER;
     l_width     NUMBER;
+    l_cid_name  VARCHAR2(200);
   BEGIN
     IF NOT g_doc_state.EXISTS(p_doc) THEN
       RETURN '';
@@ -1386,10 +1416,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
       ELSIF g_fonts(l_fi).cid THEN
         -- CID/Type0 font with ToUnicode CMap
         -- Fixed: l_font_obj captures the base object number; l_gi iterates glyphs.
+        -- The program is a subset (subset_font): its name carries the subset tag, here and in CIDFont and descriptor
+        l_cid_name := subset_tag(p_doc, l_fi) || '+' || g_fonts(l_fi).name;
         l_font_obj := rad_pdf_serial.begin_obj(p_doc);
         rad_pdf_serial.doc_write(p_doc,
           '<</Type/Font/Subtype/Type0/Encoding/Identity-H' ||
-          '/BaseFont/' || g_fonts(l_fi).name ||
+          '/BaseFont/' || l_cid_name ||
           '/DescendantFonts ' || TO_CHAR(l_font_obj+1) || ' 0 R' ||
           '/ToUnicode '       || TO_CHAR(l_font_obj+8) || ' 0 R>>');
         rad_pdf_serial.end_obj(p_doc);
@@ -1427,7 +1459,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         l_dummy := rad_pdf_serial.begin_obj(p_doc);
         rad_pdf_serial.doc_write(p_doc,
           '<</Type/Font/Subtype/CIDFontType2/CIDToGIDMap/Identity/DW 1000' ||
-          '/BaseFont/' || g_fonts(l_fi).name ||
+          '/BaseFont/' || l_cid_name ||
           '/CIDSystemInfo ' || TO_CHAR(l_font_obj+3) || ' 0 R' ||
           '/W '             || TO_CHAR(l_font_obj+4) || ' 0 R' ||
           '/FontDescriptor ' || TO_CHAR(l_font_obj+5) || ' 0 R>>');
@@ -1445,7 +1477,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         -- FontDescriptor object (l_font_obj+5)
         l_dummy := rad_pdf_serial.begin_obj(p_doc,
           '/Type/FontDescriptor' ||
-          '/FontName/'    || g_fonts(l_fi).name ||
+          '/FontName/'    || l_cid_name ||
           '/Flags '       || g_fonts(l_fi).flags ||
           '/FontBBox ['   || g_fonts(l_fi).bb_xmin || ' ' || g_fonts(l_fi).bb_ymin ||
           ' '             || g_fonts(l_fi).bb_xmax || ' ' || g_fonts(l_fi).bb_ymax || ']' ||
