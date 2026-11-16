@@ -46,7 +46,7 @@ BEGIN
     ok('get_info page_nr = 1',
        rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_page_nr), 1);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -78,7 +78,7 @@ BEGIN
     ok('set_font by index: font_idx = 9',
        rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_font_idx), 9);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -105,7 +105,7 @@ BEGIN
     ok('page contains BT',   INSTR(l_txt, 'BT') > 0);
     ok('page contains Tj',   INSTR(l_txt, 'Tj') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -130,7 +130,7 @@ BEGIN
     -- Red = 1 0 0 rg (from rgb_to_pdf)
     ok('red colour in stream', INSTR(l_txt, '1 0 0 rg') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -156,7 +156,7 @@ BEGIN
                      OR INSTR(l_txt, CHR(10) || 'B') > 0);
     ok('rect emits Q',  INSTR(l_txt, 'Q') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -180,7 +180,7 @@ BEGIN
     ok('h_line emits m', INSTR(l_txt, ' m') > 0);
     ok('lines emit S',   INSTR(l_txt, CHR(10) || 'S') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -208,7 +208,7 @@ BEGIN
 
     ok('write_wrapped moves cursor down', l_y1 < l_y0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -242,7 +242,7 @@ BEGIN
     ok('multiple BT in page (content + proc)',
        (LENGTH(l_txt) - LENGTH(REPLACE(l_txt, 'BT', ''))) / 2 >= 2);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -269,7 +269,7 @@ BEGIN
     ok('write_page_objects returns > 0', l_pages > 0);
     ok('font resource non-null', l_font_res IS NOT NULL);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -307,7 +307,7 @@ BEGIN
     ok('page 0 has footer', INSTR(l_t0, 'BT') > 0);
     ok('page 1 has footer', INSTR(l_t1, 'BT') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -322,7 +322,7 @@ BEGIN
     rad_pdf_canvas.new_page(l_doc);
 
     -- Normal close
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('handle invalid after close_doc', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 
@@ -352,7 +352,7 @@ BEGIN
     ok('set_margins top = 56.693',
        rad_pdf_canvas.get_info(l_doc, rad_pdf_types.c_info_margin_top) = 56.693);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================

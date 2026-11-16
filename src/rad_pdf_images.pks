@@ -67,7 +67,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_images AUTHID DEFINER IS
   FUNCTION  write_image_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2;
 
   -- Release per-document tracking state (keeps the session-level cache).
-  -- Called by rad_pdf_ctx.close_doc.
+  -- Called by rad_pdf_doc.close_doc.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 
   -- Release ALL cached image data.

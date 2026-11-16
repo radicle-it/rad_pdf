@@ -87,7 +87,7 @@ BEGIN
     rad_pdf_layout.add(l_doc, rad_pdf_layout.paragraph('First'));
     rad_pdf_layout.add(l_doc, rad_pdf_layout.paragraph('Second'));
     ok('has_flowables TRUE after add', rad_pdf_layout.has_flowables(l_doc));
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -104,7 +104,7 @@ BEGIN
     -- set_template should not raise
     rad_pdf_layout.set_template(l_doc, l_tpl);
     ok('set_template no exception', TRUE);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -123,7 +123,7 @@ BEGIN
     l_got := rad_pdf_layout.get_table_def(l_doc, l_ref);
     ok('register_table returns positive ref', l_ref >= 1);
     ok('get_table_def round-trip query_txt',  l_got.query_txt, 'SELECT 1 FROM DUAL');
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -141,7 +141,7 @@ BEGIN
     rad_pdf_layout.add(l_doc, rad_pdf_layout.paragraph('Hello world'));
     rad_pdf_layout.render(l_doc);
     ok('render paragraphs: page_count >= 1', rad_pdf_serial.page_count(l_doc) >= 1);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -161,7 +161,7 @@ BEGIN
     rad_pdf_layout.add(l_doc, rad_pdf_layout.paragraph('Page two content'));
     rad_pdf_layout.render(l_doc);
     ok('page_break causes page_count = 2', rad_pdf_serial.page_count(l_doc), 2);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -185,11 +185,11 @@ BEGIN
     l_blob := rad_pdf_serial.get_page_blob(l_doc, 0);
     l_txt  := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(l_blob, 500, 1));
     ok('heading+paragraph stream contains BT', INSTR(l_txt, 'BT') > 0);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
-  -- 10. close_doc cleans up: handle invalid after rad_pdf_ctx.close_doc
+  -- 10. close_doc cleans up: handle invalid after rad_pdf_doc.close_doc
   -- =========================================================================
   DECLARE
     l_doc rad_pdf_types.t_doc_handle;
@@ -202,7 +202,7 @@ BEGIN
     rad_pdf_canvas.set_font(l_doc, 'helvetica', 'N', 12);
     rad_pdf_layout.add(l_doc, rad_pdf_layout.paragraph('Cleanup test'));
     rad_pdf_layout.render(l_doc);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('handle invalid after close_doc', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 

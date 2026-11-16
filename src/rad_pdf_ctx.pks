@@ -3,13 +3,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
   rad_pdf_ctx — document handle allocation and lifecycle coordinator.
   Oracle 19c+.
 
-  This package is the single point responsible for creating and destroying
-  document handles. close_doc calls _close_doc on every package that holds
-  per-document state, in reverse dependency order (highest level first).
-
-  Packages with per-document state register a _close_doc procedure that is
-  called by close_doc in the correct order (defined in the body).
-  The order is extended in each phase as new packages are added.
+  This package allocates and frees document handles and keeps the document info
+  and conformance. It is a leaf (2026-11-16, A4): it calls no other package.
+  Closing a document -- every package with per-document state, the highest
+  level first -- is rad_pdf_doc.close_doc.
 */
 
   -- Allocate a new document handle. Returns a value > 0, unique per session.
@@ -23,7 +20,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
 
   -- Release all per-document resources. Idempotent on already-closed handles.
   -- Calls _close_doc on every package with per-document state, then removes the handle.
-  PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
+  -- Free the handle with its info and conformance. Only rad_pdf_doc.close_doc calls it, after closing every
+  -- package (A4): to close a document call rad_pdf_doc.close_doc (or rad_pdf.close_document).
+  PROCEDURE release_doc(p_doc IN rad_pdf_types.t_doc_handle);
 
   -- Document metadata (PDF Info dictionary).
   PROCEDURE set_info(p_doc IN rad_pdf_types.t_doc_handle,

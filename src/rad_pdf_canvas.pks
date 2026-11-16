@@ -238,7 +238,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
     RETURN NUMBER;
 
   -- Release per-document state (CLOBs in page_prcs + g_canvas entry).
-  -- Called by rad_pdf_ctx.close_doc in reverse-dependency order.
+  -- Called by rad_pdf_doc.close_doc in reverse-dependency order.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 
 -- ---------------------------------------------------------------------------

@@ -54,7 +54,7 @@ BEGIN
       l_raised := (SQLCODE = rad_pdf_types.c_err_validation);
     END;
     ok('load_image NULL blob raises c_err_validation', l_raised);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -75,7 +75,7 @@ BEGIN
     END;
     ok('load_image empty blob raises c_err_validation', l_raised);
     DBMS_LOB.FREETEMPORARY(l_blob);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -98,7 +98,7 @@ BEGIN
     END;
     ok('load_image bad format raises c_err_image', l_raised);
     DBMS_LOB.FREETEMPORARY(l_blob);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -109,7 +109,7 @@ BEGIN
   BEGIN
     l_doc := rad_pdf_ctx.new_doc;
     ok('image_exists FALSE for unknown id', NOT rad_pdf_images.image_exists(l_doc, 999));
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -123,7 +123,7 @@ BEGIN
     rad_pdf_serial.init_doc(l_doc);
     l_result := rad_pdf_images.write_image_objects(l_doc);
     ok('write_image_objects no images returns NULL', l_result IS NULL);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -165,7 +165,7 @@ BEGIN
       ok('same image returns same id', l_id2, l_id);
     END;
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -203,7 +203,7 @@ BEGIN
       DBMS_LOB.FREETEMPORARY(l_copy);
     END;
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -241,17 +241,17 @@ BEGIN
     ok('doc2 image id also 1 (per-doc counting)', l_id2, 1);
     ok('doc2 image exists', rad_pdf_images.image_exists(l_doc2, 1));
 
-    rad_pdf_ctx.close_doc(l_doc1);
+    rad_pdf_doc.close_doc(l_doc1);
     ok('doc1 closed', NOT rad_pdf_ctx.is_valid(l_doc1));
     ok('doc2 still valid', rad_pdf_ctx.is_valid(l_doc2));
     ok('doc2 image still accessible after doc1 closed',
        rad_pdf_images.image_exists(l_doc2, 1));
 
-    rad_pdf_ctx.close_doc(l_doc2);
+    rad_pdf_doc.close_doc(l_doc2);
   END;
 
   -- =========================================================================
-  -- 10. close_doc via rad_pdf_ctx.close_doc removes per-doc image state
+  -- 10. close_doc via rad_pdf_doc.close_doc removes per-doc image state
   -- =========================================================================
   DECLARE
     l_doc  rad_pdf_types.t_doc_handle;
@@ -267,7 +267,7 @@ BEGIN
     DBMS_LOB.FREETEMPORARY(l_blob);
 
     ok('image visible before close', rad_pdf_images.image_exists(l_doc, l_id));
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('handle invalid after close', NOT rad_pdf_ctx.is_valid(l_doc));
     -- After close, image_exists on the same (now invalid) handle returns FALSE.
     ok('image_exists returns FALSE after close',
@@ -293,7 +293,7 @@ BEGIN
     DBMS_LOB.WRITEAPPEND(l_blob, UTL_RAW.LENGTH(l_jpeg), l_jpeg);
     l_id1 := rad_pdf_images.load_image(l_doc1, l_blob);
     DBMS_LOB.FREETEMPORARY(l_blob);
-    rad_pdf_ctx.close_doc(l_doc1);
+    rad_pdf_doc.close_doc(l_doc1);
 
     l_doc2 := rad_pdf_ctx.new_doc;
     rad_pdf_serial.init_doc(l_doc2);
@@ -305,7 +305,7 @@ BEGIN
     ok('session cache hit: same image loads after doc close', l_id2 IS NOT NULL);
     ok('image id resets to 1 in new doc', l_id2, 1);
 
-    rad_pdf_ctx.close_doc(l_doc2);
+    rad_pdf_doc.close_doc(l_doc2);
     rad_pdf_images.clear_image_cache;
     ok('clear_image_cache after test completes', TRUE);
   END;

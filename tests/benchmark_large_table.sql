@@ -2,7 +2,7 @@
 --
 -- PURPOSE
 --   Validates that rad_pdf_table.refcursor2table handles a large result set
---   (10 000 rows) without ORA-04031 (PGA exhaustion) and that rad_pdf_ctx.close_doc
+--   (10 000 rows) without ORA-04031 (PGA exhaustion) and that rad_pdf_doc.close_doc
 --   releases the g_table_cache collection after finalize.
 --
 -- PGA MONITORING (optional, requires SELECT on V$SESSTAT / V$STATNAME)

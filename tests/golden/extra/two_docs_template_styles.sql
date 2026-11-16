@@ -7,14 +7,18 @@ DECLARE
   l_pdf BLOB;
 BEGIN
   rad_pdf_styles.load_defaults;
-  FOR i IN 1 .. 2 LOOP
-    l_doc := rad_pdf.new_document;
-    rad_pdf_template.render(l_doc,
-      '<h1>Document ' || i || '</h1>' ||
-      '<p>Plain, <b>bold</b>, <i>italic</i>, <b><i>both</i></b>, <font size="14pt">bigger</font>, <color rgb="CC0000">red</color>.</p>');
-    l_pdf := rad_pdf.finalize(l_doc);
-    DBMS_LOB.FREETEMPORARY(l_pdf);
-  END LOOP;
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Document 1</h1>' ||
+    '<p>Plain, <b>bold</b>, <i>italic</i>, <b><i>both</i></b>, <font size="14pt">bigger</font>, <color rgb="CC0000">red</color>.</p>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  l_doc := rad_pdf.new_document;
+  rad_pdf_template.render(l_doc,
+    '<h1>Document 2</h1>' ||
+    '<p>Plain, <b>bold</b>, <i>italic</i>, <b><i>both</i></b>, <font size="14pt">bigger</font>, <color rgb="CC0000">red</color>.</p>');
+  l_pdf := rad_pdf.finalize(l_doc);
+  DBMS_LOB.FREETEMPORARY(l_pdf);
   l_doc := rad_pdf.new_document;
   rad_pdf_template.render(l_doc, '<p><font size="9pt">small</font> and <b>bold again</b>.</p>');
   l_pdf := rad_pdf.finalize(l_doc);

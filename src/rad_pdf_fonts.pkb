@@ -42,8 +42,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     bb_xmax           PLS_INTEGER,
     bb_ymax           PLS_INTEGER,
     flags             PLS_INTEGER,
-    first_char        PLS_INTEGER,
-    last_char         PLS_INTEGER,
     italic_angle      NUMBER,
     ascent            PLS_INTEGER,
     descent           PLS_INTEGER,
@@ -52,9 +50,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     diff              VARCHAR2(32767),
     char_width_tab    t_pls_tab,
     byte_widths       t_byte_widths,
-    used_chars        t_pls_tab,
     code2glyph        t_pls_tab,
-    glyph_unicode     t_pls_tab,
     hmetrics          t_pls_tab,
     loca              t_pls_tab,
     numGlyphs         PLS_INTEGER,
@@ -66,9 +62,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   TYPE t_font_tab IS TABLE OF t_font INDEX BY PLS_INTEGER;
 
   -- Per-document state record
+  -- A2 (2026-11-16, doc 96 §11): what a document used of a font is the document's -- a font preloaded for the
+  -- session serves many documents, and the subset and the ToUnicode map of each must hold only its own glyphs
+  TYPE t_used_map IS TABLE OF t_pls_tab INDEX BY PLS_INTEGER;   -- font index -> char code or glyph id -> 0 / unicode
   TYPE t_font_doc_state IS RECORD (
     doc_fonts  t_pls_tab,   -- custom font indices belonging to this doc (freed on close)
-    used_fonts t_pls_tab    -- font indices written to page streams (for write_font_objects)
+    used_fonts t_pls_tab,   -- font indices written to page streams (for write_font_objects)
+    used_chars t_used_map,  -- per font: the codes (simple fonts) or glyph ids (CID) this document wrote
+    glyph_uni  t_used_map,  -- per CID font: glyph id -> the unicode it shows (the ToUnicode map)
+    name_idx   t_name_idx   -- the names of the fonts loaded FOR this document (find_font looks here first)
   );
   TYPE t_font_doc_map IS TABLE OF t_font_doc_state INDEX BY PLS_INTEGER;
 
@@ -148,15 +150,44 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- ---------------------------------------------------------------------------
 -- PRIVATE: name-index helpers
 -- ---------------------------------------------------------------------------
-  PROCEDURE register_font_name(p_idx IN PLS_INTEGER) IS
+  -- p_doc: a font loaded for one document is named only in that document (A2); NULL: the session (standard and
+  -- preloaded fonts)
+  PROCEDURE register_font_name(p_idx IN PLS_INTEGER,
+                               p_doc IN rad_pdf_types.t_doc_handle DEFAULT NULL) IS
+    PROCEDURE put(p_key IN VARCHAR2) IS
+    BEGIN
+      IF p_doc IS NOT NULL THEN
+        g_doc_state(p_doc).name_idx(p_key) := TO_CHAR(p_idx);
+      ELSE
+        g_name_idx(p_key) := TO_CHAR(p_idx);
+      END IF;
+    END put;
   BEGIN
-    g_name_idx(LOWER(g_fonts(p_idx).fontname)) := TO_CHAR(p_idx);
+    put(LOWER(g_fonts(p_idx).fontname));
     IF LOWER(g_fonts(p_idx).family) IS NOT NULL AND
        LOWER(g_fonts(p_idx).style)  IS NOT NULL THEN
-      g_name_idx(LOWER(g_fonts(p_idx).family) || '|' || LOWER(g_fonts(p_idx).style))
-        := TO_CHAR(p_idx);
+      put(LOWER(g_fonts(p_idx).family) || '|' || LOWER(g_fonts(p_idx).style));
     END IF;
   END register_font_name;
+
+  -- what document p_doc used of font p_fi (empty when nothing)
+  FUNCTION doc_used(p_doc IN rad_pdf_types.t_doc_handle, p_fi IN PLS_INTEGER) RETURN t_pls_tab IS
+    l_none t_pls_tab;
+  BEGIN
+    IF g_doc_state.EXISTS(p_doc) AND g_doc_state(p_doc).used_chars.EXISTS(p_fi) THEN
+      RETURN g_doc_state(p_doc).used_chars(p_fi);
+    END IF;
+    RETURN l_none;
+  END doc_used;
+
+  FUNCTION doc_glyph_uni(p_doc IN rad_pdf_types.t_doc_handle, p_fi IN PLS_INTEGER) RETURN t_pls_tab IS
+    l_none t_pls_tab;
+  BEGIN
+    IF g_doc_state.EXISTS(p_doc) AND g_doc_state(p_doc).glyph_uni.EXISTS(p_fi) THEN
+      RETURN g_doc_state(p_doc).glyph_uni(p_fi);
+    END IF;
+    RETURN l_none;
+  END doc_glyph_uni;
 
 -- ---------------------------------------------------------------------------
 -- PRIVATE: standard-font width table from CSV
@@ -578,7 +609,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- PRIVATE: TTF glyph subsetting
 -- Fixes DBMS_LOB.APPEND(BLOB, RAW) -> DBMS_LOB.WRITEAPPEND throughout.
 -- ---------------------------------------------------------------------------
-  FUNCTION subset_font(p_idx IN PLS_INTEGER) RETURN BLOB IS
+  FUNCTION subset_font(p_doc IN rad_pdf_types.t_doc_handle, p_idx IN PLS_INTEGER) RETURN BLOB IS
+    l_used          t_pls_tab := doc_used(p_doc, p_idx);   -- A2: this document's glyphs only
     t_used_glyphs   t_pls_tab;
     t_tables        BLOB;
     t_tmp           BLOB;
@@ -598,13 +630,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   BEGIN
     -- Build used glyph set
     IF g_fonts(p_idx).cid THEN
-      t_used_glyphs := g_fonts(p_idx).used_chars;
+      t_used_glyphs := l_used;
       t_used_glyphs(0) := 0;
     ELSE
       l_utf16_cs := SUBSTR(g_fonts(p_idx).charset, 1,
                            INSTR(g_fonts(p_idx).charset, '.')) || 'AL16UTF16';
       t_used_glyphs(0) := 0;
-      t_code := g_fonts(p_idx).used_chars.FIRST;
+      t_code := l_used.FIRST;
       WHILE t_code IS NOT NULL LOOP
         t_unicode := TO_NUMBER(RAWTOHEX(
           UTL_RAW.CONVERT(HEXTORAW(TO_CHAR(t_code, 'FM0X')),
@@ -615,7 +647,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         ELSIF g_fonts(p_idx).code2glyph.EXISTS(t_unicode) THEN
           t_used_glyphs(g_fonts(p_idx).code2glyph(t_unicode)) := 0;
         END IF;
-        t_code := g_fonts(p_idx).used_chars.NEXT(t_code);
+        t_code := l_used.NEXT(t_code);
       END LOOP;
     END IF;
 
@@ -836,7 +868,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
       g_fonts(l_idx).name := 'Font' || l_idx;
     END IF;
     g_fonts(l_idx).fontname := g_fonts(l_idx).name;
-    register_font_name(l_idx);
+    register_font_name(l_idx, CASE WHEN NOT p_preload THEN p_doc END);
 
     -- Track in per-document state if this is a doc-scoped (non-preload) font
     IF NOT p_preload AND p_doc IS NOT NULL THEN
@@ -1124,7 +1156,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
 -- ---------------------------------------------------------------------------
 -- Public: find_font — O(1) lookup via hash table
---   p_doc is reserved for future per-document font scoping; currently unused.
+--   A2 (2026-11-16): the fonts loaded for p_doc first, then the session's (standard and preloaded).
 -- ---------------------------------------------------------------------------
   FUNCTION find_font(p_doc    IN rad_pdf_types.t_doc_handle,
                      p_family IN VARCHAR2,
@@ -1133,8 +1165,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_key VARCHAR2(210);
   BEGIN
     l_key := LOWER(p_family) || '|' || LOWER(NVL(p_style,'N'));
+    IF g_doc_state.EXISTS(p_doc) AND g_doc_state(p_doc).name_idx.EXISTS(l_key) THEN
+      RETURN TO_NUMBER(g_doc_state(p_doc).name_idx(l_key));
+    END IF;
     IF g_name_idx.EXISTS(l_key) THEN RETURN TO_NUMBER(g_name_idx(l_key)); END IF;
     l_key := LOWER(p_family);
+    IF g_doc_state.EXISTS(p_doc) AND g_doc_state(p_doc).name_idx.EXISTS(l_key) THEN
+      RETURN TO_NUMBER(g_doc_state(p_doc).name_idx(l_key));
+    END IF;
     IF g_name_idx.EXISTS(l_key) THEN RETURN TO_NUMBER(g_name_idx(l_key)); END IF;
     RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_font,
       'rad_pdf_fonts.find_font: font "' || p_family || '" style "' || NVL(p_style,'N') || '" not found', TRUE);
@@ -1219,15 +1257,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     RETURN l_w*p_size_pt/1000;
   END text_width;
 
--- ---------------------------------------------------------------------------
--- Public: mark_char_used
--- ---------------------------------------------------------------------------
-  PROCEDURE mark_char_used(p_font_idx IN PLS_INTEGER, p_char_code IN PLS_INTEGER) IS
-  BEGIN
-    IF g_fonts.EXISTS(p_font_idx) AND NOT g_fonts(p_font_idx).standard THEN
-      g_fonts(p_font_idx).used_chars(p_char_code) := 0;
-    END IF;
-  END mark_char_used;
 
 -- ---------------------------------------------------------------------------
 -- Public: mark_font_used (called by rad_pdf_canvas when Tf is emitted)
@@ -1265,7 +1294,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   END assert_text_supported;
 
   FUNCTION text_to_pdf_string(p_text IN VARCHAR2,
-                               p_font_idx IN PLS_INTEGER) RETURN VARCHAR2 IS
+                               p_font_idx IN PLS_INTEGER,
+                               p_doc IN rad_pdf_types.t_doc_handle DEFAULT NULL) RETURN VARCHAR2 IS
     l_raw RAW(32767);
     l_result VARCHAR2(32767);
     l_c PLS_INTEGER;
@@ -1287,8 +1317,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         END IF;
         l_gid := CASE WHEN g_fonts(p_font_idx).code2glyph.EXISTS(l_c)
                       THEN g_fonts(p_font_idx).code2glyph(l_c) ELSE 0 END;
-        g_fonts(p_font_idx).used_chars(l_gid) := 0;
-        g_fonts(p_font_idx).glyph_unicode(l_gid) := l_c;
+        IF p_doc IS NOT NULL THEN
+          g_doc_state(p_doc).used_chars(p_font_idx)(l_gid) := 0;
+          g_doc_state(p_doc).glyph_uni(p_font_idx)(l_gid) := l_c;
+        END IF;
         l_result := l_result||TO_CHAR(l_gid,'FM000X');
       END LOOP;
       RETURN '<'||l_result||'>';
@@ -1302,8 +1334,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         l_hex := RAWTOHEX(UTL_RAW.SUBSTR(l_raw,l_pos,LEAST(8191,UTL_RAW.LENGTH(l_raw)-l_pos+1)));
         FOR i IN 0..LENGTH(l_hex)/2-1 LOOP
           l_byte := SUBSTR(l_hex,i*2+1,2);
-          IF NOT g_fonts(p_font_idx).standard THEN
-            g_fonts(p_font_idx).used_chars(TO_NUMBER(l_byte,'XX')) := 0;
+          IF p_doc IS NOT NULL AND NOT g_fonts(p_font_idx).standard THEN
+            g_doc_state(p_doc).used_chars(p_font_idx)(TO_NUMBER(l_byte,'XX')) := 0;
           END IF;
           l_result := l_result||g_byte_escapes(l_byte);
         END LOOP;
@@ -1333,6 +1365,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
     l_gi        PLS_INTEGER;   -- inner loop: glyph index for CID width array
     l_utf16_cs  VARCHAR2(1000);
     l_t_used    t_pls_tab;
+    l_glyph_uni t_pls_tab;
+    l_first     PLS_INTEGER;   -- simple TrueType: the first and last code this document used
+    l_last      PLS_INTEGER;
     l_width     NUMBER;
   BEGIN
     IF NOT g_doc_state.EXISTS(p_doc) THEN
@@ -1367,7 +1402,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         -- Build glyph width array using l_gi (not l_fi, to avoid variable reuse)
         l_utf16_cs := SUBSTR(g_fonts(l_fi).charset, 1,
                              INSTR(g_fonts(l_fi).charset, '.')) || 'AL16UTF16';
-        l_t_used   := g_fonts(l_fi).used_chars;
+        l_t_used   := doc_used(p_doc, l_fi);
         l_t_used(0) := 0;
         l_w := '';
         l_gi := l_t_used.FIRST;
@@ -1422,7 +1457,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
           '/FontFile2 '   || TO_CHAR(l_font_obj+6) || ' 0 R');
 
         -- FontFile2 stream object (l_font_obj+6)
-        l_subset := subset_font(l_fi);
+        l_subset := subset_font(p_doc, l_fi);
         DECLARE
           l_extra VARCHAR2(60) := '/Length1 ' || DBMS_LOB.GETLENGTH(l_subset);
         BEGIN
@@ -1466,15 +1501,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
             'endcodespacerange' || CHR(10);
           DBMS_LOB.CREATETEMPORARY(l_cmap,TRUE,DBMS_LOB.SESSION);
           DBMS_LOB.WRITEAPPEND(l_cmap,LENGTHB(l_cmap_txt),UTL_RAW.CAST_TO_RAW(l_cmap_txt));
-          l_g := g_fonts(l_fi).glyph_unicode.FIRST;
+          l_glyph_uni := doc_glyph_uni(p_doc, l_fi);
+          l_g := l_glyph_uni.FIRST;
           WHILE l_g IS NOT NULL LOOP
             -- One mapping per block keeps the count correct for sparse glyphs.
             l_cmap_txt := '1 beginbfchar'||CHR(10)
               ||'<'||TO_CHAR(l_g,'FM000X')||'> <'
-              ||TO_CHAR(g_fonts(l_fi).glyph_unicode(l_g),'FM000X')||'>'||CHR(10)
+              ||TO_CHAR(l_glyph_uni(l_g),'FM000X')||'>'||CHR(10)
               ||'endbfchar'||CHR(10);
             DBMS_LOB.WRITEAPPEND(l_cmap,LENGTHB(l_cmap_txt),UTL_RAW.CAST_TO_RAW(l_cmap_txt));
-            l_g := g_fonts(l_fi).glyph_unicode.NEXT(l_g);
+            l_g := l_glyph_uni.NEXT(l_g);
           END LOOP;
           l_cmap_txt :=
             'endcmap' || CHR(10) ||
@@ -1494,15 +1530,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
       ELSE
         -- Non-CID TrueType (simple single-byte encoding)
-        g_fonts(l_fi).first_char := g_fonts(l_fi).used_chars.FIRST;
-        g_fonts(l_fi).last_char  := g_fonts(l_fi).used_chars.LAST;
+        l_t_used := doc_used(p_doc, l_fi);
+        l_first  := l_t_used.FIRST;
+        l_last   := l_t_used.LAST;
 
         l_obj_nr := rad_pdf_serial.begin_obj(p_doc);
         rad_pdf_serial.doc_write(p_doc,
           '<</Type /Font /Subtype /' || g_fonts(l_fi).subtype ||
           ' /BaseFont /' || g_fonts(l_fi).name ||
-          ' /FirstChar ' || g_fonts(l_fi).first_char ||
-          ' /LastChar '  || g_fonts(l_fi).last_char  ||
+          ' /FirstChar ' || l_first ||
+          ' /LastChar '  || l_last  ||
           ' /Widths '    || TO_CHAR(l_obj_nr+1) || ' 0 R' ||
           ' /FontDescriptor ' || TO_CHAR(l_obj_nr+2) || ' 0 R' ||
           ' /Encoding '  || TO_CHAR(l_obj_nr+3) || ' 0 R>>');
@@ -1511,7 +1548,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
         -- Widths array (l_obj_nr+1)
         l_dummy := rad_pdf_serial.begin_obj(p_doc);
         rad_pdf_serial.doc_write(p_doc, '[');
-        FOR i IN g_fonts(l_fi).first_char .. g_fonts(l_fi).last_char LOOP
+        FOR i IN l_first .. l_last LOOP
           DECLARE
             l_code PLS_INTEGER;
           BEGIN
@@ -1581,7 +1618,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 --   Deletes the doc entry from g_doc_state.
 -- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
-    l_idx PLS_INTEGER;
     l_di  PLS_INTEGER;
   BEGIN
     IF NOT g_doc_state.EXISTS(p_doc) THEN RETURN; END IF;
@@ -1599,18 +1635,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
       l_di := g_doc_state(p_doc).doc_fonts.NEXT(l_di);
     END LOOP;
 
-    -- Delete doc state
+    -- Delete doc state: its glyphs and the names of its fonts go with it (A2); the session's names never held them
     g_doc_state.DELETE(p_doc);
-
-    -- Rebuild name index from surviving (preloaded/standard) fonts
-    g_name_idx.DELETE;
-    IF g_fonts.COUNT > 0 THEN
-      l_idx := g_fonts.FIRST;
-      WHILE l_idx IS NOT NULL LOOP
-        register_font_name(l_idx);
-        l_idx := g_fonts.NEXT(l_idx);
-      END LOOP;
-    END IF;
   END close_doc;
 
 -- ---------------------------------------------------------------------------

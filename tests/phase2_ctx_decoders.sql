@@ -35,10 +35,10 @@ BEGIN
     l_doc2 := rad_pdf_ctx.new_doc;
     ok('two handles distinct', l_doc != l_doc2);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('invalid after close',  NOT rad_pdf_ctx.is_valid(l_doc));
 
-    rad_pdf_ctx.close_doc(l_doc);  -- idempotent: must not raise
+    rad_pdf_doc.close_doc(l_doc);  -- idempotent: must not raise
     ok('close idempotent',     TRUE);
 
     ok('NULL not valid',       NOT rad_pdf_ctx.is_valid(NULL));
@@ -62,7 +62,7 @@ BEGIN
       ok('assert_valid raises', l_raised);
     END;
 
-    rad_pdf_ctx.close_doc(l_doc2);
+    rad_pdf_doc.close_doc(l_doc2);
   END;
 
   -- =========================================================================

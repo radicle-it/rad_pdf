@@ -56,7 +56,7 @@ BEGIN
     l_idx := rad_pdf_fonts.find_font(l_doc, 'zapfdingbats', 'N');
     ok('find_font zapfdingbats N = 14', l_idx, 14);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('doc closed after phase1 block', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 
@@ -145,7 +145,7 @@ BEGIN
        INSTR(l_result, ' 0 R') > 0);
 
     -- Mark a second font and write again from scratch on a fresh doc
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('doc closed after write test', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 
@@ -169,7 +169,7 @@ BEGIN
     ok('multi-font resource has /F5', INSTR(l_result, '/F5 ') > 0);
     ok('multi-font resource has /F9', INSTR(l_result, '/F9 ') > 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -185,11 +185,11 @@ BEGIN
     l_result := rad_pdf_fonts.write_font_objects(l_doc);
     ok('write_font_objects no used fonts returns empty', l_result IS NULL);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
-  -- 9. close_doc via rad_pdf_ctx.close_doc marks handle as invalid
+  -- 9. close_doc via rad_pdf_doc.close_doc marks handle as invalid
   -- =========================================================================
   DECLARE
     l_doc rad_pdf_types.t_doc_handle;
@@ -200,7 +200,7 @@ BEGIN
     rad_pdf_fonts.mark_font_used(l_doc, 1);
     ok('handle valid before close', rad_pdf_ctx.is_valid(l_doc));
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('handle invalid after close', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 
@@ -220,7 +220,7 @@ BEGIN
         l_raised := (SQLCODE = rad_pdf_types.c_err_font);
     END;
     ok('find_font unknown family raises c_err_font', l_raised);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -248,8 +248,8 @@ BEGIN
     ok('doc2 has Courier (/F9)',    INSTR(l_res2, '/F9 ') > 0);
     ok('doc2 does not have Helvetica', INSTR(l_res2, '/F1 ') = 0);
 
-    rad_pdf_ctx.close_doc(l_doc1);
-    rad_pdf_ctx.close_doc(l_doc2);
+    rad_pdf_doc.close_doc(l_doc1);
+    rad_pdf_doc.close_doc(l_doc2);
   END;
 
   -- =========================================================================
@@ -262,7 +262,7 @@ BEGIN
   BEGIN
     l_doc1 := rad_pdf_ctx.new_doc;
     rad_pdf_serial.init_doc(l_doc1);
-    rad_pdf_ctx.close_doc(l_doc1);
+    rad_pdf_doc.close_doc(l_doc1);
 
     -- Standard fonts must still be accessible after a doc is closed
     l_doc2 := rad_pdf_ctx.new_doc;
@@ -270,7 +270,7 @@ BEGIN
     ok('standard font still accessible after other doc closed', l_idx = 1);
     ok('font_exists(1) after close_doc', rad_pdf_fonts.font_exists(1));
 
-    rad_pdf_ctx.close_doc(l_doc2);
+    rad_pdf_doc.close_doc(l_doc2);
   END;
 
   -- =========================================================================

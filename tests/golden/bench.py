@@ -8,7 +8,7 @@
 The corpus: every docs/sample*.sql and docs/template_sample*.sql, plus tests/golden/extra/*.sql. Each file runs in a
 FRESH session (one SQLcl process each: a document never depends on the documents before it, unless the file itself
 makes several -- the two-document cases of extra/ do), after rad_pdf_ctx.set_fixed_clock: CreationDate, ModDate and the
-XMP dates are a fixed instant, and /ID is a hash of the bytes, so a document is the same bytes at every run. Before
+XMP dates are a fixed instant (and so is SYSDATE in the text of a sample), and /ID is a hash of the bytes, so a document is the same bytes at every run. Before
 every DBMS_LOB.FREETEMPORARY(l_pdf) of a file the bench inserts a call of rad_pdf_test_dump(<file>_<n>, l_pdf), a
 procedure of the test schema that prints the PDF as hex (PDFNAME:/PDFHEX: lines); a file that frees no l_pdf is
 reported as giving no document.
@@ -92,6 +92,8 @@ def instrument(path):
         n += 1
         return f"rad_pdf_test_dump('{path.stem}_{n}', l_pdf); " + m.group(0)
     text = re.sub(r'DBMS_LOB\.FREETEMPORARY\s*\(\s*l_pdf\s*\)', dump, text, flags=re.I)
+    # the samples print the time of the run (SYSDATE in titles and footers): the same fixed instant as the clock
+    text = re.sub(r'\bSYSDATE\b', "TO_DATE('2026-01-01','YYYY-MM-DD')", text, flags=re.I)
     return f'exec rad_pdf_ctx.set_fixed_clock({CLOCK});\nwhenever sqlerror exit sql.sqlcode\n' + text, n
 
 

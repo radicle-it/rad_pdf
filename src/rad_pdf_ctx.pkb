@@ -50,43 +50,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
   END assert_valid;
 
 -- ---------------------------------------------------------------------------
-  PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
-    l_error VARCHAR2(2000);
+  -- A4 (2026-11-16): the leaf part of closing a document -- its handle, info and conformance. The packages with
+  -- per-document state are closed by rad_pdf_doc.close_doc, which calls this last: rad_pdf_ctx calls nobody.
+  PROCEDURE release_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
   BEGIN
     IF p_doc IS NULL THEN RETURN; END IF;
     g_conformance.DELETE(p_doc);
-    IF NOT is_valid(p_doc) THEN RETURN; END IF;
-
-    -- Per-package cleanup in reverse dependency order (highest level first).
-    -- Each close_doc call is added as the corresponding package is built:
-    --
-    -- Phase 7 (highest level — called first):
-    BEGIN rad_pdf_layout.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-    BEGIN rad_pdf_table.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-    -- Phase 6:
-    BEGIN rad_pdf_canvas.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-    -- Phase 5:
-    BEGIN rad_pdf_images.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-    -- Phase 4:
-    BEGIN rad_pdf_fonts.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-    -- Phase 3:
-    BEGIN rad_pdf_serial.close_doc(p_doc);
-    EXCEPTION WHEN OTHERS THEN l_error := NVL(l_error,SQLERRM); END;
-
-    -- Remove handle and metadata.
     g_active_docs.DELETE(p_doc);
     IF g_doc_info.EXISTS(p_doc) THEN
       g_doc_info.DELETE(p_doc);
     END IF;
-    IF l_error IS NOT NULL THEN
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_internal,'Document cleanup: '||l_error);
-    END IF;
-  END close_doc;
+  END release_doc;
 
 -- ---------------------------------------------------------------------------
   PROCEDURE set_conformance(p_doc   IN rad_pdf_types.t_doc_handle,

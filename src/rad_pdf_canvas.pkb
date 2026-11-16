@@ -327,7 +327,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
 -- ---------------------------------------------------------------------------
 -- PRIVATE: build PDF text block for a single string at absolute position
 -- ---------------------------------------------------------------------------
-  FUNCTION text_block(p_text     IN VARCHAR2,
+  FUNCTION text_block(p_doc      IN rad_pdf_types.t_doc_handle,
+                      p_text     IN VARCHAR2,
                       p_x        IN NUMBER,
                       p_y        IN NUMBER,
                       p_font_idx IN PLS_INTEGER,
@@ -350,7 +351,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       rad_pdf_codec.fmt(l_co, 6) || ' ' || rad_pdf_codec.fmt(l_si, 6) || ' '
       || rad_pdf_codec.fmt(-l_si, 6) || ' ' || rad_pdf_codec.fmt(l_co, 6) || ' '
       || rad_pdf_codec.fmt(p_x, 2) || ' ' || rad_pdf_codec.fmt(p_y, 2) || ' Tm' || CHR(10) ||
-      rad_pdf_fonts.text_to_pdf_string(p_text, p_font_idx) || ' Tj'        || CHR(10) ||
+      rad_pdf_fonts.text_to_pdf_string(p_text, p_font_idx, p_doc) || ' Tj'        || CHR(10) ||
       'ET';
   END text_block;
 
@@ -374,7 +375,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_fi := g_canvas(p_doc).font_idx;
     l_fs := g_canvas(p_doc).font_size;
     rad_pdf_serial.page_write(p_doc,
-      text_block(p_text, l_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor, p_rotation));
+      text_block(p_doc, p_text, l_x, l_y, l_fi, l_fs, g_canvas(p_doc).fcolor, p_rotation));
     rad_pdf_fonts.mark_font_used(p_doc, l_fi);
     g_canvas(p_doc).x := l_x + rad_pdf_fonts.text_width(p_text, l_fi, l_fs);
     g_canvas(p_doc).y := l_y;
@@ -394,7 +395,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     -- Explicit Tw=0 after justification: text state survives ET.
     rad_pdf_serial.page_write(p_doc,p_style.prefix||l_spacing
       ||rad_pdf_codec.fmt(p_x,2)||' '||rad_pdf_codec.fmt(p_y,2)||' Td'||CHR(10)
-      ||rad_pdf_fonts.text_to_pdf_string(p_text,p_style.font_idx)||' Tj'||CHR(10)
+      ||rad_pdf_fonts.text_to_pdf_string(p_text,p_style.font_idx,p_doc)||' Tj'||CHR(10)
       ||CASE WHEN l_spacing IS NOT NULL THEN '0 Tw'||CHR(10) END||'ET');
     rad_pdf_fonts.mark_font_used(p_doc,p_style.font_idx);
   END paint_text;
@@ -905,7 +906,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
         rad_pdf_codec.rgb_to_pdf(l_wm.color) || ' rg' || CHR(10) ||
         rad_pdf_codec.fmt(-(l_tw / 2), 2) || ' ' ||
         rad_pdf_codec.fmt(-(l_wm.font_size * 0.25), 2) || ' Td' || CHR(10) ||
-        rad_pdf_fonts.text_to_pdf_string(l_wm.text, l_fi) || ' Tj' || CHR(10) ||
+        rad_pdf_fonts.text_to_pdf_string(l_wm.text, l_fi, p_doc) || ' Tj' || CHR(10) ||
         'ET' || CHR(10);
       rad_pdf_fonts.mark_font_used(p_doc, l_fi);
 

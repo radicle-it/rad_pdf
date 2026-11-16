@@ -35,6 +35,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf_layout.pks
 @@rad_pdf_table.pks
 @@rad_pdf_template.pks
+@@rad_pdf_doc.pks
 @@rad_pdf_barcode.pks
 @@rad_pdf_chart.pks
 @@rad_pdf.pks
@@ -54,6 +55,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf_swiss.pkb
 @@rad_pdf_chart.pkb
 @@rad_pdf_ctx.pkb
+@@rad_pdf_doc.pkb
 @@rad_pdf.pkb
 
 DECLARE

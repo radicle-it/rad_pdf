@@ -116,7 +116,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
     p_width     IN NUMBER,
     p_end_y     OUT NUMBER);
 
-  -- Release per-document table cache. Called by rad_pdf_ctx.close_doc.
+  -- Release per-document table cache. Called by rad_pdf_doc.close_doc.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 
 END rad_pdf_table;

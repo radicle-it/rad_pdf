@@ -3,7 +3,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_styles AUTHID DEFINER IS
   rad_pdf_styles — session-scoped named style registry.
   Oracle 19c+.
 
-  Styles survive rad_pdf_ctx.close_doc (they are session-level, not per-document).
+  Styles survive rad_pdf_doc.close_doc (they are session-level, not per-document).
   Predefined styles are loaded lazily on first call to get() or load_defaults.
 
   Predefined style names:

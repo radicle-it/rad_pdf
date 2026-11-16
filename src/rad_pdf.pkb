@@ -12,7 +12,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     6. Info object (with PDF date string)
     7. rad_pdf_serial.finish_doc  (xref + trailer)
     8. rad_pdf_serial.take_doc  → transfer BLOB ownership to caller
-    9. rad_pdf_ctx.close_doc
+    9. rad_pdf_doc.close_doc
 */
 
 -- ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     RETURN l_doc;
   EXCEPTION
     WHEN OTHERS THEN
-      rad_pdf_ctx.close_doc(l_doc);
+      rad_pdf_doc.close_doc(l_doc);
       RAISE;
   END new_document;
 
@@ -256,14 +256,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 
     -- 8. Transfer the finished PDF BLOB; caller must FREETEMPORARY.
     l_result := rad_pdf_serial.take_doc(p_doc);
-    rad_pdf_ctx.close_doc(p_doc);
+    rad_pdf_doc.close_doc(p_doc);
     RETURN l_result;
   EXCEPTION
     WHEN OTHERS THEN
       IF DBMS_LOB.ISTEMPORARY(l_icc)=1 THEN DBMS_LOB.FREETEMPORARY(l_icc); END IF;
       IF DBMS_LOB.ISTEMPORARY(l_xmp)=1 THEN DBMS_LOB.FREETEMPORARY(l_xmp); END IF;
       IF DBMS_LOB.ISTEMPORARY(l_result)=1 THEN DBMS_LOB.FREETEMPORARY(l_result); END IF;
-      BEGIN rad_pdf_ctx.close_doc(p_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN rad_pdf_doc.close_doc(p_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
       RAISE;
   END finalize;
 
@@ -306,7 +306,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 -- ---------------------------------------------------------------------------
   PROCEDURE close_document(p_doc IN rad_pdf_types.t_doc_handle) IS
   BEGIN
-    rad_pdf_ctx.close_doc(p_doc);
+    rad_pdf_doc.close_doc(p_doc);
   END close_document;
 
 -- ---------------------------------------------------------------------------

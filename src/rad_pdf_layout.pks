@@ -100,7 +100,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
   FUNCTION has_flowables(p_doc IN rad_pdf_types.t_doc_handle) RETURN BOOLEAN;
 
   -- Release per-document state (flowable CLOBs, table def CLOBs, g_layout entry).
-  -- Called by rad_pdf_ctx.close_doc.
+  -- Called by rad_pdf_doc.close_doc.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 
 END rad_pdf_layout;

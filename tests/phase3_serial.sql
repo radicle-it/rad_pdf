@@ -41,7 +41,7 @@ BEGIN
     ok('page_count after new_page', rad_pdf_serial.page_count(l_doc), 1);
     ok('current_page 0-based',      rad_pdf_serial.current_page(l_doc), 0);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
     ok('closed after close_doc', NOT rad_pdf_ctx.is_valid(l_doc));
   END;
 
@@ -80,7 +80,7 @@ BEGIN
     ok('page1 content', l_h1, RAWTOHEX(UTL_RAW.CAST_TO_RAW('PAGE1')));
     ok('pages distinct', l_h0 != l_h1);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -110,7 +110,7 @@ BEGIN
        OR ( DBMS_LOB.INSTR(l_b, UTL_RAW.CAST_TO_RAW('A')) > 0
             AND DBMS_LOB.INSTR(l_b, UTL_RAW.CAST_TO_RAW('C')) > 0 ));
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -130,7 +130,7 @@ BEGIN
     END;
     ok('goto_page raises on bad nr', l_raised);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -155,7 +155,7 @@ BEGIN
     ok('obj2 number', l_n2, 2);
     ok('obj3 number', l_n3, 3);
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -190,7 +190,7 @@ BEGIN
       DBMS_LOB.FREETEMPORARY(l_copy);
     END;
 
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -240,7 +240,7 @@ BEGIN
     ok('doc length > 100', DBMS_LOB.GETLENGTH(l_copy) > 100);
 
     DBMS_LOB.FREETEMPORARY(l_copy);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================
@@ -262,7 +262,7 @@ BEGIN
 
     DBMS_LOB.FREETEMPORARY(l_c1);
     DBMS_LOB.FREETEMPORARY(l_c2);
-    rad_pdf_ctx.close_doc(l_doc);
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================

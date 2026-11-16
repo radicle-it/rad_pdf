@@ -144,5 +144,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_template AUTHID CURRENT_USER IS
     p_template IN VARCHAR2,
     p_options  IN rad_pdf_types.t_template_options DEFAULT NULL);
 
+  -- The styles derived from the inline formatting of p_doc leave the style registry (called when the document
+  -- closes: rad_pdf_doc.close).
+  PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
+
 END rad_pdf_template;
 /

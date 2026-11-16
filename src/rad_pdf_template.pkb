@@ -67,6 +67,13 @@ g_col_registry t_col_registry;
 -- Value = raw bind value (not XML-escaped; SQL binding handles quoting)
 -- Sentinel chars: CHR(1) opens, CHR(2) closes the placeholder in the query.
 -- ---------------------------------------------------------------------------
+-- A3 (2026-11-16, doc 96 §11): the styles derived from inline formatting belong to the document that rendered them
+-- -- remembered per document by their key (base, formatting, revision of the base), named inline_<doc>_<n> in the
+-- style registry, dropped by close_doc: no hash per run, no growth across documents, no document seeing another's
+TYPE t_derived IS TABLE OF VARCHAR2(150) INDEX BY VARCHAR2(400);
+TYPE t_doc_derived IS TABLE OF t_derived INDEX BY PLS_INTEGER;
+g_doc_derived t_doc_derived;
+
 TYPE t_qbind_map IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(200);
 g_qbind_map    t_qbind_map;
 g_qbind_active BOOLEAN := FALSE;   -- TRUE during a render(CLOB,binds) call
@@ -253,6 +260,7 @@ END parse_unit_attr;
 -- Returns p_base unchanged when all optional parameters are at their defaults.
 -- ---------------------------------------------------------------------------
 FUNCTION derive_style(
+  p_doc       IN rad_pdf_types.t_doc_handle,
   p_base      IN VARCHAR2,
   p_bold      IN BOOLEAN,
   p_italic    IN BOOLEAN,
@@ -260,6 +268,7 @@ FUNCTION derive_style(
   p_font_size IN NUMBER   DEFAULT NULL
 ) RETURN VARCHAR2 IS
   l_name VARCHAR2(150);
+  l_key  VARCHAR2(400);
   l_sty  rad_pdf_types.t_font_style;
   l_fmt  rad_pdf_types.t_cell_format;
 BEGIN
@@ -289,10 +298,15 @@ BEGIN
     l_name := l_name || '__s' || rad_pdf_codec.fmt(p_font_size, 6);
   END IF;
 
-  -- Include base revision and exact options in a bounded cache key.
-  l_name := 'inline_'||RAWTOHEX(DBMS_CRYPTO.HASH(UTL_I18N.STRING_TO_RAW(
-    l_name||':'||TO_CHAR(rad_pdf_styles.revision(p_base)),'AL32UTF8'),DBMS_CRYPTO.HASH_SH256));
-  IF NOT rad_pdf_styles.exists_style(l_name) THEN
+  -- The key: the base, its revision (a base defined again derives again) and the exact options
+  l_key := l_name || ':' || TO_CHAR(rad_pdf_styles.revision(p_base));
+  IF g_doc_derived.EXISTS(p_doc) AND g_doc_derived(p_doc).EXISTS(l_key) THEN
+    RETURN g_doc_derived(p_doc)(l_key);
+  END IF;
+  l_name := 'inline_' || TO_CHAR(p_doc) || '_'
+            || TO_CHAR(CASE WHEN g_doc_derived.EXISTS(p_doc) THEN g_doc_derived(p_doc).COUNT ELSE 0 END + 1);
+  g_doc_derived(p_doc)(l_key) := l_name;
+  BEGIN
     l_fmt := rad_pdf_styles.get(p_base);
     -- Apply bold/italic if requested
     IF l_sty IS NOT NULL THEN
@@ -306,7 +320,7 @@ BEGIN
       l_fmt.font_size := p_font_size;
     END IF;
     rad_pdf_styles.define_format(l_name,l_fmt);
-  END IF;
+  END;
   RETURN l_name;
 END derive_style;
 
@@ -504,7 +518,8 @@ BEGIN
         l_run.style_name := p_style;
       ELSE
         l_run.text       := l_runs(i).text;
-        l_run.style_name := derive_style(p_style,
+        l_run.style_name := derive_style(p_doc,
+                                         p_style,
                                          l_runs(i).bold,
                                          l_runs(i).italic,
                                          l_runs(i).color,
@@ -1784,6 +1799,21 @@ PROCEDURE render(
 BEGIN
   render(p_doc, TO_CLOB(p_template), p_options);
 END render;
+
+-- ---------------------------------------------------------------------------
+-- close_doc (A3): the styles this document derived leave the registry with it
+-- ---------------------------------------------------------------------------
+PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
+  l_key VARCHAR2(400);
+BEGIN
+  IF NOT g_doc_derived.EXISTS(p_doc) THEN RETURN; END IF;
+  l_key := g_doc_derived(p_doc).FIRST;
+  WHILE l_key IS NOT NULL LOOP
+    rad_pdf_styles.drop_style(g_doc_derived(p_doc)(l_key));
+    l_key := g_doc_derived(p_doc).NEXT(l_key);
+  END LOOP;
+  g_doc_derived.DELETE(p_doc);
+END close_doc;
 
 END rad_pdf_template;
 /

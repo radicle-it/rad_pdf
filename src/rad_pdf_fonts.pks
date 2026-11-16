@@ -80,7 +80,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
 -- Font lookup and metrics
 -- ---------------------------------------------------------------------------
   -- Find a font index by family name and style. Raises c_err_font if not found.
-  -- p_doc is reserved for future use; pass the current document handle.
+  -- The fonts loaded for p_doc first (A2), then the session's standard and preloaded fonts.
   FUNCTION  find_font(p_doc    IN rad_pdf_types.t_doc_handle,
                       p_family IN VARCHAR2,
                       p_style  IN rad_pdf_types.t_font_style DEFAULT 'N')
@@ -94,9 +94,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
 -- Internal interface (called by rad_pdf_canvas and rad_pdf_serial during rendering)
 -- ---------------------------------------------------------------------------
-  -- Mark a character code as used for TTF glyph subsetting.
-  PROCEDURE mark_char_used(p_font_idx IN PLS_INTEGER, p_char_code IN PLS_INTEGER);
-
   -- Mark a font as used in a document's page streams (called by rad_pdf_canvas
   -- when emitting the Tf operator). Sets up the font for write_font_objects.
   PROCEDURE mark_font_used(p_doc IN rad_pdf_types.t_doc_handle, p_font_idx IN PLS_INTEGER);
@@ -105,15 +102,18 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
   PROCEDURE assert_text_supported(p_text IN VARCHAR2,p_font_idx IN PLS_INTEGER);
 
   -- Convert text to the raw bytes expected by the PDF font encoding.
+  -- p_doc (A2, 2026-11-16): the document the text is written to -- its glyphs enter that document's subset and
+  -- ToUnicode map; NULL only converts (no glyph recorded: never for text that goes on a page).
   FUNCTION  text_to_pdf_string(p_text     IN VARCHAR2,
-                               p_font_idx IN PLS_INTEGER) RETURN VARCHAR2;
+                               p_font_idx IN PLS_INTEGER,
+                               p_doc      IN rad_pdf_types.t_doc_handle DEFAULT NULL) RETURN VARCHAR2;
 
   -- Write all used font PDF objects for p_doc into the document stream.
   -- Returns a PDF resource fragment: '/F1 <obj> 0 R /F2 <obj> 0 R ...'
   -- Called once per document during finalization.
   FUNCTION  write_font_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2;
 
-  -- Release all per-document font state for p_doc (called by rad_pdf_ctx.close_doc).
+  -- Release all per-document font state for p_doc (called by rad_pdf_doc.close_doc).
   -- Preloaded and standard fonts are not affected.
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
 

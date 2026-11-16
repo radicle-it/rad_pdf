@@ -17,6 +17,7 @@ PROMPT
 -- -----------------------------------------------------------------------
 PROMPT --- dropping package rad_pdf
 DROP PACKAGE rad_pdf;
+DROP PACKAGE rad_pdf_doc;
 
 -- -----------------------------------------------------------------------
 -- Phase 7 — layout engine + table renderer

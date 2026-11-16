@@ -5,6 +5,8 @@
 PROMPT === Phase 8 rad_pdf facade ===
 
 PROMPT --- rad_pdf spec
+@@../rad_pdf_doc.pks
+@@../rad_pdf_doc.pkb
 @@../rad_pdf.pks
 SHOW ERRORS PACKAGE rad_pdf
 
