@@ -680,6 +680,55 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
       END LOOP;
     END IF;
 
+    -- A composite glyph (an accented letter: 'agrave' = 'a' + 'grave') draws its COMPONENT glyphs: they belong to the
+    -- subset too, or the accent is lost (the glyph ids are kept, so a component keeps its id). The closure runs until
+    -- no new glyph is added (components may be composite). OpenType glyf, component flags: 0x0001 ARG_1_AND_2_ARE_WORDS,
+    -- 0x0008 WE_HAVE_A_SCALE, 0x0020 MORE_COMPONENTS, 0x0040 X_AND_Y_SCALE, 0x0080 TWO_BY_TWO.
+    DECLARE
+      l_glyf   NUMBER;
+      l_nt     PLS_INTEGER := blob2num(g_fonts(p_idx).fontfile2, 2, g_fonts(p_idx).ttf_offset + 4);
+      l_fac    PLS_INTEGER := CASE g_fonts(p_idx).indexToLocFormat WHEN 0 THEN 2 ELSE 1 END;
+      l_work   t_pls_tab := t_used_glyphs;
+      l_next   t_pls_tab;
+      l_g      PLS_INTEGER;
+      l_pos    NUMBER;
+      l_flags  PLS_INTEGER;
+      l_comp   PLS_INTEGER;
+    BEGIN
+      FOR i IN 0 .. l_nt - 1 LOOP
+        -- the table records from ttf_offset + 12 (ttf_offset is 1-based, as for numTables at ttf_offset + 4)
+        IF UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(g_fonts(p_idx).fontfile2, 4, g_fonts(p_idx).ttf_offset + 12 + i * 16)) = 'glyf' THEN
+          l_glyf := blob2num(g_fonts(p_idx).fontfile2, 4, g_fonts(p_idx).ttf_offset + 12 + i * 16 + 8);
+        END IF;
+      END LOOP;
+      WHILE l_glyf IS NOT NULL AND l_work.COUNT > 0 LOOP
+        l_next.DELETE;
+        l_g := l_work.FIRST;
+        WHILE l_g IS NOT NULL LOOP
+          IF l_g < g_fonts(p_idx).numGlyphs AND g_fonts(p_idx).loca(l_g + 1) > g_fonts(p_idx).loca(l_g) THEN
+            l_pos := l_glyf + g_fonts(p_idx).loca(l_g) * l_fac + 1;
+            IF blob2num(g_fonts(p_idx).fontfile2, 2, l_pos) >= 32768 THEN          -- numberOfContours < 0: composite
+              l_pos := l_pos + 10;
+              LOOP
+                l_flags := blob2num(g_fonts(p_idx).fontfile2, 2, l_pos);
+                l_comp  := blob2num(g_fonts(p_idx).fontfile2, 2, l_pos + 2);
+                IF NOT t_used_glyphs.EXISTS(l_comp) THEN
+                  t_used_glyphs(l_comp) := 0;
+                  l_next(l_comp) := 0;
+                END IF;
+                l_pos := l_pos + 4 + CASE WHEN BITAND(l_flags, 1) = 1 THEN 4 ELSE 2 END
+                               + CASE WHEN BITAND(l_flags, 8) = 8 THEN 2 WHEN BITAND(l_flags, 64) = 64 THEN 4
+                                      WHEN BITAND(l_flags, 128) = 128 THEN 8 ELSE 0 END;
+                EXIT WHEN BITAND(l_flags, 32) = 0;
+              END LOOP;
+            END IF;
+          END IF;
+          l_g := l_work.NEXT(l_g);
+        END LOOP;
+        l_work := l_next;
+      END LOOP;
+    END;
+
     DBMS_LOB.CREATETEMPORARY(t_tables, TRUE, DBMS_LOB.SESSION);
     l_n_tables      := blob2num(g_fonts(p_idx).fontfile2, 2, g_fonts(p_idx).ttf_offset + 4);
     t_header        := UTL_RAW.CONCAT(HEXTORAW('00010000'),
