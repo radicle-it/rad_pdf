@@ -155,21 +155,22 @@ BEGIN
   rad_pdf.write(l_b, 'TEXT_B');
   rad_pdf_layout.render(l_a);
   assert_ok(rad_pdf_serial.page_count(l_a) = 1, 'fault: document A has its page before the close');
+  -- the flowable layer is closed by the facade (rad_pdf.close_document), then the core (rad_pdf_doc.close_doc)
   DBMS_APPLICATION_INFO.SET_CLIENT_INFO('rad_pdf_fault=rad_pdf_layout');
   BEGIN
-    rad_pdf_doc.close_doc(l_a);
+    rad_pdf.close_document(l_a);
   EXCEPTION WHEN OTHERS THEN
     l_code := SQLCODE;
     l_err  := DBMS_UTILITY.FORMAT_ERROR_STACK;   -- the whole message (SQLERRM stops at 512 bytes)
   END;
   DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
-  assert_ok(l_code = rad_pdf_types.c_err_internal, 'fault: close_doc raises c_err_internal');
+  assert_ok(l_code = rad_pdf_types.c_err_internal, 'fault: close_document raises c_err_internal');
   assert_ok(INSTR(l_err, 'Document cleanup: rad_pdf_layout: ORA-20990: injected fault in rad_pdf_layout') > 0,
             'fault: the message names the failing package, its code and its message');
   assert_ok(LENGTHB(l_err) > 1500 AND LENGTHB(l_err) <= 2048 + LENGTHB('ORA-20800: ') + 1,
             'fault: the long multibyte message is carried, within 2048 bytes (' || LENGTHB(l_err) || ')');
   assert_ok(NOT rad_pdf_ctx.is_valid(l_a), 'fault: the handle is invalid after the failed close');
-  assert_ok(rad_pdf_serial.page_count(l_a) = 0, 'fault: the closers after the failing one ran (serial state gone)');
+  assert_ok(rad_pdf_serial.page_count(l_a) = 0, 'fault: the closers after the failing one ran, the core''s too (serial state gone)');
   rad_pdf_doc.close_doc(l_a);
   assert_ok(TRUE, 'fault: a second close of the handle is a no-op');
   l_pdf := rad_pdf.finalize(l_b);
@@ -184,6 +185,22 @@ BEGIN
             AND DBMS_LOB.INSTR(l_pdf, UTL_RAW.CAST_TO_RAW('TEXT_A')) = 0,
             'fault: a new document gets a new handle and none of the leftover state');
   DBMS_LOB.FREETEMPORARY(l_pdf);
+  -- a closer of the core that fails: rad_pdf_doc.close_doc alone, the same contract
+  l_c := rad_pdf.new_document(p_compress_pages => FALSE);
+  rad_pdf.write(l_c, 'TEXT_D');
+  rad_pdf_layout.render(l_c);
+  l_code := NULL; l_err := NULL;
+  DBMS_APPLICATION_INFO.SET_CLIENT_INFO('rad_pdf_fault=rad_pdf_canvas');
+  BEGIN
+    rad_pdf.close_document(l_c);
+  EXCEPTION WHEN OTHERS THEN
+    l_code := SQLCODE;
+    l_err  := DBMS_UTILITY.FORMAT_ERROR_STACK;
+  END;
+  DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+  assert_ok(l_code = rad_pdf_types.c_err_internal AND INSTR(l_err, 'Document cleanup: rad_pdf_canvas: ORA-20990') > 0
+            AND NOT rad_pdf_ctx.is_valid(l_c) AND rad_pdf_serial.page_count(l_c) = 0,
+            'fault: a failing closer of the core: named, the handle freed, the closers after it ran');
   :fault_result := 'OK ' || l_pass;
 EXCEPTION
   WHEN e_fail THEN

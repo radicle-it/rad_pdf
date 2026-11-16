@@ -1,0 +1,37 @@
+# The importable core of RAD_PDF (middleware-docs 96a §1b): the files the middleware imports, in install order.
+# Nothing in them may depend on an object outside this list (tests/import/check_core.py checks it on a schema holding
+# only these objects); the core is compiled with PLSQL_CCFLAGS='rad_pdf_core:TRUE' (no page procedure in a string).
+# Not imported: rad_pdf (the facade), rad_pdf_flow, rad_pdf_layout, rad_pdf_table, rad_pdf_template (the flowable layer
+# and the markup engine) and the extensions rad_pdf_swiss, rad_pdf_barcode, rad_pdf_chart.
+rad_pdf_types.pks
+rad_pdf_img_data.sql
+rad_pdf_img_decoder.sql
+rad_pdf_jpeg_decoder.sql
+rad_pdf_png_decoder.sql
+rad_pdf_gif_decoder.sql
+rad_pdf_units.pks
+rad_pdf_codec.pks
+rad_pdf_styles.pks
+rad_pdf_ctx.pks
+rad_pdf_serial.pks
+rad_pdf_fonts.pks
+rad_pdf_images.pks
+rad_pdf_text.pks
+rad_pdf_canvas.pks
+rad_pdf_doc.pks
+rad_pdf_ri.pks
+rad_pdf_merge.pks
+rad_pdf_pager.pks
+rad_pdf_units.pkb
+rad_pdf_codec.pkb
+rad_pdf_styles.pkb
+rad_pdf_serial.pkb
+rad_pdf_fonts.pkb
+rad_pdf_images.pkb
+rad_pdf_text.pkb
+rad_pdf_canvas.pkb
+rad_pdf_ctx.pkb
+rad_pdf_doc.pkb
+rad_pdf_ri.pkb
+rad_pdf_merge.pkb
+rad_pdf_pager.pkb

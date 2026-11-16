@@ -22,6 +22,15 @@ CREATE OR REPLACE PACKAGE rad_pdf_swiss AUTHID DEFINER IS
   );
   PROCEDURE validate(p_bill IN t_bill);
   FUNCTION from_json(p_json IN CLOB) RETURN t_bill;
+
+  -- The bill attached to a document (moved out of rad_pdf_layout: layout knows no extension). attach validates the bill
+  -- and the placement (INTEGRATED by default: layout reserves 115 mm at the bottom of every page; SEPARATE: layout adds
+  -- a final page); rad_pdf.finalize draws it after the render (draw_attached). One bill per document.
+  PROCEDURE attach(p_doc IN rad_pdf_types.t_doc_handle, p_bill IN t_bill, p_options IN t_options DEFAULT NULL);
+  FUNCTION  attached(p_doc IN rad_pdf_types.t_doc_handle) RETURN BOOLEAN;
+  FUNCTION  placement(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2;
+  PROCEDURE draw_attached(p_doc IN rad_pdf_types.t_doc_handle);
+  PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle);
   FUNCTION to_json(p_bill IN t_bill) RETURN CLOB; -- caller-owned temporary CLOB
   FUNCTION payload(p_bill IN t_bill) RETURN VARCHAR2; -- UTF-8 when encoded; LF, no final LF
   FUNCTION qr_reference(p_base IN VARCHAR2) RETURN VARCHAR2;

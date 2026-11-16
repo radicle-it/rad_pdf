@@ -3,7 +3,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
   rad_pdf_table — table and label rendering for RAD_PDF.
   Oracle 19c+. AUTHID CURRENT_USER (executes queries with caller's privileges).
 
-  table_flow / query2table build a t_table_def and register it with rad_pdf_layout;
+  table_flow / query2table build a t_table_def and register it with rad_pdf_flow (no call to rad_pdf_layout);
   they return / add a t_flowable of type TABLE.
 
   draw_table is called by rad_pdf_layout.render (not user code).

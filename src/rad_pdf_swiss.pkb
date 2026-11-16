@@ -1,4 +1,7 @@
 CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
+  TYPE t_attached IS RECORD (bill t_bill, options t_options);
+  TYPE t_attached_map IS TABLE OF t_attached INDEX BY PLS_INTEGER;
+  g_attached t_attached_map;                     -- the bill of each document (per document: closed by close_doc)
   c_mm CONSTANT NUMBER := 72/25.4;
   c_countries CONSTANT VARCHAR2(1000) :=
     ' AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ'
@@ -450,5 +453,45 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
     END LOOP;
     FOR i IN 1..l_corners.COUNT LOOP draw_corner(l_corners(i)); END LOOP;
   END draw;
+  -- ---------------------------------------------------------------------------
+  -- the bill attached to a document
+  -- ---------------------------------------------------------------------------
+  PROCEDURE attach(p_doc IN rad_pdf_types.t_doc_handle, p_bill IN t_bill, p_options IN t_options DEFAULT NULL) IS
+    l_payload VARCHAR2(4000);
+    l_options t_options := p_options;
+  BEGIN
+    rad_pdf_ctx.assert_valid(p_doc);
+    l_payload := payload(p_bill);
+    l_options.placement := NVL(l_options.placement,'INTEGRATED');
+    IF l_options.placement NOT IN ('INTEGRATED','SEPARATE') THEN
+      RAISE_APPLICATION_ERROR(c_err_swiss,'placement must be INTEGRATED or SEPARATE');
+    END IF;
+    IF g_attached.EXISTS(p_doc) THEN
+      RAISE_APPLICATION_ERROR(c_err_swiss,'Document already has a Swiss payment section');
+    END IF;
+    g_attached(p_doc).bill := p_bill;
+    g_attached(p_doc).options := l_options;
+  END attach;
+
+  FUNCTION attached(p_doc IN rad_pdf_types.t_doc_handle) RETURN BOOLEAN IS
+  BEGIN
+    RETURN g_attached.EXISTS(p_doc);
+  END attached;
+
+  FUNCTION placement(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2 IS
+  BEGIN
+    RETURN CASE WHEN g_attached.EXISTS(p_doc) THEN g_attached(p_doc).options.placement END;
+  END placement;
+
+  PROCEDURE draw_attached(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    IF g_attached.EXISTS(p_doc) THEN draw(p_doc, g_attached(p_doc).bill, g_attached(p_doc).options); END IF;
+  END draw_attached;
+
+  PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
+  BEGIN
+    g_attached.DELETE(p_doc);
+  END close_doc;
+
 END rad_pdf_swiss;
 /

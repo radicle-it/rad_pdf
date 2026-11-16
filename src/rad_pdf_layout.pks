@@ -78,7 +78,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
 -- Internal API (called by rad_pdf_table and rad_pdf — not for application use)
 -- ---------------------------------------------------------------------------
 
-  -- Register a table definition; returns the table_ref_id for the flowable.
+  -- Register a table definition (kept by rad_pdf_flow); returns the table_ref_id for the flowable.
   FUNCTION register_table(p_doc       IN rad_pdf_types.t_doc_handle,
                           p_table_def IN rad_pdf_types.t_table_def) RETURN PLS_INTEGER;
 
@@ -86,11 +86,11 @@ CREATE OR REPLACE PACKAGE rad_pdf_layout AUTHID DEFINER IS
   FUNCTION get_table_def(p_doc       IN rad_pdf_types.t_doc_handle,
                          p_table_ref IN PLS_INTEGER) RETURN rad_pdf_types.t_table_def;
 
-  -- One Swiss payment section per document; integrated reserves the bottom
-  -- 115 mm on all pages. SEPARATE leaves body geometry intact and appends a page.
-  PROCEDURE set_swiss_bill(p_doc IN rad_pdf_types.t_doc_handle,
-                           p_bill IN rad_pdf_swiss.t_bill,
-                           p_options IN rad_pdf_swiss.t_options DEFAULT NULL);
+  -- An extension that needs room at the bottom of every page (the integrated Swiss QR-bill: 115 mm) or a page of its
+  -- own at the end (the separate one) asks layout for it; it draws itself after render (rad_pdf.finalize): layout
+  -- knows no extension.
+  PROCEDURE reserve_bottom(p_doc IN rad_pdf_types.t_doc_handle, p_height IN NUMBER);
+  PROCEDURE final_page    (p_doc IN rad_pdf_types.t_doc_handle);
 
   -- Prepare data, render with actual cursor positions, then run_page_procs.
   -- Called once by rad_pdf.finalize; do not invoke directly.

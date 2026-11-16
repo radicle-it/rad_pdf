@@ -894,7 +894,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   -- the whole layout of an instance into st (the document is open: the fonts are loaded in it); returns the pages
   FUNCTION paginate(st IN OUT NOCOPY t_st, p_inst IN rad_pdf_ri.t_ri, p_fonts IN t_font_files, p_options IN t_options) RETURN PLS_INTEGER IS
     s       rad_pdf_ri.t_node;
-    l_tpl   rad_pdf_types.t_page_template;
+    l_fmt   rad_pdf_types.t_page_format;
     l_info  rad_pdf_types.t_doc_info;
     l_pages PLS_INTEGER;
   BEGIN
@@ -913,11 +913,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     st.page_w := s.page_w; st.page_h := s.page_h;
     st.left := s.mar_left; st.width := s.page_w - s.mar_left - s.mar_right;
     st.dfmt := first_fmt(p_inst);
-    l_tpl.page_width := s.page_w; l_tpl.page_height := s.page_h;
-    l_tpl.margin_top := s.mar_top; l_tpl.margin_bottom := s.mar_bottom;
-    l_tpl.margin_left := s.mar_left; l_tpl.margin_right := s.mar_right;
     l_info.title := p_options.title;
-    st.doc := rad_pdf.new_document(p_info => l_info, p_template => l_tpl);
+    -- the core only (96a §1b): no facade, no flowable layer
+    st.doc := rad_pdf_doc.open_doc(p_info => l_info);
+    l_fmt.width := s.page_w; l_fmt.height := s.page_h;
+    rad_pdf_canvas.set_page_format(st.doc, l_fmt);
+    rad_pdf_canvas.new_page(st.doc);
     -- PAGE and NUMPAGES (R3): the body is laid out with a page count, and again with the count it gave, until the count
     -- it gives is the count it was laid out with (the fields, the zones and their heights then agree)
     FOR pass IN 1 .. 4 LOOP
@@ -934,19 +935,23 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   PROCEDURE close_quietly(st IN OUT NOCOPY t_st) IS
   BEGIN
     IF st.doc IS NOT NULL THEN
-      BEGIN rad_pdf.close_document(st.doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN rad_pdf_doc.close_doc(st.doc); EXCEPTION WHEN OTHERS THEN NULL; END;
     END IF;
   END close_quietly;
 
   FUNCTION render(p_inst IN rad_pdf_ri.t_ri, p_fonts IN t_font_files, p_options IN t_options DEFAULT NULL) RETURN BLOB IS
     st      t_st;
     l_pages PLS_INTEGER;
+    l_pdf   BLOB;
   BEGIN
     l_pages := paginate(st, p_inst, p_fonts, p_options);
     draw(st, p_inst, l_pages);
-    RETURN rad_pdf.finalize(st.doc);
+    l_pdf := rad_pdf_doc.assemble(st.doc);
+    rad_pdf_doc.close_doc(st.doc);
+    RETURN l_pdf;
   EXCEPTION
     WHEN OTHERS THEN
+      IF l_pdf IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_pdf) = 1 THEN DBMS_LOB.FREETEMPORARY(l_pdf); END IF;
       close_quietly(st);
       RAISE;
   END render;

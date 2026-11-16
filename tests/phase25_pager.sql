@@ -111,7 +111,7 @@ DECLARE
 BEGIN
   SELECT family, variant, bytes BULK COLLECT INTO fonts FROM rad_pdf_test_font ORDER BY family, variant;
   assert_ok(fonts.COUNT = 4, 'the test fonts: Liberation Sans in four variants (tests/word/load_fonts.py)');
-  l_doc := rad_pdf.new_document;
+  l_doc := rad_pdf_doc.open_doc;                          -- the core only (runs on src/install_core.sql)
   FOR i IN 1 .. fonts.COUNT LOOP
     IF fonts(i).variant = 'R' THEN l_fi := rad_pdf_fonts.load_ttf(l_doc, fonts(i).bytes, p_encoding => 'CID', p_embed => TRUE); END IF;
   END LOOP;
@@ -605,7 +605,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  rad_pdf.close_document(l_doc);
+  rad_pdf_doc.close_doc(l_doc);
   DBMS_OUTPUT.PUT_LINE('Phase 25 pager: ' || l_pass || ' passed, 0 failed.');
 END;
 /

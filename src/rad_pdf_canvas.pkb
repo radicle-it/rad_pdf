@@ -751,6 +751,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_n PLS_INTEGER := NVL(LENGTH(p_src), 0);
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
+    $IF $$rad_pdf_core $THEN
+    -- the core (compiled with PLSQL_CCFLAGS='rad_pdf_core:TRUE', src/install_core.sql): no page procedure in a string
+    -- (middleware-docs 96a §1b, E6)
+    RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'page procedures are not part of the core (E6)');
+    $END
     ensure_state(p_doc);
     IF l_n = 0 THEN RETURN; END IF;
     DBMS_LOB.CREATETEMPORARY(l_c, TRUE, DBMS_LOB.SESSION);
@@ -764,6 +769,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
     l_n INTEGER := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
   BEGIN
     rad_pdf_ctx.assert_valid(p_doc);
+    $IF $$rad_pdf_core $THEN
+    -- the core (compiled with PLSQL_CCFLAGS='rad_pdf_core:TRUE', src/install_core.sql): no page procedure in a string
+    -- (middleware-docs 96a §1b, E6)
+    RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'page procedures are not part of the core (E6)');
+    $END
     ensure_state(p_doc);
     IF l_n = 0 THEN RETURN; END IF;
     DBMS_LOB.CREATETEMPORARY(l_c, TRUE, DBMS_LOB.SESSION);
@@ -838,6 +848,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       rad_pdf_serial.goto_page(p_doc, pg);
       l_pi := l_procs.FIRST;
       WHILE l_pi IS NOT NULL LOOP
+        $IF NOT $$rad_pdf_core $THEN                 -- the core has none (add_page_proc refuses them): no dynamic PL/SQL
         l_tmp := REPLACE(
                  REPLACE(
                  REPLACE(l_procs(l_pi),
@@ -845,6 +856,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
                    '#PAGE_COUNT#', TO_CHAR(p_total)),
                    '#DOC_HANDLE#', TO_CHAR(p_doc));
         EXECUTE IMMEDIATE l_tmp;
+        $END
         l_pi := l_procs.NEXT(l_pi);
       END LOOP;
     END LOOP;

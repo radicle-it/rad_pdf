@@ -160,7 +160,7 @@ BEGIN
   l_doc := rad_pdf.new_document;
   rad_pdf.swiss_qr_bill(l_doc,l_bill,l_options);
   rad_pdf_canvas.write_text(l_doc,'CANVAS_ONLY_BODY',30,700);
-  rad_pdf_layout.render(l_doc);
+  rad_pdf.render_pages(l_doc);
   ok(rad_pdf_serial.page_count(l_doc)=2,'separate payment page appended to canvas-only invoice');
   rad_pdf.close_document(l_doc);
   l_options.placement := 'INTEGRATED';
@@ -170,7 +170,7 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN ok(SQLCODE=rad_pdf_swiss.c_err_swiss,'duplicate payment section rejected'); END;
   l_cols.EXTEND(1); l_cols(1).label := 'Rows'; l_cols(1).width := 180;
   rad_pdf.query2table(l_doc,'select ''DATA_''||level from dual connect by level<=120',l_cols);
-  rad_pdf_layout.render(l_doc);
+  rad_pdf.render_pages(l_doc);
   ok(rad_pdf_canvas.get_info(l_doc,rad_pdf_types.c_info_margin_bot)>=rad_pdf_units.to_pt(115,'mm')-0.01,'integrated body frame reserves 115 mm');
   l_n := rad_pdf_serial.page_count(l_doc);
   ok(l_n>1,'Swiss invoice paginates table');

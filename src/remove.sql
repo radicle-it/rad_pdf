@@ -26,10 +26,14 @@ DROP PACKAGE rad_pdf_doc;
 -- Phase 7 — layout engine + table renderer
 -- -----------------------------------------------------------------------
 PROMPT --- dropping package rad_pdf_table
+DROP PACKAGE rad_pdf_chart;
+DROP PACKAGE rad_pdf_barcode;
+DROP PACKAGE rad_pdf_template;
 DROP PACKAGE rad_pdf_table;
 
 PROMPT --- dropping package rad_pdf_layout
 DROP PACKAGE rad_pdf_layout;
+DROP PACKAGE rad_pdf_flow;
 DROP PACKAGE rad_pdf_swiss;
 
 -- -----------------------------------------------------------------------

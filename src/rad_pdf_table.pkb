@@ -456,7 +456,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_f   rad_pdf_types.t_flowable;
     l_ref PLS_INTEGER;
   BEGIN
-    l_ref              := rad_pdf_layout.register_table(p_doc, p_def);
+    l_ref              := rad_pdf_flow.register_table(p_doc, p_def);
     l_f.flow_type      := rad_pdf_types.c_flow_table;
     l_f.table_ref_id   := l_ref;
     RETURN l_f;
@@ -517,7 +517,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_def.col_defs      := p_columns;
     l_def.color_scheme  := p_colors;
     l_def.options       := p_options;
-    l_ref               := rad_pdf_layout.register_table(p_doc, l_def);
+    l_ref               := rad_pdf_flow.register_table(p_doc, l_def);
     l_flow.flow_type    := rad_pdf_types.c_flow_table;
     l_flow.table_ref_id := l_ref;
     ensure_cache(p_doc, l_ref);
@@ -540,7 +540,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                         p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
                         p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options()) IS
   BEGIN
-    rad_pdf_layout.add(p_doc, table_flow(p_doc, p_query, p_columns, p_colors, p_options));
+    rad_pdf_flow.add(p_doc, table_flow(p_doc, p_query, p_columns, p_colors, p_options));
   END query2table;
 
 -- ---------------------------------------------------------------------------
@@ -549,7 +549,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                         p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
                         p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options()) IS
   BEGIN
-    rad_pdf_layout.add(p_doc, table_flow(p_doc, p_query, p_columns, p_colors, p_options));
+    rad_pdf_flow.add(p_doc, table_flow(p_doc, p_query, p_columns, p_colors, p_options));
   END query2table;
 
 -- ---------------------------------------------------------------------------
@@ -559,7 +559,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
                             p_colors  IN rad_pdf_types.t_color_scheme  DEFAULT rad_pdf_styles.default_scheme(),
                             p_options IN rad_pdf_types.t_table_options DEFAULT rad_pdf_units.default_table_options()) IS
   BEGIN
-    rad_pdf_layout.add(p_doc, table_flow(p_doc, p_rc, p_columns, p_colors, p_options));
+    rad_pdf_flow.add(p_doc, table_flow(p_doc, p_rc, p_columns, p_colors, p_options));
   END refcursor2table;
 
 -- ---------------------------------------------------------------------------
@@ -715,7 +715,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_cursor INTEGER;
     l_bind VARCHAR2(30);
   BEGIN
-    l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
+    l_def := rad_pdf_flow.get_table_def(p_doc, p_table_ref);
     ensure_cache(p_doc, p_table_ref);
 
     -- Refcursors are already cached; other sources execute once here.
@@ -796,7 +796,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     END prepare_row;
   BEGIN
     p_end_y := p_y;
-    l_def := rad_pdf_layout.get_table_def(p_doc, p_table_ref);
+    l_def := rad_pdf_flow.get_table_def(p_doc, p_table_ref);
     IF l_def.col_defs IS NULL OR l_def.col_defs.COUNT = 0 THEN RETURN; END IF;
     IF NOT g_table_cache.EXISTS(p_doc) THEN RETURN; END IF;
     IF NOT g_table_cache(p_doc).EXISTS(p_table_ref) THEN RETURN; END IF;

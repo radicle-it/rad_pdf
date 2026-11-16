@@ -12,7 +12,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     6. Info object (with PDF date string)
     7. rad_pdf_serial.finish_doc  (xref + trailer)
     8. rad_pdf_serial.take_doc  → transfer BLOB ownership to caller
-    9. rad_pdf_doc.close_doc
+    (2-8 are rad_pdf_doc.assemble, the core; the Swiss QR-bill is drawn between 1 and 2)
+    9. close_document: the flowable layer and the extensions, then rad_pdf_doc.close_doc
 */
 
 -- ---------------------------------------------------------------------------
@@ -26,11 +27,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 -- ---------------------------------------------------------------------------
 -- PRIVATE: build PDF date string in D:YYYYMMDDHHmmSSZ format (UTC).
 -- ---------------------------------------------------------------------------
-  FUNCTION pdf_date RETURN VARCHAR2 IS
-  BEGIN
-    RETURN 'D:' || TO_CHAR(rad_pdf_ctx.now_utc, 'YYYYMMDDHH24MISS') || 'Z';
-  END pdf_date;
-
 -- ---------------------------------------------------------------------------
   FUNCTION new_document(
     p_info     IN rad_pdf_types.t_doc_info      DEFAULT NULL,
@@ -38,12 +34,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     p_compress_pages IN BOOLEAN DEFAULT TRUE)
     RETURN rad_pdf_types.t_doc_handle IS
     l_doc  rad_pdf_types.t_doc_handle;
-    l_have_template BOOLEAN := FALSE;
   BEGIN
-    l_doc := rad_pdf_ctx.new_doc;
-    rad_pdf_serial.init_doc(l_doc);
-    rad_pdf_serial.set_page_compression(l_doc,p_compress_pages);
-    rad_pdf_fonts.load_standard_fonts;
+    l_doc := rad_pdf_doc.open_doc(p_info, p_compress_pages);
     -- Apply template if any meaningful field is set
     IF p_template.page_format_name IS NOT NULL OR
        p_template.page_width       IS NOT NULL OR
@@ -57,18 +49,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
        NVL(p_template.n_columns,1) != 1 THEN
       rad_pdf_layout.set_template(l_doc, p_template);
     END IF;
-    -- Store document metadata
-    IF p_info.title    IS NOT NULL OR p_info.author  IS NOT NULL OR
-       p_info.subject  IS NOT NULL OR p_info.keywords IS NOT NULL THEN
-      rad_pdf_ctx.set_info(l_doc, p_info);
-    END IF;
     -- Create the first page
     rad_pdf_canvas.new_page(l_doc);
     RETURN l_doc;
   EXCEPTION
     WHEN OTHERS THEN
       -- the initialization error wins: a cleanup error must not replace it
-      BEGIN rad_pdf_doc.close_doc(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN close_document(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
       RAISE;
   END new_document;
 
@@ -80,191 +67,28 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END set_conformance;
 
 -- ---------------------------------------------------------------------------
--- PRIVATE: XMP metadata packet for PDF/A (UTF-8; BOM in the xpacket header).
--- Values MUST stay consistent with the Info dictionary (veraPDF checks).
--- ---------------------------------------------------------------------------
-  FUNCTION build_xmp(p_info     IN rad_pdf_types.t_doc_info,
-                     p_date_iso IN VARCHAR2) RETURN BLOB IS
-    l_b   BLOB;
-    l_xml VARCHAR2(32767);
-    PROCEDURE w(p_s IN VARCHAR2) IS
-    BEGIN
-      l_xml := l_xml || p_s || CHR(10);
-    END w;
-  BEGIN
-    w('<?xpacket begin="' || UTL_RAW.CAST_TO_VARCHAR2(HEXTORAW('EFBBBF'))
-      || '" id="W5M0MpCehiHzreSzNTczkc9d"?>');
-    w('<x:xmpmeta xmlns:x="adobe:ns:meta/">');
-    w(' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">');
-    w('  <rdf:Description rdf:about=""'
-      || ' xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">');
-    w('   <pdfaid:part>2</pdfaid:part>');
-    w('   <pdfaid:conformance>B</pdfaid:conformance>');
-    w('  </rdf:Description>');
-    w('  <rdf:Description rdf:about=""'
-      || ' xmlns:dc="http://purl.org/dc/elements/1.1/">');
-    IF p_info.title IS NOT NULL THEN
-      w('   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">'
-        || rad_pdf_codec.xml_escape(p_info.title)
-        || '</rdf:li></rdf:Alt></dc:title>');
-    END IF;
-    IF p_info.author IS NOT NULL THEN
-      w('   <dc:creator><rdf:Seq><rdf:li>'
-        || rad_pdf_codec.xml_escape(p_info.author)
-        || '</rdf:li></rdf:Seq></dc:creator>');
-    END IF;
-    IF p_info.subject IS NOT NULL THEN
-      w('   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">'
-        || rad_pdf_codec.xml_escape(p_info.subject)
-        || '</rdf:li></rdf:Alt></dc:description>');
-    END IF;
-    w('  </rdf:Description>');
-    w('  <rdf:Description rdf:about=""'
-      || ' xmlns:xmp="http://ns.adobe.com/xap/1.0/">');
-    w('   <xmp:CreatorTool>RAD_PDF</xmp:CreatorTool>');
-    w('   <xmp:CreateDate>' || p_date_iso || '</xmp:CreateDate>');
-    w('   <xmp:ModifyDate>' || p_date_iso || '</xmp:ModifyDate>');
-    w('  </rdf:Description>');
-    w('  <rdf:Description rdf:about=""'
-      || ' xmlns:pdf="http://ns.adobe.com/pdf/1.3/">');
-    w('   <pdf:Producer>Oracle Database 19c+</pdf:Producer>');
-    IF p_info.keywords IS NOT NULL THEN
-      w('   <pdf:Keywords>' || rad_pdf_codec.xml_escape(p_info.keywords)
-        || '</pdf:Keywords>');
-    END IF;
-    w('  </rdf:Description>');
-    w(' </rdf:RDF>');
-    w('</x:xmpmeta>');
-    w('<?xpacket end="w"?>');
-    DBMS_LOB.CREATETEMPORARY(l_b, TRUE, DBMS_LOB.SESSION);
-    DBMS_LOB.WRITEAPPEND(l_b, UTL_RAW.LENGTH(UTL_RAW.CAST_TO_RAW(l_xml)),
-                         UTL_RAW.CAST_TO_RAW(l_xml));
-    RETURN l_b;
-  END build_xmp;
-
--- ---------------------------------------------------------------------------
-  FUNCTION finalize(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
-    l_font_res   CLOB;   -- A6
-    l_img_res    CLOB;
-    l_pages_obj  NUMBER;
-    l_outline_obj NUMBER;
-    l_cat_obj    NUMBER;
-    l_info_obj   NUMBER;
-    l_conf       VARCHAR2(10);
-    l_icc        BLOB;
-    l_icc_obj    NUMBER;
-    l_oi_obj     NUMBER;
-    l_xmp        BLOB;
-    l_xmp_obj    NUMBER;
-    l_ts         TIMESTAMP WITH TIME ZONE;
-    l_date_iso   VARCHAR2(30);
-    l_doc_info   rad_pdf_types.t_doc_info;
-    l_total_pgs  PLS_INTEGER;
-    l_date_str   VARCHAR2(30);
-    l_result     BLOB;
+  PROCEDURE render_pages(p_doc IN rad_pdf_types.t_doc_handle) IS
   BEGIN
     -- Layout also applies page templates for canvas-only documents.
     rad_pdf_layout.render(p_doc);
-
-    l_total_pgs := rad_pdf_serial.page_count(p_doc);
-    l_conf      := rad_pdf_ctx.get_conformance(p_doc);
-
-    -- 2. Font resource objects (PDF/A: every used font must be embedded)
-    IF l_conf IS NOT NULL THEN
-      rad_pdf_fonts.assert_all_embedded(p_doc);
+    -- the Swiss QR-bill draws itself on the last page, after the render (rad_pdf_layout knows no extension)
+    IF rad_pdf_swiss.attached(p_doc) THEN
+      rad_pdf_canvas.goto_page(p_doc, rad_pdf_serial.page_count(p_doc) - 1);
+      rad_pdf_swiss.draw_attached(p_doc);
     END IF;
-    l_font_res := rad_pdf_fonts.write_font_objects(p_doc);
+  END render_pages;
 
-    -- 3. Image resource objects
-    l_img_res := rad_pdf_images.write_image_objects(p_doc);
-
-    -- 4. Page content streams + page dictionaries + Pages root
-    l_pages_obj := rad_pdf_canvas.write_page_objects(p_doc, l_font_res, l_img_res);
-
-    -- 5. Outline tree (NULL when no bookmarks); PDF/A objects; Catalog
-    l_outline_obj := rad_pdf_canvas.write_outline_objects(p_doc);
-
-    IF l_conf IS NOT NULL THEN
-      -- One timestamp for BOTH the XMP packet and the Info dictionary:
-      -- PDF/A validators check that they are consistent.
-      l_ts       := rad_pdf_ctx.now_utc;
-      l_date_iso := TO_CHAR(l_ts, 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-
-      -- sRGB OutputIntent (ICC profile stream + intent dictionary)
-      l_icc := rad_pdf_codec.srgb_icc;
-      l_icc_obj := rad_pdf_serial.write_stream_obj(p_doc, l_icc,
-                     ' /N 3', TRUE);
-      DBMS_LOB.FREETEMPORARY(l_icc);
-      l_oi_obj := rad_pdf_serial.begin_obj(p_doc,
-        '/Type /OutputIntent /S /GTS_PDFA1'
-        || ' /OutputConditionIdentifier (sRGB)'
-        || ' /Info (sRGB IEC61966-2.1)'
-        || ' /DestOutputProfile ' || TO_CHAR(l_icc_obj) || ' 0 R');
-
-      -- XMP metadata stream (must be UNCOMPRESSED per ISO 19005)
-      l_doc_info := rad_pdf_ctx.get_info(p_doc);
-      l_xmp := build_xmp(l_doc_info, l_date_iso);
-      l_xmp_obj := rad_pdf_serial.write_stream_obj(p_doc, l_xmp,
-                     ' /Type /Metadata /Subtype /XML', FALSE);
-      DBMS_LOB.FREETEMPORARY(l_xmp);
-    END IF;
-
-    l_cat_obj := rad_pdf_serial.begin_obj(p_doc,
-      ' /Type /Catalog /Pages ' || TO_CHAR(l_pages_obj) || ' 0 R '
-      || CASE WHEN l_outline_obj IS NOT NULL THEN
-           '/Outlines ' || TO_CHAR(l_outline_obj) || ' 0 R '
-           || '/PageMode /UseOutlines '
-         END
-      || CASE WHEN l_conf IS NOT NULL THEN
-           '/Metadata ' || TO_CHAR(l_xmp_obj) || ' 0 R '
-           || '/OutputIntents [' || TO_CHAR(l_oi_obj) || ' 0 R] '
-         END);
-
-    -- 6. Info dictionary (PDF/A: dates and Producer/Creator must match XMP)
-    l_doc_info  := rad_pdf_ctx.get_info(p_doc);
-    IF l_conf IS NOT NULL THEN
-      l_date_str := 'D:' || TO_CHAR(l_ts, 'YYYYMMDDHH24MISS') || 'Z';
-    ELSE
-      l_date_str := pdf_date;
-    END IF;
-    l_info_obj  := rad_pdf_serial.begin_obj(p_doc);
-    rad_pdf_serial.doc_write(p_doc, '<<');
-    IF l_doc_info.title    IS NOT NULL THEN
-      rad_pdf_serial.doc_write(p_doc, '/Title ('    ||
-                                  rad_pdf_codec.escape_pdf_str(l_doc_info.title)    || ')');
-    END IF;
-    IF l_doc_info.author   IS NOT NULL THEN
-      rad_pdf_serial.doc_write(p_doc, '/Author ('   ||
-                                  rad_pdf_codec.escape_pdf_str(l_doc_info.author)   || ')');
-    END IF;
-    IF l_doc_info.subject  IS NOT NULL THEN
-      rad_pdf_serial.doc_write(p_doc, '/Subject ('  ||
-                                  rad_pdf_codec.escape_pdf_str(l_doc_info.subject)  || ')');
-    END IF;
-    IF l_doc_info.keywords IS NOT NULL THEN
-      rad_pdf_serial.doc_write(p_doc, '/Keywords (' ||
-                                  rad_pdf_codec.escape_pdf_str(l_doc_info.keywords) || ')');
-    END IF;
-    rad_pdf_serial.doc_write(p_doc, '/Creator (RAD_PDF)');
-    rad_pdf_serial.doc_write(p_doc, '/Producer (Oracle Database 19c+)');
-    rad_pdf_serial.doc_write(p_doc, '/CreationDate (' || l_date_str || ')');
-    rad_pdf_serial.doc_write(p_doc, '/ModDate ('      || l_date_str || ')');
-    rad_pdf_serial.doc_write(p_doc, '>>');
-    rad_pdf_serial.end_obj(p_doc);
-
-    -- 7. Cross-reference table and trailer
-    rad_pdf_serial.finish_doc(p_doc, l_cat_obj, l_info_obj, l_total_pgs);
-
-    -- 8. Transfer the finished PDF BLOB; caller must FREETEMPORARY.
-    l_result := rad_pdf_serial.take_doc(p_doc);
-    rad_pdf_doc.close_doc(p_doc);
+  FUNCTION finalize(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
+    l_result BLOB;
+  BEGIN
+    render_pages(p_doc);
+    l_result := rad_pdf_doc.assemble(p_doc);
+    close_document(p_doc);
     RETURN l_result;
   EXCEPTION
     WHEN OTHERS THEN
-      IF DBMS_LOB.ISTEMPORARY(l_icc)=1 THEN DBMS_LOB.FREETEMPORARY(l_icc); END IF;
-      IF DBMS_LOB.ISTEMPORARY(l_xmp)=1 THEN DBMS_LOB.FREETEMPORARY(l_xmp); END IF;
       IF DBMS_LOB.ISTEMPORARY(l_result)=1 THEN DBMS_LOB.FREETEMPORARY(l_result); END IF;
-      BEGIN rad_pdf_doc.close_doc(p_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN close_document(p_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
       RAISE;
   END finalize;
 
@@ -306,8 +130,32 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 
 -- ---------------------------------------------------------------------------
   PROCEDURE close_document(p_doc IN rad_pdf_types.t_doc_handle) IS
+    l_state rad_pdf_doc.t_close;
+    -- the closers of the flowable layer and of the extensions, the highest level first; then the core
+    -- (rad_pdf_doc.close_doc), which raises the first failure of both levels
+    PROCEDURE run(p_package IN VARCHAR2) IS
+    BEGIN
+      rad_pdf_doc.inject(p_package);
+      CASE p_package
+        WHEN 'rad_pdf_template' THEN rad_pdf_template.close_doc(p_doc);
+        WHEN 'rad_pdf_layout'   THEN rad_pdf_layout.close_doc(p_doc);
+        WHEN 'rad_pdf_flow'     THEN rad_pdf_flow.close_doc(p_doc);
+        WHEN 'rad_pdf_table'    THEN rad_pdf_table.close_doc(p_doc);
+        WHEN 'rad_pdf_swiss'    THEN rad_pdf_swiss.close_doc(p_doc);
+      END CASE;
+    EXCEPTION
+      WHEN OTHERS THEN rad_pdf_doc.note(l_state, p_package);
+    END run;
   BEGIN
-    rad_pdf_doc.close_doc(p_doc);
+    IF p_doc IS NULL THEN RETURN; END IF;
+    IF rad_pdf_ctx.is_valid(p_doc) THEN
+      run('rad_pdf_template');
+      run('rad_pdf_layout');
+      run('rad_pdf_flow');
+      run('rad_pdf_table');
+      run('rad_pdf_swiss');
+    END IF;
+    rad_pdf_doc.close_doc(p_doc, l_state);
   END close_document;
 
 -- ---------------------------------------------------------------------------
@@ -345,17 +193,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
   END add_bookmark;
 
 -- ---------------------------------------------------------------------------
+  -- the bill attached to the document, the room it needs asked to layout (it draws itself in finalize)
+  PROCEDURE attach_swiss(p_doc IN rad_pdf_types.t_doc_handle, p_bill IN rad_pdf_swiss.t_bill,
+                         p_options IN rad_pdf_swiss.t_options) IS
+  BEGIN
+    rad_pdf_swiss.attach(p_doc, p_bill, p_options);
+    IF rad_pdf_swiss.placement(p_doc) = 'INTEGRATED' THEN
+      rad_pdf_layout.reserve_bottom(p_doc, rad_pdf_units.to_pt(115, 'mm'));
+    ELSE
+      rad_pdf_layout.final_page(p_doc);
+    END IF;
+  END attach_swiss;
+
   PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
                           p_bill IN rad_pdf_swiss.t_bill,
                           p_options IN rad_pdf_swiss.t_options DEFAULT NULL) IS
   BEGIN
-    rad_pdf_layout.set_swiss_bill(p_doc,p_bill,p_options);
+    attach_swiss(p_doc,p_bill,p_options);
   END;
   PROCEDURE swiss_qr_bill(p_doc IN rad_pdf_types.t_doc_handle,
                           p_json IN CLOB,
                           p_options IN rad_pdf_swiss.t_options DEFAULT NULL) IS
   BEGIN
-    rad_pdf_layout.set_swiss_bill(p_doc,rad_pdf_swiss.from_json(p_json),p_options);
+    attach_swiss(p_doc,rad_pdf_swiss.from_json(p_json),p_options);
   END;
 
   PROCEDURE spacer(p_doc    IN rad_pdf_types.t_doc_handle,

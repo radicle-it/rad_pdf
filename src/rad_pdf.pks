@@ -47,6 +47,10 @@ CREATE OR REPLACE PACKAGE rad_pdf AUTHID CURRENT_USER IS
   -- Finalise the document, close the handle, and return the PDF as a BLOB.
   -- The caller owns the BLOB and must call DBMS_LOB.FREETEMPORARY when done.
   -- Raises an exception and calls close_document if finalisation fails.
+  -- The pages drawn (the flowables laid out, the page procedures run, the extensions drawn: the Swiss QR-bill) without
+  -- assembling the PDF: finalize starts with it; for the tests that inspect the pages before the assembly.
+  PROCEDURE render_pages(p_doc IN rad_pdf_types.t_doc_handle);
+
   FUNCTION finalize(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB;
 
   -- Finalise, write to an Oracle directory, and close the handle.
