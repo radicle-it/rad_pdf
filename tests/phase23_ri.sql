@@ -355,6 +355,8 @@ BEGIN
   assert_ok(json_refused(REPLACE(j1, '"grid":[120,240,120]', '"grid":"wide"')),
             'from_json refuses a value of the wrong JSON type, with [PDF_RI]');
   assert_ok(json_refused(REPLACE(j1, '"id":1,', '')), 'from_json refuses an image without its id');
+  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{64}"', '"sha256":""')), 'from_json refuses an empty image hash');
+  assert_ok(json_refused(REPLACE(j1, '"document":{"kind":"document"', '"document":{"kind":""')), 'from_json refuses an empty document kind');
   assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{64}",', '')), 'from_json refuses an image without its hash');
   assert_ok(json_refused(REPLACE(j1, '"document":{"kind":"document",', '"document":{')), 'from_json refuses a document node without its kind');
   assert_ok(json_refused(REPLACE(j1, '{"kind":"zone","name":"header_default"}',
@@ -414,6 +416,26 @@ BEGIN
   assert_ok(validate_refused(ri3), 'validate refuses an image hash changed by hand');
   ri3 := ri; ri3.sealed := 'N';
   assert_ok(to_json_refused(ri3), 'to_json refuses a record whose sealed flag was reset');
+  ri3 := ri; ri3.nodes(1).kind := NULL;
+  assert_ok(validate_refused(ri3), 'validate refuses a root whose kind was set to NULL');
+  assert_ok(to_json_refused(ri3), 'to_json refuses it too');
+  ri3 := ri; ri3.n := NULL;
+  assert_ok(validate_refused(ri3), 'validate refuses a node count set to NULL');
+  assert_ok(to_json_refused(ri3), 'to_json refuses it too');
+  DECLARE                                                -- a child shared, its sibling orphaned: same counts
+    q  rad_pdf_ri.t_ri;
+    pp rad_pdf_ri.t_id;
+    a  rad_pdf_ri.t_id;
+    y  rad_pdf_ri.t_id;
+  BEGIN
+    pp := rad_pdf_ri.paragraph(q, base(q), pf);
+    a := rad_pdf_ri.run(q, pp, 'a', f);
+    y := rad_pdf_ri.run(q, pp, 'b', f);
+    rad_pdf_ri.seal(q);
+    q.children(pp)(2) := a;
+    assert_ok(validate_refused(q), 'validate refuses a child reached twice whose orphaned sibling keeps the counts');
+    assert_ok(to_json_refused(q), 'to_json refuses it too');
+  END;
 
   -- 5. two RIs interleaved --------------------------------------------------------
   body := base(r3);

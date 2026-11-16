@@ -1,6 +1,7 @@
 CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
 
   TYPE t_seen IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(16);       -- the zones already read back
+  TYPE t_visited IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;          -- the source node ids already replayed
 
   c_path_re CONSTANT VARCHAR2(200) :=
     '^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.([A-Za-z_][A-Za-z0-9_]*(\[\])?|[0-9]+))*$';
@@ -739,14 +740,21 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     RETURN e;
   END j_member;
 
+  -- a required string is never empty: "" reads as NULL in Oracle and would slip through every comparison
   FUNCTION rs(o IN json_object_t, k IN VARCHAR2, p_null IN BOOLEAN DEFAULT FALSE) RETURN VARCHAR2 IS
+    l VARCHAR2(32767);
   BEGIN
-    RETURN CASE WHEN j_member(o, k, p_null, 'S') IS NOT NULL THEN o.get_string(k) END;
+    IF j_member(o, k, p_null, 'S') IS NOT NULL THEN l := o.get_string(k); END IF;
+    IF l IS NULL AND NOT p_null THEN fail('member ' || k || ' is empty'); END IF;
+    RETURN l;
   END rs;
 
   FUNCTION rc(o IN json_object_t, k IN VARCHAR2) RETURN CLOB IS     -- a long string (the base64 of an image)
+    l CLOB;
   BEGIN
-    RETURN CASE WHEN j_member(o, k, FALSE, 'S') IS NOT NULL THEN o.get_clob(k) END;
+    IF j_member(o, k, FALSE, 'S') IS NOT NULL THEN l := o.get_clob(k); END IF;
+    IF l IS NULL OR dbms_lob.getlength(l) = 0 THEN fail('member ' || k || ' is empty'); END IF;
+    RETURN l;
   END rc;
 
   FUNCTION rn(o IN json_object_t, k IN VARCHAR2, p_null IN BOOLEAN DEFAULT FALSE) RETURN NUMBER IS
@@ -901,7 +909,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   -- the sealed flag and the public record are never trusted
   -- ---------------------------------------------------------------------------
   PROCEDURE replay(p_src IN t_ri, p_dst IN OUT NOCOPY t_ri, p_from IN t_id, p_to IN t_id,
-                   p_seen IN OUT NOCOPY t_seen, p_count IN OUT NOCOPY PLS_INTEGER) IS
+                   p_seen IN OUT NOCOPY t_seen, p_visited IN OUT NOCOPY t_visited) IS
     l_k  t_num_list;
     l_id t_id;
   BEGIN
@@ -910,24 +918,30 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     FOR i IN 1 .. l_k.COUNT LOOP
       IF l_k(i) IS NULL OR NOT p_src.nodes.EXISTS(l_k(i)) THEN fail('node ' || p_from || ': a child that is not a node'); END IF;
       IF nvl(p_src.nodes(l_k(i)).parent, -1) <> p_from THEN fail('node ' || l_k(i) || ': its parent is not ' || p_from); END IF;
-      p_count := p_count + 1;
-      IF p_count > p_src.n THEN fail('the tree has more nodes than the RI counts (a cycle or a shared node)'); END IF;
+      -- identity, not a count: a node reached twice (shared, or a cycle) is refused even when an orphan compensates it
+      IF p_visited.EXISTS(l_k(i)) THEN fail('node ' || l_k(i) || ' reached twice in the tree'); END IF;
+      p_visited(l_k(i)) := TRUE;
       l_id := add_from_node(p_dst, p_to, p_src.nodes(l_k(i)), p_seen);
-      replay(p_src, p_dst, l_k(i), l_id, p_seen, p_count);
+      replay(p_src, p_dst, l_k(i), l_id, p_seen, p_visited);
     END LOOP;
   END replay;
 
   PROCEDURE validate(p_ri IN t_ri) IS
     q       t_ri;
-    l_seen  t_seen;
-    l_count PLS_INTEGER := 1;
+    l_seen    t_seen;
+    l_visited t_visited;
   BEGIN
-    IF p_ri.ri_version IS NULL OR p_ri.ri_version <> c_ri_version THEN fail('not an RI of version ' || c_ri_version); END IF;
+    -- every metadata comparison NULL-safe: a NULL never passes as a match
+    IF nvl(p_ri.ri_version, -1) <> c_ri_version THEN fail('not an RI of version ' || c_ri_version); END IF;
     IF nvl(p_ri.sealed, 'N') <> 'Y' THEN fail('the RI is not sealed'); END IF;
-    IF NOT p_ri.nodes.EXISTS(1) OR p_ri.nodes(1).kind <> 'document' OR p_ri.nodes(1).parent IS NOT NULL THEN
+    IF p_ri.n IS NULL OR p_ri.n < 1 THEN fail('the node count is not set'); END IF;
+    IF p_ri.nodes.COUNT <> p_ri.n OR p_ri.children.COUNT <> p_ri.n OR p_ri.nodes.FIRST <> 1 OR p_ri.nodes.LAST <> p_ri.n
+       OR p_ri.children.FIRST <> 1 OR p_ri.children.LAST <> p_ri.n THEN
+      fail('the nodes are not numbered 1..' || p_ri.n);
+    END IF;
+    IF nvl(p_ri.nodes(1).kind, '#') <> 'document' OR p_ri.nodes(1).parent IS NOT NULL THEN
       fail('node 1 is not the document');
     END IF;
-    IF p_ri.nodes.COUNT <> p_ri.n OR p_ri.children.COUNT <> p_ri.n THEN fail('the node count is not ' || p_ri.n); END IF;
     FOR i IN 1 .. p_ri.images.COUNT LOOP
       IF NOT p_ri.images.EXISTS(i) THEN fail('images not numbered 1..' || p_ri.images.COUNT); END IF;
       check_image(p_ri.images(i).bytes, p_ri.images(i).format, p_ri.images(i).px_w, p_ri.images(i).px_h);
@@ -937,9 +951,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     END LOOP;
     q := new_ri;
     q.images := p_ri.images;                              -- the same locators, checked above; q owns nothing to free
-    replay(p_ri, q, 1, 1, l_seen, l_count);
-    IF l_count <> p_ri.n THEN fail((p_ri.n - l_count) || ' node(s) outside the tree'); END IF;
-    IF p_ri.section_id IS NULL OR NOT p_ri.nodes.EXISTS(p_ri.section_id) OR p_ri.nodes(p_ri.section_id).kind <> 'section' THEN
+    l_visited(1) := TRUE;
+    replay(p_ri, q, 1, 1, l_seen, l_visited);
+    -- distinct ids, all in 1..n: their count equal to n means every node of the arena is in the tree exactly once
+    IF l_visited.COUNT <> p_ri.n THEN fail((p_ri.n - l_visited.COUNT) || ' node(s) outside the tree'); END IF;
+    IF p_ri.section_id IS NULL OR NOT p_ri.nodes.EXISTS(p_ri.section_id)
+       OR nvl(p_ri.nodes(p_ri.section_id).kind, '#') <> 'section' THEN
       fail('section_id is not the section');
     END IF;
     seal(q);
