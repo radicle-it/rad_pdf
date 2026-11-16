@@ -6,7 +6,9 @@
 --   3. the data at every print ([PRT_DATA] with the path);
 --   4. the runtime reading of 96a §6.3, its normative examples one by one, regions, page breaks, text control
 --      characters, images in the Oracle form;
---   5. the instance: sealed, validated, read back; no tag nor region; budgets; a template altered by hand refused.
+--   5. the instance: sealed, validated, read back; no tag nor region; budgets; a template altered by hand refused;
+--   6. codex-048: loop depth by structure, loop bindings restored, cumulative LOB and node budgets, the JSON limit in
+--      bytes, temporaries released on image failures (V$TEMPORARY_LOBS), one IMAGE validation with the concrete path.
 -- WHENEVER first: with it after SET SERVEROUTPUT, SQLcl refuses this block client-side (no ORA-, its WHENEVER help
 -- printed instead); SQL*Plus accepts either order.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
@@ -388,6 +390,190 @@ BEGIN
     assert_ok(merge_refused(loop_t('lines[].code', 'lines'), s2, l_big, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] the merged document exceeds 20000 nodes'),
               'the expansion over 20000 nodes refused ([PDF_BUDGET], 96a section 8)');
     DBMS_LOB.FREETEMPORARY(l_big);
+  END;
+
+  -- 6. codex-048: depth by structure, loop bindings, budgets, bytes, LOB release, the IMAGE boundary ----------------
+  DECLARE
+    s8 rad_pdf_merge.t_schema := rad_pdf_merge.t_schema(fld('a', 'ARRAY', 'Y'), fld('b', 'ARRAY', 'Y'), fld('c', 'ARRAY', 'Y'),
+                                   fld('d', 'ARRAY', 'Y'), fld('a[].code', 'TEXT', 'N'));
+  BEGIN
+    start_t;
+    g := rad_pdf_ri.block_region(t, b, 'LOOP', NULL, 'a');
+    g := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'b');
+    g := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'c');
+    g2 := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'd');
+    p := rad_pdf_ri.paragraph(t, g2, pf);
+    rad_pdf_ri.seal(t);
+    assert_ok(template_refused(t, s8, rad_pdf_merge.c_err_budget, '%loops nested deeper than 3%'),
+              'R1: four nested LOOPs over four independent root arrays refused (depth by structure, not by [])');
+    start_t;
+    g := rad_pdf_ri.block_region(t, b, 'LOOP', NULL, 'a');
+    g := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'b');
+    g := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'c');
+    p := rad_pdf_ri.paragraph(t, g, pf);
+    x := rad_pdf_ri.run(t, p, '.', f);
+    rad_pdf_ri.seal(t);
+    rad_pdf_merge.check_template(t, s8);
+    assert_ok(merged(t, s8, '{"a":[{},{}],"b":[{}],"c":[{},{},{}],"d":[]}') = '|.|.|.|.|.|.', 'R1: depth 3 accepted (2 x 1 x 3 paragraphs)');
+    -- R2: a LOOP reopening the path of the loop around it; the outer element read again after the inner loop
+    start_t;
+    g := rad_pdf_ri.block_region(t, b, 'LOOP', NULL, 'a');
+    g2 := rad_pdf_ri.block_region(t, g, 'LOOP', NULL, 'a');
+    p := rad_pdf_ri.paragraph(t, g2, pf);
+    x := rad_pdf_ri.tag(t, p, 'FIELD', 'a', 'a[].code', f);
+    p := rad_pdf_ri.paragraph(t, g, pf);
+    x := rad_pdf_ri.run(t, p, '>', f);
+    x := rad_pdf_ri.tag(t, p, 'FIELD', 'a', 'a[].code', f);
+    rad_pdf_ri.seal(t);
+    assert_ok(merged(t, s8, '{"a":[{"code":"A"},{"code":"B"}],"b":[],"c":[],"d":[]}') = '|A|B|>A|A|B|>B',
+              'R2: an inner LOOP on the same path hides the outer element and gives it back when it ends');
+  END;
+  DECLARE
+    s9 rad_pdf_merge.t_schema := rad_pdf_merge.t_schema(fld('note', 'TEXT', 'N'), fld('lines', 'ARRAY', 'Y'),
+                                   fld('lines[].logo', 'IMAGE', 'N'), fld('logo', 'IMAGE', 'N'), fld('unused', 'IMAGE', 'N'));
+    l_t  CLOB;
+    l_u  CLOB;
+    l_b  BLOB;
+    l_n0 NUMBER;
+    l_png BLOB;
+    l_raw RAW(32767);
+
+    FUNCTION tmp_lobs RETURN NUMBER IS
+      n NUMBER;
+    BEGIN
+      EXECUTE IMMEDIATE 'SELECT cache_lobs + nocache_lobs + abstract_lobs FROM v$temporary_lobs WHERE sid = SYS_CONTEXT(''USERENV'', ''SID'')' INTO n;
+      RETURN n;
+    END;
+
+    -- a PNG of p_w x 1 pixels (RGB, black): signature, IHDR, IDAT (zlib), IEND; the CRCs are not read by the decoder
+    FUNCTION png(p_w PLS_INTEGER) RETURN BLOB IS
+      l_raw_rows BLOB;
+      l_z  BLOB;
+      l_out BLOB;
+      FUNCTION u32(n NUMBER) RETURN RAW IS BEGIN RETURN HEXTORAW(LPAD(TRIM(TO_CHAR(n, 'XXXXXXXX')), 8, '0')); END;
+    BEGIN
+      DBMS_LOB.CREATETEMPORARY(l_raw_rows, TRUE);
+      DBMS_LOB.WRITEAPPEND(l_raw_rows, 1, HEXTORAW('00'));
+      FOR i IN 1 .. CEIL(p_w * 3 / 1000) LOOP
+        DBMS_LOB.WRITEAPPEND(l_raw_rows, LEAST(1000, p_w * 3 - (i - 1) * 1000), UTL_RAW.COPIES(HEXTORAW('00'), LEAST(1000, p_w * 3 - (i - 1) * 1000)));
+      END LOOP;
+      l_z := rad_pdf_codec.flate_encode(l_raw_rows);
+      DBMS_LOB.CREATETEMPORARY(l_out, TRUE);
+      DBMS_LOB.APPEND(l_out, TO_BLOB(HEXTORAW('89504E470D0A1A0A') || u32(13) || UTL_RAW.CAST_TO_RAW('IHDR') || u32(p_w) || u32(1)
+                                     || HEXTORAW('0802000000') || u32(0) || u32(DBMS_LOB.GETLENGTH(l_z)) || UTL_RAW.CAST_TO_RAW('IDAT')));
+      DBMS_LOB.APPEND(l_out, l_z);
+      DBMS_LOB.APPEND(l_out, TO_BLOB(u32(0) || u32(0) || UTL_RAW.CAST_TO_RAW('IEND') || u32(0)));
+      DBMS_LOB.FREETEMPORARY(l_raw_rows);
+      DBMS_LOB.FREETEMPORARY(l_z);
+      RETURN l_out;
+    END;
+
+    FUNCTION url_of(p_png BLOB) RETURN CLOB IS
+      l_b64 CLOB := rad_pdf_codec.base64_encode(p_png);
+      l_u   CLOB;
+    BEGIN
+      DBMS_LOB.CREATETEMPORARY(l_u, TRUE);
+      DBMS_LOB.APPEND(l_u, 'data:image/png' || CHR(59) || 'base64,');
+      DBMS_LOB.APPEND(l_u, l_b64);
+      DBMS_LOB.FREETEMPORARY(l_b64);
+      RETURN l_u;
+    END;
+  BEGIN
+    -- R3: one image repeated by a loop is one resource; the template's images count in the LOB budget
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"lines":[');
+    FOR i IN 1 .. 65 LOOP
+      DBMS_LOB.APPEND(l_t, CASE WHEN i > 1 THEN ',' END || '{"logo":{"source":"URL","url":"' || c_png || '"}}');
+    END LOOP;
+    DBMS_LOB.APPEND(l_t, ']}');
+    start_t;
+    tb := rad_pdf_ri.table_(t, b, rad_pdf_ri.t_num_list(100), bd);
+    g := rad_pdf_ri.row_region(t, tb, 'LOOP', NULL, 'lines');
+    r := rad_pdf_ri.row_(t, g); c := rad_pdf_ri.cell(t, r, cf); p := rad_pdf_ri.paragraph(t, c, pf);
+    x := rad_pdf_ri.tag(t, p, 'IMAGE', 'lines', 'lines[].logo', f);
+    rad_pdf_ri.seal(t);
+    q := rad_pdf_merge.merge(t, s9, l_t);
+    assert_ok(q.images.COUNT = 1 AND REGEXP_COUNT(show(q), '<IMG') = 65,
+              'R3: one image repeated 65 times by a loop: 65 image nodes, ONE resource');
+    rad_pdf_ri.free(q);
+    DBMS_LOB.FREETEMPORARY(l_t);
+    DBMS_LOB.CREATETEMPORARY(l_b, TRUE);
+    l_raw := UTL_RAW.COPIES(HEXTORAW('00'), 32000);
+    FOR i IN 1 .. 1050 LOOP DBMS_LOB.WRITEAPPEND(l_b, 32000, l_raw); END LOOP;       -- 33.6 MB
+    start_t;
+    x := rad_pdf_ri.add_image(t, l_b, 'PNG', 1, 1);
+    x := rad_pdf_ri.add_image(t, l_b, 'PNG', 1, 1);
+    p := rad_pdf_ri.paragraph(t, b, pf);
+    x := rad_pdf_ri.run(t, p, '.', f);
+    rad_pdf_ri.seal(t);
+    DBMS_LOB.FREETEMPORARY(l_b);
+    assert_ok(merge_refused(t, s9, '{"lines":[]}', rad_pdf_merge.c_err_budget, '[PDF_BUDGET] the images of the template exceed 67108864 bytes'),
+              'R3: the cumulative LOB budget (64 MB): two template images of 33.6 MB refused before the second copy');
+    rad_pdf_ri.free(t);
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"lines":[],"note":"');
+    FOR i IN 1 .. 30 LOOP DBMS_LOB.APPEND(l_t, RPAD('\t', 2000, '\t')); END LOOP;     -- 30000 tabs
+    DBMS_LOB.APPEND(l_t, '"}');
+    assert_ok(merge_refused(one_tag('FIELD', NULL, 'note'), s9, l_t, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] the merged document exceeds 20000 nodes'),
+              'R3: one FIELD of 30000 tabs refused at the node budget, inside the text');
+    DBMS_LOB.FREETEMPORARY(l_t);
+    -- R4: the JSON limit in bytes
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"lines":[],"note":"');
+    FOR i IN 1 .. 200 LOOP DBMS_LOB.APPEND(l_t, RPAD(UNISTR('\00E8'), 15000, UNISTR('\00E8'))); END LOOP;
+    DBMS_LOB.APPEND(l_t, '"}');
+    assert_ok(DBMS_LOB.GETLENGTH(l_t) < rad_pdf_merge.c_max_json_bytes
+              AND data_refused(s9, l_t, '[PDF_BUDGET] data over 5242880 bytes', rad_pdf_merge.c_err_budget),
+              'R4: 3,000,000 characters of 2 bytes (6 MB) refused although under 5 MB in characters');
+    DBMS_LOB.FREETEMPORARY(l_t);
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"lines":[],"note":"');
+    FOR i IN 1 .. 174 LOOP DBMS_LOB.APPEND(l_t, RPAD('x', 30000, 'x')); END LOOP;
+    DBMS_LOB.APPEND(l_t, RPAD('x', 5242880 - 174 * 30000 - 20 - 2, 'x') || '"}');
+    rad_pdf_merge.check_data(l_t, s9);
+    DBMS_LOB.APPEND(l_t, ' ');
+    assert_ok(data_refused(s9, l_t, '[PDF_BUDGET] data over 5242880 bytes', rad_pdf_merge.c_err_budget),
+              'R4: exactly 5242880 bytes accepted, one byte more refused');
+    DBMS_LOB.FREETEMPORARY(l_t);
+    -- R6: the IMAGE boundary, every value checked with its concrete path, used by the template or not
+    assert_ok(data_refused(s9, '{"lines":[],"logo":{"source":"","url":"' || c_png || '"}}', '[PRT_DATA] logo.source: empty'),
+              'R6: an IMAGE with source "" refused');
+    assert_ok(data_refused(s9, '{"lines":[],"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}',
+                           '[PRT_DATA] unused: the bytes are not a PNG image'),
+              'R6: an IMAGE of the schema that no tag uses is still decoded: bytes not PNG refused');
+    assert_ok(data_refused(s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,iVBO@@@@"}}',
+                           '[PRT_DATA] logo: the url is not valid base64%'), 'R6: malformed base64 refused as [PRT_DATA], no raw ORA');
+    assert_ok(data_refused(s9, '{"lines":[{"logo":{"source":"URL","url":"' || c_png || '"}},{"logo":{"source":"URL","url":"data:image/png'
+                           || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}]}', '[PRT_DATA] lines[1].logo: the bytes are not a PNG image'),
+              'R6: a wrong image in a loop element named with its index (lines[1].logo)');
+    -- R5: the temporaries released on every image failure, then a valid print in the same session
+    l_png := png(4001);
+    l_u := url_of(l_png);
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"lines":[],"logo":{"source":"URL","url":"');
+    DBMS_LOB.APPEND(l_t, l_u);
+    DBMS_LOB.APPEND(l_t, '"}}');
+    DBMS_LOB.FREETEMPORARY(l_u);
+    DBMS_LOB.FREETEMPORARY(l_png);
+    -- warm-up, then ten rounds: a leak would grow the session's temporary LOBs by at least one per failure
+    FOR k IN 0 .. 10 LOOP
+      IF k = 1 THEN l_n0 := tmp_lobs; END IF;
+      IF k > 0 THEN l_pass := l_pass - 3; END IF;      -- the three checks count once
+      assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, l_t, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: an image over 4000x4000 pixels'),
+                'R5: an image of 4001 pixels refused ([PDF_BUDGET])');
+      assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59)
+                              || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}}', rad_pdf_merge.c_err_data, '[PRT_DATA] logo: not a valid PNG image%'),
+                'R5: a truncated PNG refused ([PRT_DATA])');
+      assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59)
+                              || 'base64,iVBO@@@@"}}', rad_pdf_merge.c_err_data, '[PRT_DATA] logo: the url is not valid base64%'),
+                'R5: malformed base64 refused in merge');
+    END LOOP;
+    assert_ok(tmp_lobs <= l_n0, 'R5: ten rounds of the three failures leave no temporary LOB (' || tmp_lobs || ' <= ' || l_n0 || ')');
+    q := rad_pdf_merge.merge(one_tag('IMAGE', NULL, 'logo'), s9, '{"lines":[],"logo":{"source":"URL","url":"' || c_png || '"}}');
+    assert_ok(q.images.COUNT = 1 AND show(q) = '|<IMG 0.75x0.75>', 'R5: a valid print in the same session after the failures');
+    rad_pdf_ri.free(q);
+    assert_ok(tmp_lobs <= l_n0, 'R5: and nothing left after it once freed');
+    DBMS_LOB.FREETEMPORARY(l_t);
   END;
 
   DBMS_OUTPUT.PUT_LINE('Phase 24 merge: ' || l_pass || ' passed, 0 failed.');

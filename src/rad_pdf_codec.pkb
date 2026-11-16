@@ -423,15 +423,28 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
     l_pos   PLS_INTEGER := NVL(p_offset, 1);
     l_len   PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_clob), 0);
     l_chunk CONSTANT PLS_INTEGER := 31744;              -- a multiple of 4
+    l_txt   VARCHAR2(32767);
     l_raw   RAW(32767);
   BEGIN
+    -- RFC 4648 section 4, strict: the alphabet only, no line breaks, length a multiple of 4, padding only at the end
+    IF MOD(l_len - l_pos + 1, 4) <> 0 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'base64: the length is not a multiple of 4');
+    END IF;
     DBMS_LOB.CREATETEMPORARY(l_out, TRUE);
     WHILE l_pos <= l_len LOOP
-      l_raw := UTL_ENCODE.BASE64_DECODE(UTL_RAW.CAST_TO_RAW(DBMS_LOB.SUBSTR(p_clob, l_chunk, l_pos)));
+      l_txt := DBMS_LOB.SUBSTR(p_clob, l_chunk, l_pos);
+      IF NOT REGEXP_LIKE(l_txt, CASE WHEN l_pos + l_chunk > l_len THEN '^[A-Za-z0-9+/]*={0,2}$' ELSE '^[A-Za-z0-9+/]*$' END) THEN
+        RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'base64: a character outside the alphabet or misplaced padding');
+      END IF;
+      l_raw := UTL_ENCODE.BASE64_DECODE(UTL_RAW.CAST_TO_RAW(l_txt));
       IF l_raw IS NOT NULL THEN DBMS_LOB.WRITEAPPEND(l_out, UTL_RAW.LENGTH(l_raw), l_raw); END IF;
       l_pos := l_pos + l_chunk;
     END LOOP;
     RETURN l_out;
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF l_out IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_out) = 1 THEN DBMS_LOB.FREETEMPORARY(l_out); END IF;
+      RAISE;
   END base64_decode;
 
   FUNCTION sha256_hex(p_blob IN BLOB) RETURN VARCHAR2 IS

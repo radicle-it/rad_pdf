@@ -41,7 +41,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_codec AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
   -- The caller frees the returned temporary LOB.
   FUNCTION base64_encode(p_blob IN BLOB) RETURN CLOB;
-  -- p_offset: the first character of the base64 text in p_clob (after a data-URL prefix, say).
+  -- p_offset: the first character of the base64 text in p_clob (after a data-URL prefix, say). Strict RFC 4648 §4
+  -- (alphabet, length, padding): anything else raises c_err_validation; nothing is left allocated on an error.
   FUNCTION base64_decode(p_clob IN CLOB, p_offset IN PLS_INTEGER DEFAULT 1) RETURN BLOB;
 
 -- ---------------------------------------------------------------------------

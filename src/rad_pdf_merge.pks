@@ -21,7 +21,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_merge AUTHID DEFINER AS
   c_err_schema CONSTANT PLS_INTEGER := -20843;          -- [PRT_SCHEMA]
 
   -- the budgets of 96a §8 that the merge enforces
-  c_max_json_chars  CONSTANT PLS_INTEGER := 5 * 1024 * 1024;
+  c_max_json_bytes  CONSTANT PLS_INTEGER := 5 * 1024 * 1024;   -- of the JSON text in the database character set
+  c_max_lob_bytes   CONSTANT PLS_INTEGER := 64 * 1024 * 1024;  -- temporary LOBs of one merge (image copies, URLs)
   c_max_image_bytes CONSTANT PLS_INTEGER := 5 * 1024 * 1024;
   c_max_image_px    CONSTANT PLS_INTEGER := 4000;
   c_max_loop_depth  CONSTANT PLS_INTEGER := 3;
