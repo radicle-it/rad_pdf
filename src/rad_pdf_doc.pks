@@ -6,7 +6,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_doc AUTHID DEFINER IS
   close_doc closes every package that holds per-document state, the highest
   level first, then frees the handle (rad_pdf_ctx.release_doc). Every closer
   runs even when one before it fails; the first failure is raised at the end as
-  c_err_internal 'Document cleanup: <package>: <message>' with its backtrace.
+  c_err_internal 'Document cleanup: <package>: <error stack>' and its backtrace,
+  cut to the 2048 bytes of RAISE_APPLICATION_ERROR (package, code and message
+  first, the backtrace in the bytes left). Fault injection for the tests is
+  compiled only with PLSQL_CCFLAGS='rad_pdf_test:TRUE' (see the body).
   The handle is freed in any case, and a second close_doc of it is a no-op: if
   a closer fails part-way, what it had not dropped stays in its package until
   the session ends. Handles are never reused (rad_pdf_ctx.new_doc counts up),

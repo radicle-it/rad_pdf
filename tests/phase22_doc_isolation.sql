@@ -5,7 +5,10 @@
 --   2. derived template styles: two interleaved documents, a caller style named like the old derived names before
 --      the derivation, a reserved name refused, the base redefined after a derivation, the documents closed in reverse
 --      order; the caller's styles survive and the derived ones are dropped (A3, codex-034 R3);
---   3. close_doc of an unknown or closed handle is a no-op.
+--   3. close_doc of an unknown or closed handle is a no-op;
+--   4. a closer that fails (fault injection: rad_pdf_doc body compiled with PLSQL_CCFLAGS='rad_pdf_test:TRUE' for this
+--      part only, then compiled again without): the first error is reported with its package within 2048 bytes, the
+--      later closers still run, the handle is invalid, another open document and a new one are not affected.
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
@@ -122,5 +125,77 @@ EXCEPTION WHEN OTHERS THEN
   BEGIN rad_pdf.close_document(l_b); EXCEPTION WHEN OTHERS THEN NULL; END;
   rad_pdf_styles.clear_all;
   RAISE;
+END;
+/
+
+-- 4. a closer that fails
+ALTER PACKAGE rad_pdf_doc COMPILE BODY PLSQL_CCFLAGS = 'rad_pdf_test:TRUE';
+VARIABLE fault_result VARCHAR2(4000)
+DECLARE
+  l_a    rad_pdf_types.t_doc_handle;
+  l_b    rad_pdf_types.t_doc_handle;
+  l_c    rad_pdf_types.t_doc_handle;
+  l_pdf  BLOB;
+  l_err  VARCHAR2(4000);
+  l_code PLS_INTEGER;
+  l_pass PLS_INTEGER := 0;
+  e_fail EXCEPTION;
+
+  PROCEDURE assert_ok(p_ok BOOLEAN, p_message VARCHAR2) IS
+  BEGIN
+    IF NOT NVL(p_ok, FALSE) THEN :fault_result := 'FAIL ' || p_message; RAISE e_fail; END IF;
+    l_pass := l_pass + 1;
+    DBMS_OUTPUT.PUT_LINE('PASS  ' || p_message);
+  END;
+BEGIN
+  :fault_result := 'not run';
+  l_a := rad_pdf.new_document(p_compress_pages => FALSE);
+  rad_pdf.write(l_a, 'TEXT_A');
+  l_b := rad_pdf.new_document(p_compress_pages => FALSE);
+  rad_pdf.write(l_b, 'TEXT_B');
+  rad_pdf_layout.render(l_a);
+  assert_ok(rad_pdf_serial.page_count(l_a) = 1, 'fault: document A has its page before the close');
+  DBMS_APPLICATION_INFO.SET_CLIENT_INFO('rad_pdf_fault=rad_pdf_layout');
+  BEGIN
+    rad_pdf_doc.close_doc(l_a);
+  EXCEPTION WHEN OTHERS THEN
+    l_code := SQLCODE;
+    l_err  := DBMS_UTILITY.FORMAT_ERROR_STACK;   -- the whole message (SQLERRM stops at 512 bytes)
+  END;
+  DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+  assert_ok(l_code = rad_pdf_types.c_err_internal, 'fault: close_doc raises c_err_internal');
+  assert_ok(INSTR(l_err, 'Document cleanup: rad_pdf_layout: ORA-20990: injected fault in rad_pdf_layout') > 0,
+            'fault: the message names the failing package, its code and its message');
+  assert_ok(LENGTHB(l_err) > 1500 AND LENGTHB(l_err) <= 2048 + LENGTHB('ORA-20800: ') + 1,
+            'fault: the long multibyte message is carried, within 2048 bytes (' || LENGTHB(l_err) || ')');
+  assert_ok(NOT rad_pdf_ctx.is_valid(l_a), 'fault: the handle is invalid after the failed close');
+  assert_ok(rad_pdf_serial.page_count(l_a) = 0, 'fault: the closers after the failing one ran (serial state gone)');
+  rad_pdf_doc.close_doc(l_a);
+  assert_ok(TRUE, 'fault: a second close of the handle is a no-op');
+  l_pdf := rad_pdf.finalize(l_b);
+  assert_ok(DBMS_LOB.INSTR(l_pdf, UTL_RAW.CAST_TO_RAW('TEXT_B')) > 0
+            AND DBMS_LOB.INSTR(l_pdf, UTL_RAW.CAST_TO_RAW('TEXT_A')) = 0,
+            'fault: the other open document finalizes with its own content only');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  l_c := rad_pdf.new_document(p_compress_pages => FALSE);
+  rad_pdf.write(l_c, 'TEXT_C');
+  l_pdf := rad_pdf.finalize(l_c);
+  assert_ok(l_c > l_a AND DBMS_LOB.INSTR(l_pdf, UTL_RAW.CAST_TO_RAW('TEXT_C')) > 0
+            AND DBMS_LOB.INSTR(l_pdf, UTL_RAW.CAST_TO_RAW('TEXT_A')) = 0,
+            'fault: a new document gets a new handle and none of the leftover state');
+  DBMS_LOB.FREETEMPORARY(l_pdf);
+  :fault_result := 'OK ' || l_pass;
+EXCEPTION
+  WHEN e_fail THEN
+    DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+  WHEN OTHERS THEN
+    DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+    :fault_result := 'FAIL ' || SQLERRM;
+END;
+/
+ALTER PACKAGE rad_pdf_doc COMPILE BODY PLSQL_CCFLAGS = '';
+BEGIN
+  IF :fault_result NOT LIKE 'OK%' THEN RAISE_APPLICATION_ERROR(-20999, :fault_result); END IF;
+  DBMS_OUTPUT.PUT_LINE('Phase 22 fault injection: ' || SUBSTR(:fault_result, 4) || ' passed, 0 failed.');
 END;
 /
