@@ -34,11 +34,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   documents pin resources, and is reapplied when those documents close.
 - Correct the legacy foundation test to expect the zlib header required by PDF.
 - Used glyphs, the first/last character and the font name index are kept per
-  document: a font loaded once and used by several documents of a session gets a
-  subset with only the glyphs of each document (smaller from the 2nd document on).
-  `text_to_pdf_string` takes the document handle (`p_doc`) to record glyphs.
+  document: a font loaded once and used by several documents of a session carries
+  only each document's own characters -- for a CID font the embedded subset and the
+  ToUnicode map, for a simple font FirstChar/LastChar and Widths (its program is
+  embedded whole, as before). `text_to_pdf_string` takes the document handle
+  (`p_doc`) to record glyphs.
 - Inline derived template styles are kept per document (key: base, suffixes and
-  base revision; no hash per run) and dropped when the document closes.
+  base revision; no hash per run) and dropped when the document closes. They are
+  stored under reserved names (`rad_pdf_styles.define_derived`, prefix `#`), which
+  `define`/`define_format` refuse: a caller's style is never overwritten or dropped.
+- `rad_pdf_doc.close_doc` reports the first cleanup failure with its package and
+  backtrace; `new_document` keeps its own error if the cleanup after it fails.
 - `rad_pdf_ctx` is a leaf again (`release_doc`); `rad_pdf_doc.close_doc` closes a
   document in every package. Callers of `rad_pdf_ctx.close_doc` use
   `rad_pdf_doc.close_doc`.
@@ -59,7 +65,9 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `rad_pdf_ctx.set_fixed_clock`/`now_utc` and the golden-PDF bench
   (`tests/golden/bench.py`): the samples and extra cases compared with reference
   PDFs by bytes, decompressed streams (qpdf) and pixels (pdftoppm), PDF/A outputs
-  checked with veraPDF.
+  checked with veraPDF; tool failures, veraPDF failures, missing or new documents
+  and unexpected errors fail the check; `record` replaces the references only
+  after a complete run, with a manifest. `tests/phase22_doc_isolation.sql`.
 
 ### Removed
 
@@ -70,6 +78,9 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `rad_pdf_table.measure_table` (no caller since the renderer stopped measuring
   whole tables) and `rad_pdf_fonts.mark_char_used`; the private SHA-256 helper of
   `rad_pdf_images` (uses `rad_pdf_codec.sha256_hex`).
+- `src/install/install_phase*.sql`: the incremental installers were no longer
+  called by `src/install.sql` and had diverged (the phase-2 stub body of
+  `rad_pdf_ctx`); `src/install.sql` is the only installer, and it upgrades too.
 
 
 ## [1.7.0] - 2026-06-12

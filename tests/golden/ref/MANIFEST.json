@@ -1,0 +1,99 @@
+{
+ "clock": "TIMESTAMP '2026-01-01 00:00:00'",
+ "commit": "919da6a",
+ "files": {
+  "many_pages.sql": {
+   "many_pages_1": "fac23ca537d7456831db5e16a6aa41610ed4856c7fef1a865ed0dadc5f7a9ac3"
+  },
+  "pdfa.sql": {
+   "pdfa_1": "b16a72f7b0f5915c12119ae2858ed4d4c2272cd7f9caa773bb538448de0e007a",
+   "pdfa_2": "bc696aab6ca21fabee924df96277f509e11351ee50989f9b7b0b9eb466d826d0"
+  },
+  "sample01.sql": {
+   "sample01_1": "076c643ab63e6b1d55cad7e47a3aadd3686ecc108f1e94cbfc2719c3cd746c8f"
+  },
+  "sample02.sql": {
+   "sample02_1": "dfa80293bca42626a507cd999e725f75ac059f35e058df3dea73e0f37797f917"
+  },
+  "sample03.sql": {
+   "sample03_1": "b13ab33e4ae4121780999b755931d2f7d9b016cb0b005410d7cd3784872f858e"
+  },
+  "sample04.sql": {
+   "sample04_1": "911e022969c616fa5384e6eae5c3c2f31e4d1734a116fb552eb66979ff50b237"
+  },
+  "sample05.sql": {
+   "sample05_1": "b9f8913981a462b365e46023150b6df3dcbeb5f60d72687ca64d3c914cd3b082"
+  },
+  "sample06.sql": {
+   "sample06_1": "df8aaf521f7c9052a4a01de8eb909bdb1b72227cfd52ebff7b0bdb31afde6b63"
+  },
+  "sample07.sql": {
+   "sample07_1": "4fca9c913b87e6745e38a6cc1042cf8408ccffafaa59219f6708f7dff4e5f48d"
+  },
+  "sample08.sql": {
+   "sample08_1": "c352838a903e784d77756ec3005b438a81b1472f1de9251553b26d300ce7b5ea"
+  },
+  "sample09.sql": {
+   "sample09_1": "f0cc1a1ac44bd7abecfdbaacbc5c73c19636e5b96c01e6d99a8e865012de51b8"
+  },
+  "sample10.sql": {
+   "sample10_1": "48528e6ebfd8e6b11fa981147335b7c0e1a67a3e3df43ccc014bc04239451a21"
+  },
+  "sample13.sql": {
+   "sample13_1": "b2dc26587dd9117a9c6eb31eed495d5947e3a2c462720b5e339e337d7c0fc4f6"
+  },
+  "sample14.sql": {
+   "sample14_1": "ac00a9cb0435c05fe8baf7246f164eb8ddc5ed2cc8da2c65163345f5e7ba6b5e"
+  },
+  "sample15.sql": {
+   "sample15_1": "cf440d945e93c62a11c3bf7102ed6f8fa736b7bc09e8a75346a256401e9a53bd"
+  },
+  "sample16.sql": {
+   "sample16_1": "5b489682ade9565e349c11b8877e415cbc06b95ca102dee7b1aaad633ec57250"
+  },
+  "sample17.sql": {
+   "sample17_1": "cced106a4ce967584016033985b22b794352b124ac2cda8495ac8b766546ed88"
+  },
+  "sample18.sql": {
+   "sample18_1": "2275febfced1a32150c80285606d1c7296d4cf1563570e6ff96f9e2519ffda87"
+  },
+  "sample19.sql": {
+   "sample19_1": "96ed34671969b3e3cb10b48437f98e599f08f40c8a210ceb9195d64a3423f1fc"
+  },
+  "sample20.sql": {
+   "sample20_1": "83a3a3d9411888da2f3a0b710d4dad3830c9faf5e9663edbbc09b3cb17c656f4"
+  },
+  "sample22.sql": {
+   "sample22_1": "66fd246dc9dbd195686c9b1b70c40f247153ea715b25bceb151ad56adade1f7e"
+  },
+  "sample23.sql": {
+   "sample23_1": "4b624add8bc892a508173ba7cbd590504bf335399aed01e5952a0fdf3556fa9e"
+  },
+  "sample24.sql": {
+   "sample24_1": "48866c9baec6577903a254136bab9cfbc8f82014e2b63814f91311bbc0a84863"
+  },
+  "template_sample01.sql": {
+   "template_sample01_1": "3fc75094c267d243e8f45237c44e0d399355573fe482a9cf49e531cdec0ade87"
+  },
+  "template_sample02.sql": {
+   "template_sample02_1": "7768d96dda51c5f698a319d399b0aa866d5bdfbbbc41293d8b5158b94f5b6846"
+  },
+  "template_sample04.sql": {
+   "template_sample04_1": "ade9cea889eb1a2b40d5ea0ce5f3916d89e9799a886514209f3005d64363e58a"
+  },
+  "template_sample05.sql": {
+   "template_sample05_1": "0a062f9b4aa1b61c83de71fc33da9c996d4937649eedcd0d48810f9b66424623"
+  },
+  "two_docs_preloaded_ttf.sql": {
+   "two_docs_preloaded_ttf_1": "7fe8c9a047340a4db8778e8fcc19c274bb0a7ddcdfadc2e754bdfc89bb9f58bf",
+   "two_docs_preloaded_ttf_2": "dfdffa04532d7dbb1beb236812f814570d8f51a0944f7bc7d9919efc29808d5c"
+  },
+  "two_docs_template_styles.sql": {
+   "two_docs_template_styles_1": "bba51df724477780f25c9d5cb200b5f694650c1e007486400e0b6e5853714aa4",
+   "two_docs_template_styles_2": "24de876aa72e83f6340a5fb5bc8324c5fc4fcbb9dbd9a51a37118150e3d1a2fb",
+   "two_docs_template_styles_3": "304639d2bb1530c8c95dd8e6b545f92400a6b13bdf01025d116bc22245e050a2"
+  }
+ },
+ "note": "baseline references: recorded with the sources of 919da6a (7109e6f + the fixed clock), before A2-A6; many_pages_1 with the sources of fd65981 (before A6, VARCHAR2 resources). Not re-recorded after the changes on purpose: check compares the changes with the code before them.",
+ "src_dirty": false
+}
