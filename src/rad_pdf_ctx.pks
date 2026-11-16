@@ -41,5 +41,11 @@ CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
   FUNCTION  get_conformance(p_doc IN rad_pdf_types.t_doc_handle)
     RETURN VARCHAR2;
 
+  -- The clock of the documents (CreationDate, ModDate, the XMP dates): the UTC time now, or the fixed instant a
+  -- test set with set_fixed_clock -- so a document is the same bytes at every run (the golden bench, tests/golden).
+  -- set_fixed_clock(NULL) goes back to the real clock. Session state, never per document.
+  PROCEDURE set_fixed_clock(p_utc IN TIMESTAMP);
+  FUNCTION  now_utc RETURN TIMESTAMP WITH TIME ZONE;
+
 END rad_pdf_ctx;
 /

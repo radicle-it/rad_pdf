@@ -20,6 +20,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
   g_doc_info     t_doc_info_map;
   g_conformance t_conf_map;
   g_next_handle  PLS_INTEGER := 1;
+  g_fixed_clock  TIMESTAMP WITH TIME ZONE;   -- set_fixed_clock: the instant of the dates of a test document
 
 -- ---------------------------------------------------------------------------
   FUNCTION new_doc RETURN rad_pdf_types.t_doc_handle IS
@@ -129,6 +130,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
     END IF;
     RETURN l_empty;
   END get_info;
+
+  PROCEDURE set_fixed_clock(p_utc IN TIMESTAMP) IS
+  BEGIN
+    g_fixed_clock := CASE WHEN p_utc IS NOT NULL THEN FROM_TZ(p_utc, 'UTC') END;
+  END set_fixed_clock;
+
+  FUNCTION now_utc RETURN TIMESTAMP WITH TIME ZONE IS
+  BEGIN
+    RETURN NVL(g_fixed_clock, SYSTIMESTAMP AT TIME ZONE 'UTC');
+  END now_utc;
 
 END rad_pdf_ctx;
 /

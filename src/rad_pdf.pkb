@@ -28,7 +28,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 -- ---------------------------------------------------------------------------
   FUNCTION pdf_date RETURN VARCHAR2 IS
   BEGIN
-    RETURN 'D:' || TO_CHAR(SYSTIMESTAMP AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS') || 'Z';
+    RETURN 'D:' || TO_CHAR(rad_pdf_ctx.now_utc, 'YYYYMMDDHH24MISS') || 'Z';
   END pdf_date;
 
 -- ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     IF l_conf IS NOT NULL THEN
       -- One timestamp for BOTH the XMP packet and the Info dictionary:
       -- PDF/A validators check that they are consistent.
-      l_ts       := SYSTIMESTAMP AT TIME ZONE 'UTC';
+      l_ts       := rad_pdf_ctx.now_utc;
       l_date_iso := TO_CHAR(l_ts, 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
 
       -- sRGB OutputIntent (ICC profile stream + intent dictionary)
