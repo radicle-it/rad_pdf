@@ -9,6 +9,7 @@
 | `sal_quote_v1_schema.json` | the print schema `SAL_QUOTE` v1 of 96a §5.3 (nullable by the rule of §5.1), for the merge (`rad_pdf_merge.schema_from_json`) |
 | `sal_quote_v1_ri.json` | step B1: the RI of the template built by hand (`tests/word/quote_ri.sql`), canonical dump |
 | `sal_quote_v1_ri.pdf` | step B1: that RI merged with the data by `rad_pdf_merge` (since B2) and rendered through the existing engine by a test-only bridge (fixed clock: same bytes at every run); 3 pages like Word |
+| `sal_quote_v1_pager.pdf` | the same instance drawn by the paginator `rad_pdf_pager` (B3) with Liberation Sans 2.1.5 (`tests/word/load_fonts.py`): the reference of `quote_ri.py` (same bytes), within the fidelity thresholds of 96a §10 against Word |
 | `sal_quote_v1_word.pdf` | **Word's own export** of the merged document: the fidelity reference |
 
 Fixed for the reference: Microsoft Word for Mac **16.111.2**, *Save as → PDF* with default options, font **Arial**

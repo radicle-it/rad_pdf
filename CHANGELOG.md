@@ -26,6 +26,21 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   negative samples through the merge: `tests/word/quote_ri.py`.
 - `rad_pdf_codec.base64_encode` / `base64_decode` for LOBs (shared by the RI and
   the merge).
+- `rad_pdf_pager`: the single paginator of the Word evolution (doc 96 B2+B3). It
+  draws a merged instance with the low-level engine only (no flowables, no
+  `rad_pdf_layout`/`rad_pdf_table`, no page procedure in a string): tab stops
+  left/right/decimal and default, alignment and justification, indents, Word's
+  line metrics from the font, max(space_after, space_before) between paragraphs,
+  keep_next chains, tables with repeated header rows, header/footer zones per page,
+  PAGE/NUMPAGES with a double pass, D3 font substitutes with fsType checks, a text
+  layout dump for tests. `[PDF_LAYOUT]` -20844, `[PDF_FONT]` -20845. Tests:
+  `tests/phase25_pager.sql`; the quote against Word's export with the thresholds
+  of 96a §10 (`tests/word/fidelity.py`, run by `tests/word/quote_ri.py`).
+
+### Fixed (Word evolution)
+
+- The TrueType subset of an embedded font holds the components of its composite
+  glyphs: an accented letter (`à` = `a` + `grave`) lost its accent.
 
 ### Fixed
 

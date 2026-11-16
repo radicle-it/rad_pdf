@@ -41,6 +41,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf.pks
 @@rad_pdf_ri.pks
 @@rad_pdf_merge.pks
+@@rad_pdf_pager.pks
 
 @@rad_pdf_units.pkb
 @@rad_pdf_codec.pkb
@@ -61,6 +62,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 @@rad_pdf.pkb
 @@rad_pdf_ri.pkb
 @@rad_pdf_merge.pkb
+@@rad_pdf_pager.pkb
 
 DECLARE
   l_errors PLS_INTEGER;

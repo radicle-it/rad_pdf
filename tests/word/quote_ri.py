@@ -9,6 +9,10 @@ of its rendering through the existing engine against Word's export.
                                                 clock is fixed); since B2 the bridge renders the instance of the merge
                                                 (template + samples/sal_quote_v1_schema.json + data);
                                               - each negative sample refused by the merge with its [PRT_DATA] message;
+                                              - the paginator's PDF (rad_pdf_pager, B3) with samples/sal_quote_v1_pager.pdf
+                                                (same bytes), the fidelity thresholds of 96a section 10 against Word
+                                                (tests/word/fidelity.py), and complete composite glyphs in its subsets
+                                                (needs the fonts of tests/word/load_fonts.py and fontTools, Pillow)
                                               - the page count with sal_quote_v1_word.pdf (Word 16.111.2: 3 pages), and
                                                 the lines of the table on each page (reported, not required in B1)
     python3 tests/word/quote_ri.py --record   write the RI dump and the PDF as the new references (say why in the commit)
@@ -25,11 +29,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'golden'))
 import bench  # noqa: E402  (connection, sqlcl, the dump procedure)
+import fidelity  # noqa: E402  (96a section 10 thresholds)
 
 SAMPLES = HERE / 'samples'
 OUT = HERE / 'out'
 REF_JSON = SAMPLES / 'sal_quote_v1_ri.json'
 REF_PDF = SAMPLES / 'sal_quote_v1_ri.pdf'
+REF_PAGER = SAMPLES / 'sal_quote_v1_pager.pdf'
 SCHEMA = SAMPLES / 'sal_quote_v1_schema.json'
 # the negative samples of 96a section 10 and the refusal each must give (B2: the merge, with the path)
 NEGATIVES = {
@@ -46,6 +52,33 @@ def ascii_json(path):
         sys.exit(f"{path.name} holds ~' and cannot go in a q'~...~' literal")
     return text
 WORD_PDF = SAMPLES / 'sal_quote_v1_word.pdf'
+
+
+def composites_complete(pdf):
+    """every composite glyph of the embedded TrueType subsets has its components (an accent drawn): the glyph ids
+    whose components are empty, per font"""
+    import io
+    import zlib
+    from fontTools.ttLib import TTFont
+    data = pdf.read_bytes()
+    missing = []
+    for m in re.finditer(rb'stream\r?\n', data):
+        raw = data[m.end():data.find(b'endstream', m.end())]
+        try:
+            font = zlib.decompressobj().decompress(raw)
+        except zlib.error:
+            continue
+        if font[:4] != b'\x00\x01\x00\x00':
+            continue
+        f = TTFont(io.BytesIO(font))
+        glyf, order = f['glyf'], f.getGlyphOrder()
+        for name in order:
+            g = glyf[name]
+            if g.numberOfContours == -1:
+                for c in g.components:
+                    if glyf[c.glyphName].numberOfContours == 0:
+                        missing.append(f'{name}->{c.glyphName}')
+    return missing
 
 
 def pages(pdf):
@@ -75,30 +108,41 @@ def main():
     if rc or 'compiled' not in out.lower():
         sys.exit('cannot create rad_pdf_test_dump:\n' + out[-2000:])
     rc, out = bench.sqlcl(script, cwd=HERE)
-    js, hexes, nodes, inst, negs = [], [], None, None, {}
+    js, nodes, inst, negs, vol = [], None, None, {}, None
+    pdfs, name = {}, None
     for line in out.splitlines():
         if line.startswith('RIJSON:'):
             js.append(line[7:])
-        elif line.startswith('PDFHEX:'):
-            hexes.append(line[7:].strip())
+        elif line.startswith('PDFNAME:'):
+            name = line[8:].strip()
+            pdfs[name] = []
+        elif line.startswith('PDFHEX:') and name:
+            pdfs[name].append(line[7:].strip())
         elif line.startswith('RINODES:'):
             nodes = int(line[8:])
+        elif line.startswith('VOLUME:'):
+            vol = line[7:].split(':')
         elif line.startswith('INSTNODES:'):
             inst = int(line[10:])
         elif line.startswith('NEG:'):
             name, _, msg = line[4:].partition(':')
             negs[name] = msg.strip()
-    if rc or not js or not hexes:
+    if rc or not js or 'sal_quote_v1_ri' not in pdfs:
         sys.exit(f'quote_ri.sql failed (rc={rc}):\n' + out[-3000:])
     OUT.mkdir(exist_ok=True)
     ri = json.dumps(json.loads(''.join(js)), ensure_ascii=False, indent=1) + '\n'
     (OUT / 'sal_quote_v1_ri.json').write_text(ri, encoding='utf-8')
     pdf = OUT / 'sal_quote_v1_ri.pdf'
-    pdf.write_bytes(bytes.fromhex(''.join(hexes)))
+    pdf.write_bytes(bytes.fromhex(''.join(pdfs['sal_quote_v1_ri'])))
+    pager = OUT / 'sal_quote_v1_pager.pdf'
+    if 'sal_quote_v1_pager' not in pdfs:
+        sys.exit('no PDF from the paginator:\n' + out[-3000:])
+    pager.write_bytes(bytes.fromhex(''.join(pdfs['sal_quote_v1_pager'])))
     ok = True
     if record:
         REF_JSON.write_text(ri, encoding='utf-8')
         REF_PDF.write_bytes(pdf.read_bytes())
+        REF_PAGER.write_bytes(pager.read_bytes())
         print(f'recorded: {REF_JSON.name} ({nodes} nodes), {REF_PDF.name} ({REF_PDF.stat().st_size} bytes)')
     else:
         if not REF_JSON.exists() or REF_JSON.read_text(encoding='utf-8') != ri:
@@ -111,6 +155,11 @@ def main():
             print(f'PDF DIFFERS from {REF_PDF.name} (see {pdf})')
         else:
             print(f'PDF identical to {REF_PDF.name} ({REF_PDF.stat().st_size} bytes)')
+        if not REF_PAGER.exists() or REF_PAGER.read_bytes() != pager.read_bytes():
+            ok = False
+            print(f'paginator PDF DIFFERS from {REF_PAGER.name} (see {pager})')
+        else:
+            print(f'paginator PDF identical to {REF_PAGER.name} ({REF_PAGER.stat().st_size} bytes)')
     print(f'merge: the instance has {inst} nodes')
     for name, want in NEGATIVES.items():
         got = negs.get(name)
@@ -121,6 +170,17 @@ def main():
     print(f'pages: engine {ours}, Word {word} -> {"SAME" if ours == word else "DIFFERENT"}')
     print(f'table lines per page: engine {lines_per_page(pdf)}, Word {lines_per_page(WORD_PDF)}')
     ok = ok and ours == word
+    # the paginator (B3) against Word: the thresholds of 96a section 10 are required
+    if vol and 'sal_quote_v1_500' in pdfs:
+        big = OUT / 'sal_quote_v1_500.pdf'
+        big.write_bytes(bytes.fromhex(''.join(pdfs['sal_quote_v1_500'])))
+        print(f'volume: {vol[0]} lines -> {vol[1]} nodes, merge {int(vol[2]) / 100:.2f} s, paginate+PDF '
+              f'{int(vol[3]) / 100:.2f} s, {pages(big)} pages, {int(vol[4])} bytes (reported, not a gate)')
+    print('-- the paginator (rad_pdf_pager) against Word:')
+    ok = fidelity.report(pager, WORD_PDF) and ok
+    missing = composites_complete(pager)
+    print(f'embedded subsets: composite glyphs complete -> {"OK" if not missing else "MISSING " + ", ".join(missing)}')
+    ok = ok and not missing
     sys.exit(0 if ok else 1)
 
 

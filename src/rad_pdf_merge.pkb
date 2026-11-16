@@ -828,7 +828,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     m.sch := index_of(p_schema);
     check_template_idx(p_ri, m.sch);
     m.root := parse_data(p_data, m.json_bytes);
-    -- the tree only: assigning the whole RI would copy its images (temporary LOBs are copied on assignment)
+    -- the tree only: the merge reads nodes and children; the images stay owned by p_ri (a temporary LOB assigned to
+    -- another variable shares it until a write copies it: no need to hold a second reference to the bytes here)
     m.src.ri_version := p_ri.ri_version; m.src.n := p_ri.n; m.src.nodes := p_ri.nodes; m.src.children := p_ri.children;
     m.src.section_id := p_ri.section_id; m.src.sealed := p_ri.sealed;
     m.out := rad_pdf_ri.new_instance;

@@ -941,8 +941,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     IF nvl(p_ri.instance, '#') NOT IN ('Y', 'N') THEN fail('instance must be Y or N'); END IF;
     q := new_ri;
     q.instance := p_ri.instance;
-    -- the resources by their metadata only: the replay checks that a resource exists; assigning the record would COPY
-    -- every image (a temporary LOB is copied on assignment) and leave the copies to the session
+    -- the resources by their metadata only: the replay checks that a resource exists, never reads the bytes (a
+    -- temporary LOB assigned to another variable is shared until a write copies it: no second owner is needed)
     FOR i IN 1 .. p_ri.images.COUNT LOOP
       q.images(i).format := p_ri.images(i).format; q.images(i).px_w := p_ri.images(i).px_w;
       q.images(i).px_h := p_ri.images(i).px_h; q.images(i).sha256 := p_ri.images(i).sha256;

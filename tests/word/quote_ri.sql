@@ -422,5 +422,43 @@ BEGIN
   render;
   rad_pdf_test_dump('sal_quote_v1_ri', l_pdf);
   DBMS_LOB.FREETEMPORARY(l_pdf);
+  -- the paginator (B3): the same instance, Arial drawn with its D3 substitute from rad_pdf_test_font
+  DECLARE
+    l_fonts rad_pdf_pager.t_font_files;
+    l_opt   rad_pdf_pager.t_options;
+  BEGIN
+    SELECT family, variant, bytes BULK COLLECT INTO l_fonts FROM rad_pdf_test_font ORDER BY family, variant;
+    l_opt.title := 'sal_quote_v1 (pager)';
+    l_pdf := rad_pdf_pager.render(inst, l_fonts, l_opt);
+    rad_pdf_test_dump('sal_quote_v1_pager', l_pdf);
+    DBMS_LOB.FREETEMPORARY(l_pdf);
+  END;
+  -- volume (96a section 10.5): the same quote with 500 lines (the 40 of the sample repeated), merged and paginated,
+  -- timed in hundredths of a second; reported, not a gate
+  DECLARE
+    l_fonts rad_pdf_pager.t_font_files;
+    l_root  json_object_t := json_object_t.parse(l_data);
+    l_lines json_array_t := l_root.get_array('lines');
+    l_big   json_array_t := json_array_t();
+    l_t0    PLS_INTEGER;
+    l_t1    PLS_INTEGER;
+    l_t2    PLS_INTEGER;
+    l_inst  rad_pdf_ri.t_ri;
+    l_vol   BLOB;
+  BEGIN
+    SELECT family, variant, bytes BULK COLLECT INTO l_fonts FROM rad_pdf_test_font ORDER BY family, variant;
+    FOR i IN 0 .. 499 LOOP l_big.append(l_lines.get(MOD(i, l_lines.get_size))); END LOOP;
+    l_root.put('lines', l_big);
+    l_t0 := DBMS_UTILITY.GET_TIME;
+    l_inst := rad_pdf_merge.merge(ri, l_sch, l_root.to_clob);
+    l_t1 := DBMS_UTILITY.GET_TIME;
+    l_vol := rad_pdf_pager.render(l_inst, l_fonts);
+    l_t2 := DBMS_UTILITY.GET_TIME;
+    DBMS_OUTPUT.PUT_LINE('VOLUME:500:' || rad_pdf_ri.node_count(l_inst) || ':' || (l_t1 - l_t0) || ':' || (l_t2 - l_t1)
+                         || ':' || DBMS_LOB.GETLENGTH(l_vol));
+    rad_pdf_test_dump('sal_quote_v1_500', l_vol);
+    DBMS_LOB.FREETEMPORARY(l_vol);
+    rad_pdf_ri.free(l_inst);
+  END;
 END;
 /
