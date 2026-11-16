@@ -44,6 +44,7 @@ DUMP_PROC = """CREATE OR REPLACE PROCEDURE rad_pdf_test_dump(p_name IN VARCHAR2,
   -- the golden bench (tests/golden/bench.py): the PDF as hex lines on DBMS_OUTPUT; a test object, never in src/
   l_pos PLS_INTEGER := 1;
 BEGIN
+  DBMS_OUTPUT.ENABLE(NULL);  -- no 1 MB buffer limit: large documents
   DBMS_OUTPUT.PUT_LINE('PDFNAME:' || p_name);
   WHILE l_pos <= DBMS_LOB.GETLENGTH(p_pdf) LOOP
     DBMS_OUTPUT.PUT_LINE('PDFHEX:' || RAWTOHEX(DBMS_LOB.SUBSTR(p_pdf, 12000, l_pos)));
@@ -104,7 +105,7 @@ def run(outdir, only=None):
         sys.exit('cannot create rad_pdf_test_dump:\n' + out[-2000:])
     problems = []
     for f in corpus():
-        if only and f.stem not in only and not any(o.startswith(f.stem) for o in only):
+        if only and not any(o.startswith(f.stem) or f.stem.startswith(o) for o in only):
             continue
         script, n = instrument(f)
         if not n:

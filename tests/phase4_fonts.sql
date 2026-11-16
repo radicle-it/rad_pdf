@@ -93,17 +93,15 @@ BEGIN
   END;
 
   -- =========================================================================
-  -- 4. mark_char_used does not raise for standard fonts (no-op guard)
+  -- 4. text_to_pdf_string with a document records glyphs per document; a standard font records none
   -- =========================================================================
   DECLARE
-    l_raised BOOLEAN := FALSE;
+    l_doc rad_pdf_types.t_doc_handle;
   BEGIN
-    BEGIN
-      rad_pdf_fonts.mark_char_used(1, 65);  -- font 1 is standard; should be a no-op
-    EXCEPTION WHEN OTHERS THEN
-      l_raised := TRUE;
-    END;
-    ok('mark_char_used on standard font does not raise', NOT l_raised);
+    l_doc := rad_pdf_ctx.new_doc;
+    ok('text_to_pdf_string with a document, standard font',
+       rad_pdf_fonts.text_to_pdf_string('A', 1, l_doc), '(A)');
+    rad_pdf_doc.close_doc(l_doc);
   END;
 
   -- =========================================================================

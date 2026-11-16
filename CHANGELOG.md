@@ -33,6 +33,18 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 - `clear_image_cache` clears idle entries; the memory budget is soft while active
   documents pin resources, and is reapplied when those documents close.
 - Correct the legacy foundation test to expect the zlib header required by PDF.
+- Used glyphs, the first/last character and the font name index are kept per
+  document: a font loaded once and used by several documents of a session gets a
+  subset with only the glyphs of each document (smaller from the 2nd document on).
+  `text_to_pdf_string` takes the document handle (`p_doc`) to record glyphs.
+- Inline derived template styles are kept per document (key: base, suffixes and
+  base revision; no hash per run) and dropped when the document closes.
+- `rad_pdf_ctx` is a leaf again (`release_doc`); `rad_pdf_doc.close_doc` closes a
+  document in every package. Callers of `rad_pdf_ctx.close_doc` use
+  `rad_pdf_doc.close_doc`.
+- Font, image and page-tree resource dictionaries are CLOBs end to end, written
+  by the CLOB overloads of `rad_pdf_serial.doc_write`/`begin_obj`: documents with
+  more than ~3600 pages, or very many fonts/images, no longer overflow 32767.
 
 ### Added
 
@@ -44,6 +56,20 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   formats 4/12, non-linear glyph IDs, ToUnicode maps and WinAnsi metrics.
 - `tests/phase18_robustness.sql` with assertions for full content, actual page
   counts, CLOB ownership, SQL binds/limits, encodings, image lifetime and styles.
+- `rad_pdf_ctx.set_fixed_clock`/`now_utc` and the golden-PDF bench
+  (`tests/golden/bench.py`): the samples and extra cases compared with reference
+  PDFs by bytes, decompressed streams (qpdf) and pixels (pdftoppm), PDF/A outputs
+  checked with veraPDF.
+
+### Removed
+
+- `t_table_options.break_field` (documented, never implemented), `start_x`,
+  `start_y`, `interline`, `bulk_size`; `t_cell_format.interline`,
+  `t_flowable.page_break_before`, `t_frame_list`, `t_table_def.streaming` and
+  `cache_ref_id`: fields that nothing read.
+- `rad_pdf_table.measure_table` (no caller since the renderer stopped measuring
+  whole tables) and `rad_pdf_fonts.mark_char_used`; the private SHA-256 helper of
+  `rad_pdf_images` (uses `rad_pdf_codec.sha256_hex`).
 
 
 ## [1.7.0] - 2026-06-12
