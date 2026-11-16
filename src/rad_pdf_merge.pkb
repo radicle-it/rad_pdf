@@ -71,6 +71,44 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     m.lob_bytes := m.lob_bytes - nvl(p_bytes, 0);
   END release;
 
+  -- a temporary CLOB costs 2 bytes per character (AL32UTF8 databases hold CLOBs in UCS-2)
+  FUNCTION clob_cost(p_chars IN NUMBER) RETURN NUMBER IS
+  BEGIN
+    RETURN 2 * nvl(p_chars, 0);
+  END clob_cost;
+
+  -- a string of the data read as a CLOB (get_clob makes a temporary): reserved before with the size of the data as its
+  -- bound, then at its own size; the caller gives it back with drop_text. One path for every read: FIELD text, SECTION
+  -- strings, IMAGE members, urls
+  FUNCTION take_text(m IN OUT NOCOPY t_m, p_loc IN t_loc, p_where IN VARCHAR2, p_what IN VARCHAR2, p_held OUT NUMBER) RETURN CLOB IS
+    c CLOB;
+  BEGIN
+    reserve(m, clob_cost(m.json_bytes), p_where, p_what);
+    p_held := clob_cost(m.json_bytes);
+    c := CASE WHEN p_loc.obj IS NOT NULL THEN p_loc.obj.get_clob(p_loc.key) ELSE p_loc.arr.get_clob(p_loc.idx) END;
+    release(m, p_held - clob_cost(dbms_lob.getlength(c)));
+    p_held := clob_cost(dbms_lob.getlength(c));
+    RETURN c;
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF c IS NOT NULL AND dbms_lob.istemporary(c) = 1 THEN dbms_lob.freetemporary(c); END IF;
+      release(m, p_held); p_held := 0;
+      RAISE;
+  END take_text;
+
+  PROCEDURE drop_text(m IN OUT NOCOPY t_m, p_c IN OUT NOCOPY CLOB, p_held IN OUT NOCOPY NUMBER) IS
+  BEGIN
+    IF p_c IS NOT NULL AND dbms_lob.istemporary(p_c) = 1 THEN dbms_lob.freetemporary(p_c); END IF;
+    release(m, p_held); p_held := 0;
+  END drop_text;
+
+  FUNCTION loc_of(o IN json_object_t, k IN VARCHAR2) RETURN t_loc IS
+    l t_loc;
+  BEGIN
+    l.obj := o; l.key := k; l.found := TRUE;
+    RETURN l;
+  END loc_of;
+
   -- ---------------------------------------------------------------------------
   -- the schema
   -- ---------------------------------------------------------------------------
@@ -227,16 +265,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
   END data_url;
 
   -- an optional string member of an IMAGE value; '' is refused like a wrong value
-  FUNCTION img_member(o IN json_object_t, k IN VARCHAR2, p_where IN VARCHAR2) RETURN VARCHAR2 IS
+  FUNCTION img_member(m IN OUT NOCOPY t_m, o IN json_object_t, k IN VARCHAR2, p_where IN VARCHAR2) RETURN VARCHAR2 IS
     l VARCHAR2(4000);
     c CLOB;
     n NUMBER;
+    h NUMBER;
   BEGIN
     IF NOT o.has(k) THEN RETURN NULL; END IF;
     IF NOT o.get(k).is_string THEN fail(c_err_data, p_where || '.' || k || ': a string'); END IF;
-    c := o.get_clob(k);                                  -- its length first: a long value never reaches a VARCHAR2
+    c := take_text(m, loc_of(o, k), p_where || '.' || k, 'its text', h);   -- its length first: never a long VARCHAR2
     n := nvl(dbms_lob.getlength(c), 0);
-    IF c IS NOT NULL AND dbms_lob.istemporary(c) = 1 THEN dbms_lob.freetemporary(c); END IF;
+    drop_text(m, c, h);
     IF n > 100 THEN fail(c_err_data, p_where || '.' || k || ': too long (' || n || ' characters)'); END IF;
     l := o.get_string(k);
     IF l IS NULL THEN fail(c_err_data, p_where || '.' || k || ': empty'); END IF;
@@ -260,20 +299,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     l_rbytes NUMBER;
     l_rpix  NUMBER;
   BEGIN
-    IF nvl(img_member(o, 'source', p_where), '#') <> 'URL' THEN fail(c_err_data, p_where || ': an IMAGE has source "URL"'); END IF;
+    IF nvl(img_member(m, o, 'source', p_where), '#') <> 'URL' THEN fail(c_err_data, p_where || ': an IMAGE has source "URL"'); END IF;
     IF NOT o.has('url') OR NOT o.get('url').is_string THEN fail(c_err_data, p_where || ': an IMAGE has its url'); END IF;
     FOR d IN 1 .. 2 LOOP
       IF o.has(CASE d WHEN 1 THEN 'width' ELSE 'height' END)
-         AND dim_pt(img_member(o, CASE d WHEN 1 THEN 'width' ELSE 'height' END, p_where)) IS NULL THEN
+         AND dim_pt(img_member(m, o, CASE d WHEN 1 THEN 'width' ELSE 'height' END, p_where)) IS NULL THEN
         fail(c_err_data, p_where || '.' || CASE d WHEN 1 THEN 'width' ELSE 'height' END
              || ': a positive size with a unit cm, mm, in or px');
       END IF;
     END LOOP;
-    reserve(m, m.json_bytes, p_where, 'its url');       -- a bound: the url is a part of the data
-    l_rurl := m.json_bytes;
-    l_url := o.get_clob('url');
+    l_url := take_text(m, loc_of(o, 'url'), p_where, 'its url', l_rurl);
     l_len := dbms_lob.getlength(l_url);
-    release(m, l_rurl - l_len); l_rurl := l_len;         -- the url as it is
     data_url(l_url, l_fmt, l_start);
     IF l_fmt IS NULL THEN fail(c_err_data, p_where || ': only data:image/png or data:image/jpeg base64 URLs'); END IF;
     IF (l_len - l_start + 1) * 3 / 4 > c_max_image_bytes THEN
@@ -480,21 +516,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     RETURN CASE WHEN p_loc.obj IS NOT NULL THEN p_loc.obj.get(p_loc.key) ELSE p_loc.arr.get(p_loc.idx) END;
   END elem;
 
-  FUNCTION text_of(p_loc IN t_loc) RETURN CLOB IS
-  BEGIN
-    RETURN CASE WHEN p_loc.obj IS NOT NULL THEN p_loc.obj.get_clob(p_loc.key) ELSE p_loc.arr.get_clob(p_loc.idx) END;
-  END text_of;
-
   FUNCTION bool_of(p_loc IN t_loc) RETURN BOOLEAN IS
   BEGIN
     RETURN CASE WHEN p_loc.obj IS NOT NULL THEN p_loc.obj.get_boolean(p_loc.key) ELSE p_loc.arr.get_boolean(p_loc.idx) END;
   END bool_of;
 
   -- SECTION: false, "", [], null and absent hide (96a §6.3)
-  FUNCTION truthy(m IN t_m, p_scope IN VARCHAR2, p_path IN VARCHAR2) RETURN BOOLEAN IS
+  FUNCTION truthy(m IN OUT NOCOPY t_m, p_scope IN VARCHAR2, p_path IN VARCHAR2) RETURN BOOLEAN IS
     l t_loc := locate(m, p_scope, p_path);
     e json_element_t;
     t CLOB;
+    h NUMBER;
     r BOOLEAN;
   BEGIN
     IF NOT l.found THEN RETURN FALSE; END IF;
@@ -502,9 +534,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     IF e.is_null THEN RETURN FALSE; END IF;
     IF e.is_boolean THEN RETURN bool_of(l); END IF;
     IF e.is_string THEN
-      t := text_of(l);
+      t := take_text(m, l, p_path, 'its text', h);
       r := nvl(dbms_lob.getlength(t), 0) > 0;
-      free_lob(t);
+      drop_text(m, t, h);
       RETURN r;
     END IF;
     IF e.is_array THEN RETURN treat(e AS json_array_t).get_size > 0; END IF;
@@ -630,6 +662,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     e   json_element_t;
     s   t_saved;
     t   CLOB;
+    h   NUMBER;
   BEGIN
     FOR j IN 1 .. k.COUNT LOOP
       n := m.src.nodes(k(j));
@@ -647,12 +680,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
               CASE n.tag_op
                 WHEN 'FIELD' THEN
                   IF NOT e.is_string THEN fail(c_err_data, n.ref_path || ': a text is expected'); END IF;
-                  t := text_of(l);
+                  t := take_text(m, l, n.ref_path, 'its text', h);
                   BEGIN
                     emit_text(m, p_par, t, n.fmt);
-                  EXCEPTION WHEN OTHERS THEN free_lob(t); RAISE;
+                  EXCEPTION WHEN OTHERS THEN drop_text(m, t, h); RAISE;
                   END;
-                  free_lob(t);
+                  drop_text(m, t, h);
                 WHEN 'IMAGE' THEN emit_image(m, p_par, l, p_avail, n.ref_path);
                 ELSE                                     -- PAGEBREAK: BOOLEAN only; true splits the paragraph
                   IF NOT e.is_boolean THEN fail(c_err_data, n.ref_path || ': a page break needs true or false'); END IF;
@@ -690,7 +723,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
   END m_paragraph;
 
   -- the rows a table item gives with these data (a LOOP: one per element; a SECTION: 0 or 1)
-  FUNCTION rows_of(m IN t_m, p_item IN rad_pdf_ri.t_id) RETURN PLS_INTEGER IS
+  FUNCTION rows_of(m IN OUT NOCOPY t_m, p_item IN rad_pdf_ri.t_id) RETURN PLS_INTEGER IS
     n rad_pdf_ri.t_node := m.src.nodes(p_item);
   BEGIN
     IF n.kind = 'row' THEN RETURN 1; END IF;
@@ -795,7 +828,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     m.sch := index_of(p_schema);
     check_template_idx(p_ri, m.sch);
     m.root := parse_data(p_data, m.json_bytes);
-    m.src := p_ri;
+    -- the tree only: assigning the whole RI would copy its images (temporary LOBs are copied on assignment)
+    m.src.ri_version := p_ri.ri_version; m.src.n := p_ri.n; m.src.nodes := p_ri.nodes; m.src.children := p_ri.children;
+    m.src.section_id := p_ri.section_id; m.src.sealed := p_ri.sealed;
     m.out := rad_pdf_ri.new_instance;
     FOR i IN 1 .. p_ri.images.COUNT LOOP                 -- the template's images keep their ids
       reserve(m, dbms_lob.getlength(p_ri.images(i).bytes), 'template image ' || i, 'its copy in the document');

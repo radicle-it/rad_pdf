@@ -10,7 +10,9 @@
 --   6. codex-048: loop depth by structure, loop bindings restored, cumulative LOB and node budgets, the JSON limit in
 --      bytes, temporaries released on image failures (V$TEMPORARY_LOBS), one IMAGE validation with the concrete path;
 --   7. codex-049: every temporary reserved before it is allocated (url, bytes, pixels, copy), the decoders' structure
---      (IDAT, IEND), long IMAGE members, a long FIELD over budget leaking nothing.
+--      (IDAT, IEND), long IMAGE members, a long FIELD over budget leaking nothing;
+--   8. codex-050: every CLOB read from the data reserved before (FIELD text, SECTION string, IMAGE members, at 2 bytes
+--      per character), an empty IDAT stream.
 -- WHENEVER first: with it after SET SERVEROUTPUT, SQLcl refuses this block client-side (no ORA-, its WHENEVER help
 -- printed instead); SQL*Plus accepts either order.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
@@ -632,16 +634,16 @@ BEGIN
     l_bytes_n := DBMS_LOB.GETLENGTH(l_png);
     -- (a) the same bytes already a resource of the template: the url is still reserved, with no new resource
     t := tpl_with(c_cap - l_bytes_n - l_url_n + 1, l_png);   -- the template: the same PNG + a filler
-    assert_ok(merge_refused(t, s10, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: its url would exceed%'),
-              'R3: the url of an image whose bytes the template already holds is reserved too (refused 1 byte over)');
+    assert_ok(merge_refused(t, s10, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo%would exceed%'),
+              'R3: the reads of an image whose bytes the template already holds are reserved too (refused 1 byte over)');
     rad_pdf_ri.free(t);
     -- (b) a peak while decoding: the url and its bytes fit, the decoder's output does not
-    t := tpl_with(c_cap - l_url_n - l_est - l_bytes_n + 1);
+    t := tpl_with(c_cap - 2 * l_url_n - l_est - l_bytes_n + 1);     -- the url as a CLOB: 2 bytes per character
     assert_ok(merge_refused(t, s10, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: its pixels would exceed%'),
               'R3: a peak during decoding refused before the decoder allocates');
     rad_pdf_ri.free(t);
     -- (c) the boundary: everything held at once fits exactly -> accepted
-    t := tpl_with(c_cap - l_url_n - l_est - l_bytes_n);
+    t := tpl_with(c_cap - 2 * l_url_n - l_est - l_bytes_n);
     q := rad_pdf_merge.merge(t, s10, l_d);
     assert_ok(q.images.COUNT = 2, 'R3: at the boundary (the url, the bytes and the pixels held together = 64 MB) accepted');
     rad_pdf_ri.free(q);
@@ -680,6 +682,99 @@ BEGIN
     END LOOP;
     assert_ok(tmp_lobs <= l_n0, 'P3: ten such refusals leave no temporary LOB (' || tmp_lobs || ' <= ' || l_n0 || ')');
     DBMS_LOB.FREETEMPORARY(l_t);
+  END;
+
+  -- 8. codex-050: every CLOB read from the data reserved before (FIELD text, SECTION string, IMAGE members); an empty
+  --    IDAT stream ----------------------------------------------------------------------------------------------------------
+  DECLARE
+    s11  rad_pdf_merge.t_schema := rad_pdf_merge.t_schema(fld('note', 'TEXT', 'N'), fld('logo', 'IMAGE', 'N'),
+                                    fld('unused', 'IMAGE', 'N'));
+    c_cap CONSTANT NUMBER := rad_pdf_merge.c_max_lob_bytes;
+    l_raw RAW(32767) := UTL_RAW.COPIES(HEXTORAW('00'), 32000);
+    l_d   VARCHAR2(32767);
+    l_jb  NUMBER;
+    l_n0  NUMBER;
+
+    FUNCTION tmp_lobs RETURN NUMBER IS
+      n NUMBER;
+    BEGIN
+      EXECUTE IMMEDIATE 'SELECT cache_lobs + nocache_lobs + abstract_lobs FROM v$temporary_lobs WHERE sid = SYS_CONTEXT(''USERENV'', ''SID'')' INTO n;
+      RETURN n;
+    END;
+
+    -- a template whose image resource has p_n bytes and whose body reads note: a FIELD (p_kind F), a SECTION on the
+    -- string (S), or an IMAGE tag on logo (I)
+    FUNCTION tpl(p_n NUMBER, p_kind CHAR) RETURN rad_pdf_ri.t_ri IS
+      l_r rad_pdf_ri.t_ri;
+      l_b BLOB;
+      g3  rad_pdf_ri.t_id;
+    BEGIN
+      DBMS_LOB.CREATETEMPORARY(l_b, TRUE);
+      WHILE DBMS_LOB.GETLENGTH(l_b) + 32000 <= p_n LOOP DBMS_LOB.WRITEAPPEND(l_b, 32000, l_raw); END LOOP;
+      IF p_n - DBMS_LOB.GETLENGTH(l_b) > 0 THEN
+        DBMS_LOB.WRITEAPPEND(l_b, p_n - DBMS_LOB.GETLENGTH(l_b), UTL_RAW.SUBSTR(l_raw, 1, p_n - DBMS_LOB.GETLENGTH(l_b)));
+      END IF;
+      l_r := rad_pdf_ri.new_ri;
+      x := rad_pdf_ri.section(l_r, 595.3, 841.9, 'P', 56.7, 56.7, 56.7, 56.7, 36, 36, 'N');
+      x := rad_pdf_ri.add_image(l_r, l_b, 'PNG', 1, 1);
+      DBMS_LOB.FREETEMPORARY(l_b);
+      IF p_kind = 'S' THEN
+        g3 := rad_pdf_ri.block_region(l_r, rad_pdf_ri.zone(l_r, 'body'), 'SECTION', NULL, 'note');
+        p := rad_pdf_ri.paragraph(l_r, g3, pf); x := rad_pdf_ri.run(l_r, p, 'shown', f);
+      ELSE
+        p := rad_pdf_ri.paragraph(l_r, rad_pdf_ri.zone(l_r, 'body'), pf);
+        x := rad_pdf_ri.tag(l_r, p, CASE p_kind WHEN 'F' THEN 'FIELD' ELSE 'IMAGE' END, NULL, CASE p_kind WHEN 'F' THEN 'note' ELSE 'logo' END, f);
+      END IF;
+      rad_pdf_ri.seal(l_r);
+      RETURN l_r;
+    END;
+  BEGIN
+    l_d := '{"note":"' || RPAD('n', 1000, 'n') || '"}';
+    l_jb := LENGTHB(l_d);
+    -- the reservation of a text read is the data's size as a bound, at 2 bytes per character (a CLOB in UCS-2)
+    t := tpl(c_cap - 2 * l_jb + 1, 'F');
+    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] note: its text would exceed%'),
+              'R3: a FIELD of 1000 characters near the cap refused BEFORE its CLOB is read (codex-050)');
+    rad_pdf_ri.free(t);
+    t := tpl(c_cap - 2 * l_jb, 'F');
+    q := rad_pdf_merge.merge(t, s11, l_d);
+    assert_ok(show(q) = '|' || RPAD('n', 1000, 'n'), 'R3: the same FIELD with room for its bound accepted (the boundary)');
+    rad_pdf_ri.free(q); rad_pdf_ri.free(t);
+    t := tpl(c_cap - 2 * l_jb + 1, 'S');
+    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] note: its text would exceed%'),
+              'R3: a SECTION on a string reads it through the same reservation');
+    rad_pdf_ri.free(t);
+    l_d := '{"logo":{"source":"' || RPAD('U', 4001, 'U') || '","url":"' || c_png || '"}}';
+    l_jb := LENGTHB(l_d);
+    t := tpl(c_cap - 2 * l_jb + 1, 'I');
+    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo.source: its text would exceed%'),
+              'R3: a long IMAGE member near the cap refused before its CLOB is read');
+    rad_pdf_ri.free(t);
+    t := tpl(c_cap - 2 * l_jb, 'I');
+    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_data, '[PRT_DATA] logo.source: too long (4001 characters)'),
+              'R3: with room for its bound, the same member refused as data (too long), with its path');
+    rad_pdf_ri.free(t);
+    -- the template built once (a record returned by a function copies its LOBs: the test's own temporaries), then only
+    -- the merge measured: a warm-up, then five refusals
+    l_d := '{"note":"' || RPAD('n', 1000, 'n') || '"}';
+    t := tpl(c_cap - 2 * LENGTHB(l_d) + 1, 'F');
+    FOR k IN 0 .. 5 LOOP
+      IF k = 1 THEN l_n0 := tmp_lobs; END IF;
+      IF merge_refused(t, s11, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] note: its text would exceed%') THEN NULL; END IF;
+    END LOOP;
+    rad_pdf_ri.free(t);
+    assert_ok(tmp_lobs <= l_n0, 'R3: five refusals of a text read leave no temporary LOB (' || tmp_lobs || ' <= ' || l_n0 || ')');
+    -- R6: an image stream made of empty IDAT chunks
+    assert_ok(data_refused(s11, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59)
+                           || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAAElEQVQ1rwYeAAAAAElFTkSuQmCC"}}',
+                           '[PRT_DATA] unused: not a valid PNG image%IDAT data is empty%'),
+              'R6: a PNG whose only IDAT is empty refused (codex-050 fixture), for an IMAGE no tag uses');
+    q := rad_pdf_merge.merge(one_tag('IMAGE', NULL, 'logo'), s11, '{"logo":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,'
+           || TRANSLATE(UTL_RAW.CAST_TO_VARCHAR2(UTL_ENCODE.BASE64_ENCODE(HEXTORAW(
+              '89504E470D0A1A0A0000000D4948445200000001000000010802000000907753DE' || '0000000049444154' || '35AF061E'
+              || '0000000C4944415408D763F8CFC000000301010018DD8DB00000000049454E44AE426082'))), 'x' || CHR(13) || CHR(10), 'x') || '"}}');
+    assert_ok(q.images.COUNT = 1, 'R6: an empty IDAT followed by the data accepted (the standard allows empty chunks)');
+    rad_pdf_ri.free(q);
   END;
 
   DBMS_OUTPUT.PUT_LINE('Phase 24 merge: ' || l_pass || ' passed, 0 failed.');

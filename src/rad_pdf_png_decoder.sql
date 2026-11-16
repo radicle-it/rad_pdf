@@ -111,6 +111,10 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
         'rad_pdf_png_decoder.decode: no IDAT chunk (PNG section 11.2)', TRUE);
     END IF;
+    IF DBMS_LOB.GETLENGTH(l_pixels) = 0 THEN           -- empty IDAT chunks are allowed, an empty image stream is not
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+        'rad_pdf_png_decoder.decode: the IDAT data is empty (PNG section 11.2.3)', TRUE);
+    END IF;
     IF NOT l_iend THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
         'rad_pdf_png_decoder.decode: no IEND chunk (PNG section 11.2)', TRUE);

@@ -941,7 +941,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     IF nvl(p_ri.instance, '#') NOT IN ('Y', 'N') THEN fail('instance must be Y or N'); END IF;
     q := new_ri;
     q.instance := p_ri.instance;
-    q.images := p_ri.images;                              -- the same locators, checked above; q owns nothing to free
+    -- the resources by their metadata only: the replay checks that a resource exists; assigning the record would COPY
+    -- every image (a temporary LOB is copied on assignment) and leave the copies to the session
+    FOR i IN 1 .. p_ri.images.COUNT LOOP
+      q.images(i).format := p_ri.images(i).format; q.images(i).px_w := p_ri.images(i).px_w;
+      q.images(i).px_h := p_ri.images(i).px_h; q.images(i).sha256 := p_ri.images(i).sha256;
+    END LOOP;
     l_visited(1) := TRUE;
     replay(p_ri, q, 1, 1, l_seen, l_visited);
     -- distinct ids, all in 1..n: their count equal to n means every node of the arena is in the tree exactly once
