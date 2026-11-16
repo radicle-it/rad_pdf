@@ -61,6 +61,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     RETURN FALSE;
   END inside;
 
+  -- the name of the zone a node is in
+  FUNCTION zone_of(p_ri IN t_ri, p_id IN t_id) RETURN VARCHAR2 IS
+    l_id t_id := p_id;
+  BEGIN
+    WHILE l_id IS NOT NULL LOOP
+      IF p_ri.nodes(l_id).kind = 'zone' THEN RETURN p_ri.nodes(l_id).zone_name; END IF;
+      l_id := p_ri.nodes(l_id).parent;
+    END LOOP;
+    RETURN NULL;
+  END zone_of;
+
+  -- a page break (the block or the PAGEBREAK tag) only in the flow of the body, never in a cell
+  PROCEDURE check_break_place(p_ri IN t_ri, p_in IN t_id, p_what IN VARCHAR2) IS
+  BEGIN
+    IF inside(p_ri, p_in, 'cell') THEN fail(p_what || ' in a cell'); END IF;
+    IF zone_of(p_ri, p_in) <> 'body' THEN fail(p_what || ' in the zone ' || zone_of(p_ri, p_in) || ': only in body'); END IF;
+  END check_break_place;
+
   PROCEDURE check_measure(p_name IN VARCHAR2, p_v IN NUMBER, p_positive IN BOOLEAN DEFAULT FALSE) IS
   BEGIN
     IF p_v IS NULL OR p_v < 0 OR (p_positive AND p_v = 0) THEN
@@ -246,7 +264,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   BEGIN
     check_open(p_ri);
     require_in(p_ri, p_in, 'page_break', 'BLOCK');
-    IF inside(p_ri, p_in, 'cell') THEN fail('a page break in a cell'); END IF;
+    check_break_place(p_ri, p_in, 'a page break');
     l.kind := 'page_break';
     RETURN add_node(p_ri, p_in, l);
   END page_break;
@@ -331,6 +349,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     require_in(p_ri, p_in, 'tag', 'INLINE');
     IF p_op IS NULL OR p_op NOT IN ('FIELD', 'IMAGE', 'PAGEBREAK') THEN fail('tag op FIELD, IMAGE or PAGEBREAK'); END IF;
     check_ref('tag', p_scope, p_path);
+    IF p_op = 'PAGEBREAK' THEN check_break_place(p_ri, p_in, 'a PAGEBREAK tag'); END IF;
     check_fmt(p_fmt);
     l.kind := 'tag'; l.tag_op := p_op; l.ref_scope := p_scope; l.ref_path := p_path; l.fmt := p_fmt;
     RETURN add_node(p_ri, p_in, l);
@@ -453,7 +472,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
                || ', which no loop around it opens');
         END IF;
       END IF;
-      -- regions and tags in a header or footer zone: the tag of a loop element cannot be there
       IF l.kind = 'zone' AND l.zone_name = 'body' THEN l_body := l_body + 1; END IF;
     END LOOP;
     IF l_body <> 1 THEN fail('one body zone'); END IF;
@@ -621,6 +639,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     a  json_array_t := json_array_t();
     t  json_object_t;
     fr t_font_reqs;
+    l_b64 CLOB;
   BEGIN
     IF p_ri.sealed <> 'Y' THEN fail('only a sealed RI is serialized'); END IF;
     o.put('ri_version', p_ri.ri_version);
@@ -628,7 +647,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       t := json_object_t();
       t.put('id', i); t.put('format', p_ri.images(i).format); t.put('px_w', p_ri.images(i).px_w);
       t.put('px_h', p_ri.images(i).px_h); t.put('sha256', p_ri.images(i).sha256);
-      t.put('bytes', b64(p_ri.images(i).bytes));
+      l_b64 := b64(p_ri.images(i).bytes);
+      t.put('bytes', l_b64);
+      dbms_lob.freetemporary(l_b64);
       a.append(t);
     END LOOP;
     o.put('images', a);
@@ -681,11 +702,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   BEGIN
     CASE k
       WHEN 'section' THEN
+        IF p_in <> 1 THEN fail('a section only in the document'); END IF;
         l_id := section(p_ri, o.get_number('page_w'), o.get_number('page_h'), o.get_string('orientation'),
                         o.get_number('mar_top'), o.get_number('mar_bottom'), o.get_number('mar_left'),
                         o.get_number('mar_right'), o.get_number('mar_header'), o.get_number('mar_footer'),
                         o.get_string('title_page'));
-      WHEN 'zone' THEN l_id := zone(p_ri, o.get_string('name'));
+      WHEN 'zone' THEN
+        IF kind_of(p_ri, p_in) <> 'section' THEN fail('a zone only in the section'); END IF;
+        l_id := zone(p_ri, o.get_string('name'));
+        IF p_ri.children(l_id).COUNT > 0 THEN fail('the zone ' || o.get_string('name') || ' twice'); END IF;
       WHEN 'paragraph' THEN
         pf.align := o.get_string('align'); pf.ind_left := o.get_number('ind_left'); pf.ind_right := o.get_number('ind_right');
         pf.ind_first := o.get_number('ind_first'); pf.space_before := o.get_number('space_before');
@@ -738,6 +763,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     t    json_object_t;
     l_ri t_ri;
     l_id t_id;
+    l_bytes BLOB;
   BEGIN
     BEGIN
       o := json_object_t.parse(p_json);
@@ -750,7 +776,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     a := o.get_array('images');
     FOR i IN 0 .. a.get_size - 1 LOOP
       t := treat(a.get(i) AS json_object_t);
-      l_id := add_image(l_ri, unb64(t.get_clob('bytes')), t.get_string('format'), t.get_number('px_w'), t.get_number('px_h'));
+      l_bytes := unb64(t.get_clob('bytes'));
+      l_id := add_image(l_ri, l_bytes, t.get_string('format'), t.get_number('px_w'), t.get_number('px_h'));
+      dbms_lob.freetemporary(l_bytes);
       IF l_id <> t.get_number('id') OR l_ri.images(l_id).sha256 <> t.get_string('sha256') THEN
         fail('image ' || t.get_number('id') || ': id or hash do not match its bytes');
       END IF;
@@ -763,11 +791,29 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     END IF;
     seal(l_ri);
     RETURN l_ri;
+  EXCEPTION
+    WHEN OTHERS THEN
+      free(l_ri);
+      IF l_bytes IS NOT NULL AND dbms_lob.istemporary(l_bytes) = 1 THEN dbms_lob.freetemporary(l_bytes); END IF;
+      IF sqlcode = c_err_ri THEN RAISE; END IF;
+      fail('a malformed RI text: ' || sqlerrm);            -- a value of the wrong JSON type, a child not an object...
   END from_json;
 
   -- ---------------------------------------------------------------------------
   -- helpers
   -- ---------------------------------------------------------------------------
+  PROCEDURE free(p_ri IN OUT NOCOPY t_ri) IS
+    i PLS_INTEGER := p_ri.images.FIRST;
+  BEGIN
+    WHILE i IS NOT NULL LOOP
+      IF p_ri.images(i).bytes IS NOT NULL AND dbms_lob.istemporary(p_ri.images(i).bytes) = 1 THEN
+        dbms_lob.freetemporary(p_ri.images(i).bytes);
+      END IF;
+      i := p_ri.images.NEXT(i);
+    END LOOP;
+    p_ri := NULL;
+  END free;
+
   FUNCTION border(p_style IN VARCHAR2, p_width IN NUMBER DEFAULT 0.5, p_color IN VARCHAR2 DEFAULT '000000') RETURN t_border IS
     b t_border;
   BEGIN

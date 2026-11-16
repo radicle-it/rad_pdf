@@ -149,6 +149,13 @@ DECLARE
       WHEN 32 THEN pp := rad_pdf_ri.paragraph(q, b, pf);
                    y := rad_pdf_ri.inline_region(q, pp, 'SECTION', NULL, 'has_discount');
                    rad_pdf_ri.seal(q);                                                           -- an empty inline_region
+      WHEN 33 THEN tt := rad_pdf_ri.table_(q, b, g2, bd); rw := rad_pdf_ri.row_(q, tt);
+                   cc := rad_pdf_ri.cell(q, rw, cf2); pp := rad_pdf_ri.paragraph(q, cc, pf);
+                   y := rad_pdf_ri.tag(q, pp, 'PAGEBREAK', NULL, 'page_break', f);              -- a PAGEBREAK tag in a cell
+      WHEN 34 THEN y := rad_pdf_ri.page_break(q, rad_pdf_ri.zone(q, 'footer_default'));         -- a page break in a footer
+      WHEN 35 THEN pp := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pf);
+                   y := rad_pdf_ri.tag(q, pp, 'PAGEBREAK', NULL, 'page_break', f);              -- a PAGEBREAK tag in a header
+      WHEN 36 THEN rad_pdf_ri.free(q); pp := rad_pdf_ri.paragraph(q, b, pf);                    -- an RI after free
     END CASE;
     RETURN FALSE;
   EXCEPTION
@@ -277,6 +284,10 @@ BEGIN
   assert_ok(refused(30), 'refused: serializing an unsealed RI');
   assert_ok(refused(31), 'refused at seal: a table with no row');
   assert_ok(refused(32), 'refused at seal: an empty inline_region');
+  assert_ok(refused(33), 'refused: a PAGEBREAK tag in a cell');
+  assert_ok(refused(34), 'refused: a page break in a footer');
+  assert_ok(refused(35), 'refused: a PAGEBREAK tag in a header');
+  assert_ok(refused(36), 'refused: a builder call on a freed RI');
 
   -- 4. serialization ------------------------------------------------------------
   j1 := rad_pdf_ri.to_json(ri);
@@ -290,6 +301,12 @@ BEGIN
   assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{8}', '"sha256":"00000000')), 'from_json refuses an image whose hash does not match its bytes');
   assert_ok(json_refused(REPLACE(j1, '"kind":"row_region"', '"kind":"block_region"')), 'from_json refuses a region in the wrong container');
   assert_ok(json_refused('not json'), 'from_json refuses a text that is not JSON');
+  assert_ok(json_refused(REPLACE(j1, '"kind":"zone","name":"footer_default"', '"kind":"zone","name":"body"')),
+            'from_json refuses a zone given twice');
+  assert_ok(json_refused(REPLACE(j1, '"children":[{"kind":"zone","name":"body"', '"children":[7,{"kind":"zone","name":"body"')),
+            'from_json refuses a child that is not an object, with [PDF_RI]');
+  assert_ok(json_refused(REPLACE(j1, '"grid":[120,240,120]', '"grid":"wide"')),
+            'from_json refuses a value of the wrong JSON type, with [PDF_RI]');
 
   -- 5. two RIs interleaved --------------------------------------------------------
   body := base(r3);
@@ -298,6 +315,8 @@ BEGIN
   rad_pdf_ri.seal(r3);
   assert_ok(rad_pdf_ri.node_count(r3) = 9 AND DBMS_LOB.COMPARE(rad_pdf_ri.to_json(ri), j1) = 0,
             'two RIs built interleaved stay independent');
+  rad_pdf_ri.free(ri2);
+  assert_ok(ri2.ri_version IS NULL AND ri2.images.COUNT = 0, 'free releases the image copies and empties the RI');
 
   DBMS_OUTPUT.PUT_LINE('Phase 23 RI: ' || l_pass || ' passed, 0 failed.');
 END;

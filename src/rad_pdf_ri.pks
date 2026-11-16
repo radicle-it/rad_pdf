@@ -161,6 +161,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
   FUNCTION to_json  (p_ri   IN t_ri) RETURN CLOB;
   FUNCTION from_json(p_json IN CLOB) RETURN t_ri;
 
+  -- the temporary LOBs of the images (the RI owns copies of their bytes); the RI is empty after it
+  PROCEDURE free(p_ri IN OUT NOCOPY t_ri);
+
   -- helpers for callers that build formats
   FUNCTION border(p_style IN VARCHAR2, p_width IN NUMBER DEFAULT 0.5, p_color IN VARCHAR2 DEFAULT '000000') RETURN t_border;
   FUNCTION borders_all(p_b IN t_border) RETURN t_borders;
