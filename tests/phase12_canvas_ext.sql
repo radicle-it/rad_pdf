@@ -1,7 +1,7 @@
 -- phase12_canvas_ext.sql - Acceptance tests for canvas extensions (v1.5.0):
 --   set_line_dash, write_wrapped justification ('J').
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase12_canvas_ext.sql
 --
 -- Requires Oracle 19c+.

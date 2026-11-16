@@ -1,6 +1,6 @@
 -- phase11_watermark.sql - Acceptance tests for the watermark feature (v1.4.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase11_watermark.sql
 --
 -- Requires Oracle 19c+.

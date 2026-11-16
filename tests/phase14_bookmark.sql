@@ -1,6 +1,6 @@
 -- phase14_bookmark.sql - Acceptance tests for bookmarks / outline (v1.6.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase14_bookmark.sql
 
 SET SERVEROUTPUT ON SIZE UNLIMITED

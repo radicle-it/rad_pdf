@@ -1,6 +1,6 @@
 -- phase17_pdfa.sql - Acceptance tests for PDF/A-2b conformance (v1.7.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase17_pdfa.sql
 --
 -- Structural tests only (XMP/OutputIntent/ID markers, font enforcement).

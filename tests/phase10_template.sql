@@ -1,6 +1,6 @@
 -- phase10_template.sql - Acceptance tests for rad_pdf_template (Phase 9).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase10_template.sql
 --
 -- Each test writes a minimal PDF to /tmp; the test passes when no exception

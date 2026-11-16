@@ -1,6 +1,6 @@
 -- phase12_autowidth.sql - Acceptance tests for auto-width columns (v1.3.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase12_autowidth.sql
 --
 -- Uses DEPT/EMP (Scott schema) for data-driven tests.

@@ -1,6 +1,6 @@
 -- phase16_chart.sql - Acceptance tests for rad_pdf_chart (v1.7.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase16_chart.sql
 
 SET SERVEROUTPUT ON SIZE UNLIMITED

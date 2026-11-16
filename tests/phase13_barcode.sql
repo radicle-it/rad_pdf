@@ -1,6 +1,6 @@
 -- phase13_barcode.sql - Acceptance tests for rad_pdf_barcode QR code (v1.6.0).
 --
--- Run from repo root in SQL*Plus after installing all phases:
+-- Run from repo root in SQL*Plus after src/install.sql:
 --   @tests/phase13_barcode.sql
 --
 -- Structural tests only (module counts, error paths, PDF stream content).
