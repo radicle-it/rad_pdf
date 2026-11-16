@@ -145,6 +145,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
     END IF;
   END doc_write;
 
+  -- A6: a CLOB text, flushed buffer first, then the text in raw chunks and the line end -- the bytes doc_write writes
+  PROCEDURE doc_write(p_doc IN rad_pdf_types.t_doc_handle, p_txt IN CLOB) IS
+    l_len PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_txt), 0);
+    l_pos PLS_INTEGER := 1;
+  BEGIN
+    IF l_len = 0 THEN RETURN; END IF;
+    IF l_len <= 27000 THEN
+      doc_write(p_doc, DBMS_LOB.SUBSTR(p_txt, l_len, 1));
+      RETURN;
+    END IF;
+    doc_flush(p_doc);
+    WHILE l_pos <= l_len LOOP
+      blob_append_raw(g_docs(p_doc).pdf_doc, UTL_RAW.CAST_TO_RAW(DBMS_LOB.SUBSTR(p_txt, 8000, l_pos)));
+      l_pos := l_pos + 8000;
+    END LOOP;
+    blob_append_raw(g_docs(p_doc).pdf_doc, HEXTORAW('0D0A'));
+  END doc_write;
+
 -- ---------------------------------------------------------------------------
   -- Appends a BLOB (e.g. a compressed stream) directly to the document BLOB.
   PROCEDURE doc_write_raw(p_doc IN rad_pdf_types.t_doc_handle, p_raw IN BLOB) IS
@@ -172,6 +190,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_serial IS
       doc_write(p_doc, TO_CHAR(l_obj_nr) || ' 0 obj' || c_nl ||
                        '<<' || p_inline_dict || '>>' || c_nl || 'endobj');
     END IF;
+    RETURN l_obj_nr;
+  END begin_obj;
+
+  FUNCTION begin_obj(p_doc         IN rad_pdf_types.t_doc_handle,
+                     p_inline_dict IN CLOB) RETURN NUMBER IS
+    l_obj_nr NUMBER := g_docs(p_doc).obj_offsets.COUNT;
+    l_txt    CLOB;
+  BEGIN
+    IF NVL(DBMS_LOB.GETLENGTH(p_inline_dict), 0) <= 27000 THEN
+      RETURN begin_obj(p_doc, DBMS_LOB.SUBSTR(p_inline_dict, 27000, 1));
+    END IF;
+    g_docs(p_doc).obj_offsets(l_obj_nr) := doc_length(p_doc);
+    DBMS_LOB.CREATETEMPORARY(l_txt, TRUE, DBMS_LOB.CALL);
+    DBMS_LOB.APPEND(l_txt, TO_CLOB(TO_CHAR(l_obj_nr) || ' 0 obj' || c_nl || '<<'));
+    DBMS_LOB.APPEND(l_txt, p_inline_dict);
+    DBMS_LOB.APPEND(l_txt, TO_CLOB('>>' || c_nl || 'endobj'));
+    doc_write(p_doc, l_txt);
+    DBMS_LOB.FREETEMPORARY(l_txt);
     RETURN l_obj_nr;
   END begin_obj;
 

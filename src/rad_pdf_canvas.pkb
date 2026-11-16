@@ -939,13 +939,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
 -- write_page_objects — write page tree to PDF (called at finalization)
 -- ---------------------------------------------------------------------------
   FUNCTION write_page_objects(p_doc      IN rad_pdf_types.t_doc_handle,
-                               p_font_res IN VARCHAR2,
-                               p_img_res  IN VARCHAR2) RETURN NUMBER IS
+                               p_font_res IN CLOB,
+                               p_img_res  IN CLOB) RETURN NUMBER IS
     l_n        PLS_INTEGER;
     l_mb_w     NUMBER;
     l_mb_h     NUMBER;
-    l_res      VARCHAR2(32767);
-    l_kids     VARCHAR2(32767);
+    l_res      CLOB;   -- A6: the resources and the kids have no 32767-byte limit (written by begin_obj(CLOB))
+    l_kids     CLOB;
     l_blob     BLOB;
     l_base_nr  NUMBER;
     l_c_nr     NUMBER;

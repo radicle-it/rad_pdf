@@ -64,7 +64,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_images AUTHID DEFINER IS
   -- Returns a VARCHAR2 PDF fragment listing XObject resources:
   --   '/I1 5 0 R /I2 7 0 R ...'
   -- Returns NULL when no images are referenced in the document.
-  FUNCTION  write_image_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2;
+  FUNCTION  write_image_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN CLOB;   -- A6: any number of images
 
   -- Release per-document tracking state (keeps the session-level cache).
   -- Called by rad_pdf_doc.close_doc.

@@ -1354,8 +1354,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 --   l_gi (glyph index inner loop), l_font_obj (initial Type0 object number).
 -- to_char_round replaced with rad_pdf_codec.fmt(x, 2).
 -- ---------------------------------------------------------------------------
-  FUNCTION write_font_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2 IS
-    l_resources VARCHAR2(32767) := '';
+  FUNCTION write_font_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN CLOB IS
+    l_resources CLOB := '';   -- A6: no 32767-byte limit on the font resources
     l_obj_nr    NUMBER;
     l_dummy     NUMBER;        -- discarded return from begin_obj when nr not needed
     l_font_obj  NUMBER;        -- initial Type0 object number (CID branch)

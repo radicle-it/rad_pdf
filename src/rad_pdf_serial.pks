@@ -18,9 +18,14 @@ CREATE OR REPLACE PACKAGE rad_pdf_serial AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
   PROCEDURE doc_write    (p_doc IN rad_pdf_types.t_doc_handle, p_txt IN VARCHAR2);
   PROCEDURE doc_write_raw(p_doc IN rad_pdf_types.t_doc_handle, p_raw IN BLOB);
+  -- A6 (2026-11-16): the same bytes as doc_write for a text of any length (an ASCII dictionary: resources, kids)
+  PROCEDURE doc_write    (p_doc IN rad_pdf_types.t_doc_handle, p_txt IN CLOB);
 
   FUNCTION  begin_obj(p_doc         IN rad_pdf_types.t_doc_handle,
                       p_inline_dict IN VARCHAR2 DEFAULT NULL) RETURN NUMBER;
+  -- A6: begin_obj for an inline dictionary of any length (same bytes as the VARCHAR2 form)
+  FUNCTION  begin_obj(p_doc         IN rad_pdf_types.t_doc_handle,
+                      p_inline_dict IN CLOB) RETURN NUMBER;
   PROCEDURE end_obj  (p_doc IN rad_pdf_types.t_doc_handle);
 
   FUNCTION  write_stream_obj(

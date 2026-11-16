@@ -227,8 +227,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_canvas AUTHID DEFINER IS
   -- Must be called AFTER run_page_procs, write_font_objects, write_image_objects.
   -- Returns the object number of the PDF Pages root (passed to finish_doc).
   FUNCTION write_page_objects(p_doc      IN rad_pdf_types.t_doc_handle,
-                               p_font_res IN VARCHAR2,
-                               p_img_res  IN VARCHAR2) RETURN NUMBER;
+                               p_font_res IN CLOB,
+                               p_img_res  IN CLOB) RETURN NUMBER;
 
   -- Write the /Outlines object tree for the registered bookmarks.
   -- Must be called AFTER write_page_objects (page object numbers needed).

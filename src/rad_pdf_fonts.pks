@@ -111,7 +111,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
   -- Write all used font PDF objects for p_doc into the document stream.
   -- Returns a PDF resource fragment: '/F1 <obj> 0 R /F2 <obj> 0 R ...'
   -- Called once per document during finalization.
-  FUNCTION  write_font_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2;
+  FUNCTION  write_font_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN CLOB;   -- A6: any number of fonts
 
   -- Release all per-document font state for p_doc (called by rad_pdf_doc.close_doc).
   -- Preloaded and standard fonts are not affected.

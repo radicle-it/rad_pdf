@@ -143,8 +143,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
 
 -- ---------------------------------------------------------------------------
   FUNCTION finalize(p_doc IN rad_pdf_types.t_doc_handle) RETURN BLOB IS
-    l_font_res   VARCHAR2(32767);
-    l_img_res    VARCHAR2(32767);
+    l_font_res   CLOB;   -- A6
+    l_img_res    CLOB;
     l_pages_obj  NUMBER;
     l_outline_obj NUMBER;
     l_cat_obj    NUMBER;

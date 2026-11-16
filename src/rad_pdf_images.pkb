@@ -159,10 +159,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- ---------------------------------------------------------------------------
 -- PRIVATE: SHA-256 (computed once, stored as the cache key)
 -- ---------------------------------------------------------------------------
-  FUNCTION sha256_hex(p_blob IN BLOB) RETURN VARCHAR2 IS
-  BEGIN
-    RETURN RAWTOHEX(DBMS_CRYPTO.HASH(p_blob, DBMS_CRYPTO.HASH_SH256));
-  END sha256_hex;
 
 -- ---------------------------------------------------------------------------
 -- PRIVATE: LRU eviction — free oldest entries until new_bytes fits in limit
@@ -207,7 +203,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
     l_entry     t_cache_entry;
     l_byte_size NUMBER;
   BEGIN
-    l_sha256 := sha256_hex(p_blob);
+    l_sha256 := rad_pdf_codec.sha256_hex(p_blob);   -- one implementation (codec)
 
     IF g_cache.EXISTS(l_sha256) THEN
       g_cache(l_sha256).last_used := SYSTIMESTAMP;
@@ -609,8 +605,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- Writes PDF XObject streams for every image referenced in p_doc.
 -- Returns the XObject resource string fragment, e.g. '/I1 5 0 R /I2 7 0 R'.
 -- ---------------------------------------------------------------------------
-  FUNCTION write_image_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN VARCHAR2 IS
-    l_xobj_frag VARCHAR2(32767) := '';
+  FUNCTION write_image_objects(p_doc IN rad_pdf_types.t_doc_handle) RETURN CLOB IS
+    l_xobj_frag CLOB := '';   -- A6: no 32767-byte limit on the image resources
     l_id        PLS_INTEGER;
     l_sha256    VARCHAR2(64);
     l_img       t_image;
