@@ -6,3 +6,6 @@ spec/
 pl_fpdf/
 skills/
 CLAUDE.md
+
+# outputs of tests/word/quote_ri.py
+tests/word/out/

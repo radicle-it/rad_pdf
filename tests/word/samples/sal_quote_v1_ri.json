@@ -1,0 +1,1376 @@
+{
+ "ri_version": 1,
+ "images": [],
+ "fonts": [
+  {
+   "name": "Arial",
+   "variants": "RBI"
+  }
+ ],
+ "document": {
+  "kind": "document",
+  "children": [
+   {
+    "kind": "section",
+    "page_w": 595.3,
+    "page_h": 841.9,
+    "orientation": "P",
+    "mar_top": 70.85,
+    "mar_bottom": 56.7,
+    "mar_left": 56.7,
+    "mar_right": 56.7,
+    "mar_header": 36,
+    "mar_footer": 36,
+    "title_page": "Y",
+    "children": [
+     {
+      "kind": "zone",
+      "name": "body",
+      "children": [
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 24,
+        "space_after": 0,
+        "line_mult": 1.15,
+        "keep_next": "Y",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Offerta ",
+          "fmt": {
+           "font": "Arial",
+           "size": 16,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "1F3A5F"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "quote.no",
+          "fmt": {
+           "font": "Arial",
+           "size": 16,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "1F3A5F"
+          }
+         },
+         {
+          "kind": "run",
+          "text": " · ",
+          "fmt": {
+           "font": "Arial",
+           "size": 16,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "1F3A5F"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "quote.title",
+          "fmt": {
+           "font": "Arial",
+           "size": 16,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "1F3A5F"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [
+         {
+          "pos": 481.8897637795276,
+          "kind": "R"
+         }
+        ],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Data: ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "quote.date",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tab"
+         },
+         {
+          "kind": "run",
+          "text": "Valida fino al: ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "quote.valid_until",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 255.1,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 12,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Spett.le ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "Y",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "customer.name",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 255.1,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "customer.address",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "J",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 12,
+        "space_after": 6,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "intro_text",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "table",
+        "grid": [
+         34.01574803149607,
+         65.19685039370079,
+         184.251968503937,
+         42.51968503937008,
+         34.01574803149607,
+         62.36220472440945,
+         59.52755905511811
+        ],
+        "borders": {
+         "top": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         },
+         "bottom": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         },
+         "left": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         },
+         "right": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         },
+         "inside_h": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         },
+         "inside_v": {
+          "style": "SINGLE",
+          "width": 0.5,
+          "color": "999999"
+         }
+        },
+        "children": [
+         {
+          "kind": "row",
+          "header": "Y",
+          "cant_split": "Y",
+          "children": [
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Pos.",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Codice",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Descrizione",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Q.tà",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "UM",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Prezzo",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "kind": "cell",
+            "grid_span": 1,
+            "borders": {},
+            "shading": "DCE6F0",
+            "mar_top": 0,
+            "mar_bottom": 0,
+            "mar_left": 5.4,
+            "mar_right": 5.4,
+            "children": [
+             {
+              "kind": "paragraph",
+              "align": "L",
+              "ind_left": 0,
+              "ind_right": 0,
+              "ind_first": 0,
+              "space_before": 0,
+              "space_after": 10,
+              "line_mult": 1.15,
+              "keep_next": "N",
+              "tabs": [],
+              "children": [
+               {
+                "kind": "run",
+                "text": "Importo",
+                "fmt": {
+                 "font": "Arial",
+                 "size": 10,
+                 "bold": "Y",
+                 "italic": "N",
+                 "underline": "N",
+                 "color": "000000"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "kind": "row_region",
+          "region": "LOOP",
+          "scope": null,
+          "path": "lines",
+          "children": [
+           {
+            "kind": "row",
+            "header": "N",
+            "cant_split": "N",
+            "children": [
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "L",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].line_no",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "L",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].code",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "L",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].description",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "R",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].qty",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "L",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].uom",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "R",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].unit_price",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "cell",
+              "grid_span": 1,
+              "borders": {},
+              "shading": null,
+              "mar_top": 0,
+              "mar_bottom": 0,
+              "mar_left": 5.4,
+              "mar_right": 5.4,
+              "children": [
+               {
+                "kind": "paragraph",
+                "align": "R",
+                "ind_left": 0,
+                "ind_right": 0,
+                "ind_first": 0,
+                "space_before": 0,
+                "space_after": 10,
+                "line_mult": 1.15,
+                "keep_next": "N",
+                "tabs": [],
+                "children": [
+                 {
+                  "kind": "tag",
+                  "op": "FIELD",
+                  "scope": "lines",
+                  "path": "lines[].amount",
+                  "fmt": {
+                   "font": "Arial",
+                   "size": 10,
+                   "bold": "N",
+                   "italic": "N",
+                   "underline": "N",
+                   "color": "000000"
+                  }
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "Y",
+        "tabs": [
+         {
+          "pos": 481.8897637795276,
+          "kind": "D"
+         }
+        ],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Imponibile",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tab"
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "totals.net",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "Y",
+        "tabs": [
+         {
+          "pos": 481.8897637795276,
+          "kind": "D"
+         }
+        ],
+        "children": [
+         {
+          "kind": "run",
+          "text": "IVA",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tab"
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "totals.vat",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "Y",
+        "tabs": [
+         {
+          "pos": 481.8897637795276,
+          "kind": "D"
+         }
+        ],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Totale",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tab"
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "totals.gross",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "inline_region",
+          "region": "SECTION",
+          "scope": null,
+          "path": "has_discount",
+          "children": [
+           {
+            "kind": "run",
+            "text": "Gli importi includono gli sconti indicati.",
+            "fmt": {
+             "font": "Arial",
+             "size": 10,
+             "bold": "N",
+             "italic": "N",
+             "underline": "N",
+             "color": "000000"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Condizioni di pagamento: ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "payment_term",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "J",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 10,
+        "line_mult": 1.15,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "closing_text",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "zone",
+      "name": "header_first",
+      "children": [
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 0,
+        "line_mult": 1,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "company.name",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "Y",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 0,
+        "line_mult": 1,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "company.address",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "zone",
+      "name": "header_default",
+      "children": [
+       {
+        "kind": "paragraph",
+        "align": "L",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 0,
+        "line_mult": 1,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Offerta ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "tag",
+          "op": "FIELD",
+          "scope": null,
+          "path": "quote.no",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "zone",
+      "name": "footer_first",
+      "children": [
+       {
+        "kind": "paragraph",
+        "align": "R",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 0,
+        "line_mult": 1,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Pagina ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "field",
+          "code": "PAGE",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "run",
+          "text": " di ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "field",
+          "code": "NUMPAGES",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "zone",
+      "name": "footer_default",
+      "children": [
+       {
+        "kind": "paragraph",
+        "align": "R",
+        "ind_left": 0,
+        "ind_right": 0,
+        "ind_first": 0,
+        "space_before": 0,
+        "space_after": 0,
+        "line_mult": 1,
+        "keep_next": "N",
+        "tabs": [],
+        "children": [
+         {
+          "kind": "run",
+          "text": "Pagina ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "field",
+          "code": "PAGE",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "run",
+          "text": " di ",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         },
+         {
+          "kind": "field",
+          "code": "NUMPAGES",
+          "fmt": {
+           "font": "Arial",
+           "size": 10,
+           "bold": "N",
+           "italic": "N",
+           "underline": "N",
+           "color": "000000"
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

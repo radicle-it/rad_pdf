@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ## [Unreleased]
 
+### Added
+
+- `rad_pdf_ri`: the intermediate representation of a document template (Word
+  evolution, step B1; middleware-docs 96a §1b.1). A value, not package state:
+  typed nodes with three region placements (`inline_region`, `block_region`,
+  `row_region`), placement checked at insert and invariants at seal (grid spans,
+  header rows, one row per row region, tag scopes opened by a loop), `[PDF_RI]`
+  (-20840) on every violation; canonical JSON serialization read back through the
+  builder. Tests: `tests/phase23_ri.sql`; the quote template built by hand and its
+  page count against Word's export: `tests/word/quote_ri.py`.
+
 ### Fixed
 
 - Embedded subset fonts (CID/Type0) carry the six-letter subset tag of ISO 32000-1
