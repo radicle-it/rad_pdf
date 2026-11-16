@@ -269,7 +269,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_doc IS
     rad_pdf_serial.finish_doc(p_doc, l_cat_obj, l_info_obj, l_total_pgs);
 
     -- 8. Transfer the finished PDF BLOB; caller must FREETEMPORARY.
-    -- 8. Transfer the finished PDF BLOB; caller must FREETEMPORARY.
     l_result := rad_pdf_serial.take_doc(p_doc);
     RETURN l_result;
   EXCEPTION
