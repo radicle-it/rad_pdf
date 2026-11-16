@@ -4,7 +4,7 @@
 --   @tests/phase11_watermark.sql
 --
 -- Requires Oracle 19c+.
--- Uses a synthetic JPEG-like BLOB where needed (1x1 JPEG minimum valid bytes).
+-- Uses a synthetic JPEG-like BLOB where needed (SOI, a 1x1 SOF0 frame header, EOI).
 
 SET SERVEROUTPUT ON SIZE UNLIMITED
 SET VERIFY OFF
@@ -94,9 +94,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE('Test 3: image watermark UNDER');
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
-  -- Minimal valid JPEG: SOI (FFD8) + EOI (FFD9). Parser defaults to 1x1.
+  -- Minimal JPEG for the decoder: SOI, a SOF0 frame header (1x1, one component), EOI. (SOI + EOI alone is refused
+  -- since the decoder requires the frame header: rad_pdf_jpeg_decoder, codex-049.)
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
-  DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
+  DBMS_LOB.WRITEAPPEND(l_img, 17, HEXTORAW('FFD8FFC0000B080001000101011100FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
   DBMS_LOB.FREETEMPORARY(l_img);
   rad_pdf.write(l_doc, 'Page content with image watermark.');
@@ -133,7 +134,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
-  DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
+  DBMS_LOB.WRITEAPPEND(l_img, 17, HEXTORAW('FFD8FFC0000B080001000101011100FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
   DBMS_LOB.FREETEMPORARY(l_img);
   rad_pdf.write(l_doc, 'Page content.');
@@ -779,7 +780,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
-  DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
+  DBMS_LOB.WRITEAPPEND(l_img, 17, HEXTORAW('FFD8FFC0000B080001000101011100FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
   DBMS_LOB.FREETEMPORARY(l_img);
   BEGIN
@@ -823,7 +824,7 @@ BEGIN
   rad_pdf_styles.load_defaults;
   l_doc := rad_pdf.new_document(p_compress_pages=>FALSE);
   DBMS_LOB.CREATETEMPORARY(l_img, TRUE, DBMS_LOB.SESSION);
-  DBMS_LOB.WRITEAPPEND(l_img, 4, HEXTORAW('FFD8FFD9'));
+  DBMS_LOB.WRITEAPPEND(l_img, 17, HEXTORAW('FFD8FFC0000B080001000101011100FFD9'));
   l_img_id := rad_pdf_images.load_image(l_doc, l_img);
   DBMS_LOB.FREETEMPORARY(l_img);
   BEGIN

@@ -848,7 +848,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_canvas IS
       rad_pdf_serial.goto_page(p_doc, pg);
       l_pi := l_procs.FIRST;
       WHILE l_pi IS NOT NULL LOOP
-        $IF NOT $$rad_pdf_core $THEN                 -- the core has none (add_page_proc refuses them): no dynamic PL/SQL
+        -- the core has none (add_page_proc refuses them): no dynamic PL/SQL. ($IF NOT $$flag would be FALSE when the
+        -- flag is not set at all -- NOT NULL -- and drop the page procedures from the product: hence $THEN NULL $ELSE)
+        $IF $$rad_pdf_core $THEN
+        NULL;
+        $ELSE
         l_tmp := REPLACE(
                  REPLACE(
                  REPLACE(l_procs(l_pi),
