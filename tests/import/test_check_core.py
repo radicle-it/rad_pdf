@@ -72,17 +72,21 @@ class Sim:
         return rc, out + (f'\nDONE:{label}\n' if marker else '\n')
 
 
-def go(sim):
+def py_ok(script):
+    return 0, 'ok   pos_row_loop ...\ndocx cases: OK (68 cases)\n'
+
+
+def go(sim, py=py_ok):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        ok = cc.main(sim)
+        ok = cc.main(sim, py)
     return ok, buf.getvalue()
 
 
 class Sensitivity(unittest.TestCase):
-    def red(self, why, **faults):
+    def red(self, why, py=py_ok, **faults):
         sim = Sim(**faults)
-        ok, log = go(sim)
+        ok, log = go(sim, py)
         self.assertFalse(ok, f'{why}: the gate passed\n{log}')
         self.assertIn('core check: FAILED', log)
         self.assertIn('PRODUCT', sim.calls, f'{why}: the product was not restored')
@@ -151,6 +155,17 @@ class Sensitivity(unittest.TestCase):
 
     def test_suite_exit_code(self):
         self.red('suite rc', PHASE23_RI=lambda rc, out: (1, out, True))
+
+    def test_py_suite_failed(self):
+        self.red('docx cases failed', py=lambda s: (1, 'FAIL err_field\ndocx cases: FAILED (68 cases)\n'))
+
+    def test_py_suite_no_summary(self):
+        self.red('docx cases without summary', py=lambda s: (0, 'ok   pos_row_loop\n'))
+
+    def test_py_suite_timeout(self):
+        def boom(s):
+            raise subprocess.TimeoutExpired('python3', 3600)
+        self.red('docx cases timeout', py=boom)
 
     def test_timeout(self):
         self.red('timeout', DYN=subprocess.TimeoutExpired('sql', 900))

@@ -36,6 +36,27 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   layout dump for tests. `[PDF_LAYOUT]` -20844, `[PDF_FONT]` -20845. Tests:
   `tests/phase25_pager.sql`; the quote against Word's export with the thresholds
   of 96a §10 (`tests/word/fidelity.py`, run by `tests/word/quote_ri.py`).
+- `rad_pdf_zip` and `rad_pdf_docx`: the Word reader (step B4; middleware-docs
+  96a §6-§8). A .docx/.dotx template + its print schema give the sealed template
+  RI and the validator report of §7.3 (severity, code, part, position, nearby
+  text, message; JSON by `report_json`); with an ERROR there is no RI. The ZIP's
+  central directory is checked before any decompression (no ZIP64, encryption,
+  unsafe or duplicate names, overlapping entries; at most 200 parts, 30 MB and a
+  ratio of 100), every entry stays within the budget even if its size lies; OPC
+  relationships resolved inside the package, never followed outside; macros,
+  embedded objects, ActiveX and altChunk refused; one XMLTABLE per part, no DTD or
+  entity, depth <= 64. Styles docDefaults -> table -> paragraph -> character ->
+  direct with theme fonts; every element on an allowlist (supported, ignored, a
+  WARNING or an ERROR of the degradation matrix, `matrix_text`); the tags of §6
+  (lexical across runs, regions ROW > PARAGRAPHS > INLINE, paths resolved once
+  against the schema). `[PDF_DOCX]` -20846. Tests: `tests/word/docx_cases.py`
+  (positive templates, warnings, the errors of the matrix and of the tags, the
+  hostile packages, a session that reads again after a refusal, no temporary LOB
+  left); the quote read from its .docx gives the hand-built RI
+  (`tests/word/quote_ri.py`).
+- `rad_pdf_codec.inflate_raw`: raw deflate with the output bounded during
+  decompression (`c_err_inflate_limit` -20847); `flate_decode` shares it and now
+  reads its input in chunks (same output).
 
 ### Fixed (Word evolution)
 

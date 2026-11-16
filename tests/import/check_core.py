@@ -14,7 +14,8 @@ On the test schema (the golden bench's connection):
      of the list;
   4. no dynamic PL/SQL in the core's post-processed bodies, PACKAGE BODY and TYPE BODY (DBMS_PREPROCESSOR; the page
      procedures of E6 compiled out); every expected body must be scanned;
-  5. the core's own suites run on it: phase23 (RI), phase24 (merge), phase25 (pager; needs tests/word/load_fonts.py);
+  5. the core's own suites run on it: phase23 (RI), phase24 (merge), phase25 (pager; needs tests/word/load_fonts.py),
+     and the Word reader's cases (tests/word/docx_cases.py, a Python driver: its exit code and its summary line);
   6. the full product installed again (src/install.sql) -- always, also after a failure above -- with the product's
      own units all VALID: a failed restore is reported as such;
   7. in the product: the cycle layout <-> table gone, layout free of the Swiss QR-bill, rad_pdf_doc free of the
@@ -34,6 +35,7 @@ SRC = ROOT / 'src'
 NOT_IMPORTED = ['RAD_PDF', 'RAD_PDF_FLOW', 'RAD_PDF_LAYOUT', 'RAD_PDF_TABLE', 'RAD_PDF_TEMPLATE', 'RAD_PDF_SWISS',
                 'RAD_PDF_BARCODE', 'RAD_PDF_CHART']
 SUITES = [('phase23_ri', 'Phase 23 RI'), ('phase24_merge', 'Phase 24 merge'), ('phase25_pager', 'Phase 25 pager')]
+PY_SUITES = [('tests/word/docx_cases.py', r'docx cases: OK \(\d+ cases\)')]
 OURS = "(object_name = 'RAD_PDF' OR object_name LIKE 'RAD\\_PDF\\_%' ESCAPE '\\')"
 UNIT_TYPES = "('PACKAGE', 'PACKAGE BODY', 'TYPE', 'TYPE BODY')"
 ERROR_LINE = re.compile(r'^\s*(ORA|PLS|SP2)-\d{4,5}\b|^Error starting at line|^Error report', re.M)
@@ -113,7 +115,14 @@ def closure(deps, start):
     return seen
 
 
-def main(sqlcl=None):
+def run_py(script, timeout=3600):
+    """a Python suite of the repository: (exit code, output)"""
+    import subprocess
+    p = subprocess.run([sys.executable, str(ROOT / script)], capture_output=True, text=True, timeout=timeout, cwd=ROOT)
+    return p.returncode, p.stdout + p.stderr
+
+
+def main(sqlcl=None, py=run_py):
     if sqlcl is None:
         sys.path.insert(0, str(ROOT / 'tests' / 'golden'))
         import bench  # noqa: E402
@@ -208,6 +217,15 @@ END;
             if not check('5.', good and bool(passed), f'{suite} on the core alone ({summary[0] if summary else "no summary"})',
                          probs):
                 print(out[-2000:])
+        for script, summary in PY_SUITES:
+            try:
+                rc, out = py(script)
+            except Exception as e:                       # a timeout is a failed suite
+                rc, out = -1, f'{type(e).__name__}: {e}'
+            line = [l for l in out.splitlines() if re.fullmatch(summary, l.strip())]
+            if not check('5.', rc == 0 and len(line) == 1, f'{script} on the core alone ({line[0] if line else "no summary"})',
+                         [f'exit code {rc}']):
+                print(out[-3000:])
     except Exception as e:  # the restore below must run whatever happened
         check('!', False, f'the check stopped: {type(e).__name__}: {e}')
     return finish(sqlcl, failures, check)

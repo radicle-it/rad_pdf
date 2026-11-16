@@ -53,8 +53,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
   END flate_encode;
 
 -- ---------------------------------------------------------------------------
-  FUNCTION flate_decode(p_src             IN BLOB,
-                        p_uncompressed_len IN NUMBER) RETURN BLOB IS
+  -- the inflater behind flate_decode (zlib) and inflate_raw (raw deflate, bounded output)
+  FUNCTION inflate_impl(p_src IN BLOB, p_off IN NUMBER, p_len IN NUMBER, p_zlib IN BOOLEAN,
+                        p_max IN NUMBER) RETURN BLOB IS
     -- Pure PL/SQL inflate (RFC 1950 zlib wrapper + RFC 1951 deflate).
     --
     -- UTL_COMPRESS cannot be used here: it only speaks gzip (RFC 1952) and
@@ -68,10 +69,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
     -- Mark Adler's puff.c.  Performance note: ~1-2 s per MB of decompressed
     -- data; callers (rad_pdf_images) cache the decoded result by SHA-256,
     -- so the cost is paid once per distinct image and session.
-    l_src_len PLS_INTEGER := NVL(DBMS_LOB.GETLENGTH(p_src), 0);
+    l_src_len NUMBER := NVL(p_len, 0);
 
     TYPE t_ints IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
-    l_in     t_ints;            -- input bytes, 0-based
+    l_in     t_ints;            -- the input bytes loaded so far (0-based positions), one chunk at a time
+    l_loaded NUMBER := 0;       -- input positions below this one have been loaded
     l_pos    PLS_INTEGER := 0;  -- next input byte index
     l_bitbuf PLS_INTEGER := 0;
     l_bitcnt PLS_INTEGER := 0;
@@ -97,11 +99,27 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
         'rad_pdf_codec.flate_decode: ' || p_msg, TRUE);
     END err;
 
+    -- the input is read in chunks of 16000 bytes as the decoder needs it (never the whole stream in memory)
+    PROCEDURE load_chunk IS
+      l_chunk VARCHAR2(32760);
+      l_cn    PLS_INTEGER := LEAST(16000, l_src_len - l_pos);
+    BEGIN
+      l_in.DELETE;
+      l_chunk := RAWTOHEX(DBMS_LOB.SUBSTR(p_src, l_cn, p_off + l_pos));
+      FOR i IN 0 .. l_cn - 1 LOOP
+        l_in(l_pos + i) := TO_NUMBER(SUBSTR(l_chunk, 2 * i + 1, 2), 'XX');
+      END LOOP;
+      l_loaded := l_pos + l_cn;
+    END load_chunk;
+
     FUNCTION next_byte RETURN PLS_INTEGER IS
       l_b PLS_INTEGER;
     BEGIN
       IF l_pos >= l_src_len THEN
         err('unexpected end of compressed stream');
+      END IF;
+      IF l_pos >= l_loaded THEN
+        load_chunk;
       END IF;
       l_b := l_in(l_pos);
       l_pos := l_pos + 1;
@@ -131,6 +149,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
 
     PROCEDURE emit(p_b IN PLS_INTEGER) IS
     BEGIN
+      IF p_max IS NOT NULL AND l_wpos >= p_max THEN
+        RAISE_APPLICATION_ERROR(c_err_inflate_limit, 'rad_pdf_codec.inflate_raw: output above ' || p_max || ' bytes');
+      END IF;
       l_win(MOD(l_wpos, 32768)) := p_b;
       l_wpos := l_wpos + 1;
       l_hex := l_hex || LPAD(TO_CHAR(p_b, 'FMXX'), 2, '0');
@@ -312,38 +333,26 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
     END stored_block;
 
   BEGIN
-    IF l_src_len < 7 THEN
+    IF p_zlib AND l_src_len < 7 THEN
       err('zlib stream too short (' || l_src_len || ' bytes)');
+    ELSIF l_src_len < 1 THEN
+      err('empty deflate stream');
     END IF;
-
-    -- Load the whole input into a byte table (hex parse in 16k chunks).
-    DECLARE
-      l_chunk VARCHAR2(32760);
-      l_cn    PLS_INTEGER;
-      l_base  PLS_INTEGER := 0;
-    BEGIN
-      WHILE l_base < l_src_len LOOP
-        l_cn := LEAST(16000, l_src_len - l_base);
-        l_chunk := RAWTOHEX(DBMS_LOB.SUBSTR(p_src, l_cn, l_base + 1));
-        FOR i IN 0 .. l_cn - 1 LOOP
-          l_in(l_base + i) := TO_NUMBER(SUBSTR(l_chunk, 2 * i + 1, 2), 'XX');
-        END LOOP;
-        l_base := l_base + l_cn;
-      END LOOP;
-    END;
 
     FOR i IN 0 .. 24 LOOP
       l_pow2(i) := POWER(2, i);
     END LOOP;
 
     -- zlib header (RFC 1950): CM must be 8 (deflate); FDICT unsupported.
-    l_cmf := next_byte;
-    l_flg := next_byte;
-    IF MOD(l_cmf, 16) != 8 THEN
-      err('not a zlib/deflate stream (CM=' || MOD(l_cmf, 16) || ')');
-    END IF;
-    IF MOD(TRUNC(l_flg / 32), 2) = 1 THEN
-      err('zlib preset dictionary (FDICT) is not supported');
+    IF p_zlib THEN
+      l_cmf := next_byte;
+      l_flg := next_byte;
+      IF MOD(l_cmf, 16) != 8 THEN
+        err('not a zlib/deflate stream (CM=' || MOD(l_cmf, 16) || ')');
+      END IF;
+      IF MOD(TRUNC(l_flg / 32), 2) = 1 THEN
+        err('zlib preset dictionary (FDICT) is not supported');
+      END IF;
     END IF;
 
     DBMS_LOB.CREATETEMPORARY(l_out, TRUE, DBMS_LOB.SESSION);
@@ -369,7 +378,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
         DBMS_LOB.FREETEMPORARY(l_out);
       END IF;
       RAISE;
+  END inflate_impl;
+
+  FUNCTION flate_decode(p_src             IN BLOB,
+                        p_uncompressed_len IN NUMBER) RETURN BLOB IS
+  BEGIN
+    RETURN inflate_impl(p_src, 1, DBMS_LOB.GETLENGTH(p_src), TRUE, NULL);
   END flate_decode;
+
+  FUNCTION inflate_raw(p_src IN BLOB, p_offset IN NUMBER, p_length IN NUMBER, p_max IN NUMBER) RETURN BLOB IS
+  BEGIN
+    RETURN inflate_impl(p_src, p_offset, p_length, FALSE, p_max);
+  END inflate_raw;
 
 -- ---------------------------------------------------------------------------
   FUNCTION adler32(p_src IN BLOB) RETURN VARCHAR2 IS

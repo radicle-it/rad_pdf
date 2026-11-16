@@ -7,9 +7,10 @@ CREATE OR REPLACE PACKAGE rad_pdf_zip AUTHID DEFINER AS
 --              or '..' segment, no empty segment), no duplicate name even by case, the local header of every entry
 --              matching its central record, entries that do not overlap, at most c_max_parts entries, the sum of the
 --              declared sizes within the budget and every ratio within c_max_ratio
---   extract    one entry: deflate through UTL_COMPRESS (a gzip envelope carrying the CRC-32 and the size of the
---              central record, so the CRC is verified), read PIECEWISE: the bytes are counted DURING decompression
---              and the read stops as soon as the entry outgrows its declared size or the archive's byte budget
+--   extract    one entry, never beyond the archive's byte budget even when its declared size lies: natively
+--              (UTL_COMPRESS, CRC-32 and size verified) when deflate's maximum expansion keeps it within the budget,
+--              else by rad_pdf_codec.inflate_raw, the bytes counted DURING decompression and the read stopped at the
+--              first byte beyond the declared size
 --
 -- No package state: the archive and the running byte count are parameters. Errors: [PDF_DOCX] c_err_docx for a
 -- malformed or refused archive, [PDF_BUDGET] c_err_budget for a budget exceeded.

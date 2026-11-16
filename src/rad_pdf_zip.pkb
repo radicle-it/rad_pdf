@@ -4,6 +4,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
   c_sig_central CONSTANT RAW(4) := HEXTORAW('504B0102');
   c_sig_local   CONSTANT RAW(4) := HEXTORAW('504B0304');
   c_gzip_head   CONSTANT RAW(10) := HEXTORAW('1F8B08000000000000FF');   -- deflate, no flags, no mtime, OS unknown
+  c_max_expand  CONSTANT PLS_INTEGER := 1032;                             -- deflate's maximum expansion ratio
 
   PROCEDURE refuse(p_msg IN VARCHAR2) IS
   BEGIN
@@ -159,51 +160,51 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
     RETURN 0;
   END find;
 
+  -- One entry. Two paths, both bounded by the budget whatever the declared size says:
+  --   native   UTL_COMPRESS.LZ_UNCOMPRESS on a gzip envelope carrying the central CRC-32 and size (both verified by
+  --            Oracle), only when even a lying entry cannot exceed the budget: deflate expands at most 1032:1 (RFC 1951
+  --            limit, zlib technical notes), so csize * c_max_expand bytes at most;
+  --   bounded  rad_pdf_codec.inflate_raw otherwise: the bytes are counted DURING decompression and the read stops at
+  --            the first byte beyond the declared size.
+  -- (UTL_COMPRESS's piecewise API is not used: each LZ_UNCOMPRESS_OPEN leaves an abstract LOB in the session.)
   FUNCTION extract(p_zip IN BLOB, p_z IN OUT NOCOPY t_zip, p_index IN PLS_INTEGER) RETURN BLOB IS
     l_e   t_entry := p_z.entries(p_index);
     l_gz  BLOB;
     l_out BLOB;
-    l_h   BINARY_INTEGER;
-    l_r   RAW(32767);
-    l_n   NUMBER := 0;
-    PROCEDURE grow(p_by IN NUMBER) IS
-    BEGIN
-      l_n := l_n + p_by;
-      IF l_n > l_e.usize THEN refuse('entry "' || l_e.name || '" decompresses beyond its declared size'); END IF;
-      IF p_z.used + l_n > c_max_bytes THEN over('more than ' || c_max_bytes || ' decompressed bytes'); END IF;
-    END grow;
+    l_n   NUMBER;
   BEGIN
-    dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
-    IF l_e.usize > 0 AND l_e.method = 0 THEN
-      grow(l_e.usize);
+    IF p_z.used + l_e.usize > c_max_bytes THEN over('more than ' || c_max_bytes || ' decompressed bytes'); END IF;
+    IF l_e.usize = 0 THEN
+      dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
+    ELSIF l_e.method = 0 THEN
+      dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
       dbms_lob.copy(l_out, p_zip, l_e.csize, 1, l_e.data_off);
-    ELSIF l_e.usize > 0 THEN
+    ELSIF l_e.csize * c_max_expand + 1024 <= c_max_bytes - p_z.used THEN
       dbms_lob.createtemporary(l_gz, TRUE, dbms_lob.session);
       dbms_lob.writeappend(l_gz, 10, c_gzip_head);
       IF l_e.csize > 0 THEN dbms_lob.copy(l_gz, p_zip, l_e.csize, 11, l_e.data_off); END IF;
       dbms_lob.writeappend(l_gz, 4, l_e.crc32);
       dbms_lob.writeappend(l_gz, 4, utl_raw.reverse(hextoraw(lpad(to_char(mod(l_e.usize, 4294967296), 'FMXXXXXXXX'), 8, '0'))));
       BEGIN
-        l_h := utl_compress.lz_uncompress_open(l_gz);
-        BEGIN
-          LOOP
-            utl_compress.lz_uncompress_extract(l_h, l_r);
-            grow(utl_raw.length(l_r));
-            dbms_lob.writeappend(l_out, utl_raw.length(l_r), l_r);
-          END LOOP;
-        EXCEPTION
-          WHEN no_data_found THEN NULL;                  -- the end of the stream
-        END;
-        utl_compress.lz_uncompress_close(l_h);
+        l_out := utl_compress.lz_uncompress(l_gz);
       EXCEPTION
         WHEN OTHERS THEN
-          IF l_h IS NOT NULL AND utl_compress.isopen(l_h) THEN utl_compress.lz_uncompress_close(l_h); END IF;
-          IF sqlcode IN (c_err_docx, c_err_budget) THEN RAISE; END IF;
           refuse('entry "' || l_e.name || '" cannot be decompressed (' || substr(sqlerrm, 1, 200) || ')');
       END;
       dbms_lob.freetemporary(l_gz);
+    ELSE
+      BEGIN
+        l_out := rad_pdf_codec.inflate_raw(p_zip, l_e.data_off, l_e.csize, l_e.usize);
+      EXCEPTION
+        WHEN OTHERS THEN
+          IF sqlcode = rad_pdf_codec.c_err_inflate_limit THEN
+            refuse('entry "' || l_e.name || '" decompresses beyond its declared size');
+          END IF;
+          refuse('entry "' || l_e.name || '" cannot be decompressed (' || substr(sqlerrm, 1, 200) || ')');
+      END;
     END IF;
-    IF l_n <> l_e.usize THEN refuse('entry "' || l_e.name || '" is shorter than its declared size'); END IF;
+    l_n := dbms_lob.getlength(l_out);
+    IF l_n <> l_e.usize THEN refuse('entry "' || l_e.name || '" does not have its declared size'); END IF;
     p_z.used := p_z.used + l_n;
     RETURN l_out;
   EXCEPTION

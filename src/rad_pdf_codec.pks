@@ -25,6 +25,12 @@ CREATE OR REPLACE PACKAGE rad_pdf_codec AUTHID DEFINER IS
   FUNCTION flate_decode(p_src             IN BLOB,
                         p_uncompressed_len IN NUMBER) RETURN BLOB;
 
+  -- Inflate a RAW deflate stream (RFC 1951, no zlib wrapper): p_length bytes of p_src from p_offset (1-based), the
+  -- input read in chunks. The output is bounded DURING decompression: one byte more than p_max raises
+  -- c_err_inflate_limit (the ZIP reader's budget, middleware-docs 96a §8). Returns a new temporary SESSION BLOB.
+  c_err_inflate_limit CONSTANT PLS_INTEGER := -20847;
+  FUNCTION inflate_raw(p_src IN BLOB, p_offset IN NUMBER, p_length IN NUMBER, p_max IN NUMBER) RETURN BLOB;
+
   -- Adler32 checksum as 8-character uppercase hex.
   FUNCTION adler32(p_src IN BLOB) RETURN VARCHAR2;
 
