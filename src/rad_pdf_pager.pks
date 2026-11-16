@@ -12,13 +12,15 @@ CREATE OR REPLACE PACKAGE rad_pdf_pager AUTHID DEFINER AS
 --   blocks   between two paragraphs the LARGER of space_after and space_before (measured on Word's export of the
 --            quote); at the top of a page after an automatic break that gap is dropped; keep_next chains; a chain
 --            taller than the page is [PDF_LAYOUT]
---   tables   the grid in points, cell margins, shading, borders (cell over table), the row height = the top border +
---            the tallest cell (as Word: 0.5 pt per row); header rows repeated on every page; a row is never split
---            (v1), a row taller than the page is [PDF_LAYOUT]
+--   tables   the grid in points, cell margins, shading, borders resolved per grid segment (a cell's over its
+--            neighbour's over the table's; SINGLE over NONE, the wider SINGLE: a simplification of Word's conflict rules,
+--            which also weigh colour and nil), the row height = the top border + the tallest cell (as Word: 0.5 pt per
+--            row); header rows and the first row kept together, repeated on every page; the closing border reserved;
+--            a row is never split (v1), a group taller than the page is [PDF_LAYOUT]
 --   zones    header and footer per page (first page different when title_page), measured per page: a header taller
 --            than the top margin pushes the body down, a footer taller than the bottom margin pushes it up
---   fields   PAGE and NUMPAGES: the body is paginated with a guess of the page count and paginated again when the
---            count has more digits than the guess (the double pass)
+--   fields   PAGE and NUMPAGES: the body is laid out with a page count and again with the count it gave, until the
+--            two are equal; a field is measured on the page that holds it (a continuation of a split paragraph too)
 --   fonts    D3: the font a run asks for, else its fixed substitute (Arial -> Liberation Sans ...), loaded from the
 --            files given, embedded as a subset (CID); fsType forbidding embedding or subsetting refused
 -- =============================================================================

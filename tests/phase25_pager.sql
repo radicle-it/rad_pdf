@@ -9,7 +9,8 @@
 --   5. zones per page (first page different), PAGE / NUMPAGES and the double pass, a tall header pushes the body;
 --   6. fonts: the D3 substitutes, the original first, a missing file, fsType refused; images; refusals;
 --   7. codex-052: the gap in keep chains, header rows + row as one group, fields and zones measured per page, cell
---      borders on every side, 500 pages, a word of several runs.
+--      borders on every side, 500 pages, a word of several runs;
+--   8. codex-054: the closing border of every portion of a table, PAGE in a continuation, borders by grid segment.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
@@ -496,6 +497,93 @@ BEGIN
                    yo(REGEXP_SUBSTR(d, '^1 T [^ ]+ [^ ]+ Hel [^' || CHR(10) || ']*', 1, 2, 'm'))),
               'R6: and with a bold second half');
   END;
+
+  -- 8. codex-054 ------------------------------------------------------------------------------------------------------------
+  -- R2: the closing border of every portion of a table reserved: thick borders, the table shifted 0.5 pt at a time over a
+  -- whole row, with and without repeated header rows: no line reaches beyond the body (its extent, not its centre line)
+  DECLARE
+    l_worst NUMBER := 0;
+    l_line  VARCHAR2(4000);
+    l_ext   NUMBER;
+  BEGIN
+    FOR hdr IN 0 .. 1 LOOP
+      FOR k IN 0 .. 27 LOOP
+        start_i;
+        pf.space_before := k * 0.5; p := para(b, 'Shift'); pf.space_before := 0;
+        FOR i IN 1 .. 55 LOOP p := para(b, 'Filler'); END LOOP;
+        t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(300), rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 2, '000000')));
+        IF hdr = 1 THEN r := rad_pdf_ri.row_(q, t, 'Y'); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Head'); END IF;
+        FOR i IN 1 .. 12 LOOP r := rad_pdf_ri.row_(q, t); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Row'); END LOOP;
+        dump_it;
+        FOR i IN 1 .. REGEXP_COUNT(d, '^[0-9]+ L ', 1, 'm') LOOP
+          l_line := REGEXP_SUBSTR(d, '^[0-9]+ L [^' || CHR(10) || ']*', 1, i, 'm');
+          l_ext := GREATEST(yo(l_line), num(REGEXP_SUBSTR(l_line, '[^ ]+', 1, 6)))
+                   + CASE WHEN yo(l_line) = num(REGEXP_SUBSTR(l_line, '[^ ]+', 1, 6)) THEN num(REGEXP_SUBSTR(l_line, '[^ ]+', 1, 7)) / 2 ELSE 0 END;
+          l_worst := GREATEST(l_worst, l_ext - (841.9 - c_top));
+        END LOOP;
+      END LOOP;
+    END LOOP;
+    l_msg := 'the worst extent beyond the body: ' || ROUND(l_worst, 3) || ' pt';
+    assert_ok(l_worst <= 0.001, 'R2: 56 layouts (shifted by 0.5 pt, with and without header rows): no border beyond the body');
+  END;
+  -- R3: PAGE in the continuation of a paragraph split from page 9 to page 10
+  FOR v IN 1 .. 2 LOOP
+    start_i;
+    FOR i IN 1 .. 8 LOOP x := rad_pdf_ri.page_break(q, b); END LOOP;
+    FOR i IN 1 .. 62 LOOP p := para(b, 'Filler'); END LOOP;              -- 15.5 pt left on page 9: one line
+    pf.align := CASE v WHEN 1 THEN 'R' ELSE 'C' END;
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, 'Start', f); x := rad_pdf_ri.line_break(q, p);
+    x := rad_pdf_ri.run(q, p, 'Pagina ', f); x := rad_pdf_ri.field(q, p, 'PAGE', f);
+    pf.align := 'L';
+    dump_it;
+    assert_ok(pg(ln('^[0-9]+ T .* Start ')) = 9 AND ln('^10 T [^ ]+ [^ ]+ 10 \[') IS NOT NULL
+              AND CASE v WHEN 1 THEN near(xo(ln('^10 T [^ ]+ [^ ]+ 10 \[')) + w('10'), c_left + 481.9)
+                         ELSE near(xo(ln('^10 T .* Pagina ')), c_left + (481.9 - w('Pagina 10')) / 2) END,
+              'R3: PAGE in the continuation on page 10 measured as "10" (' || CASE v WHEN 1 THEN 'right aligned' ELSE 'centred' END || ')');
+  END LOOP;
+  DECLARE
+    l_s VARCHAR2(4000);
+  BEGIN
+    WHILE w(l_s || 'i') + w(' 9') <= 481.9 LOOP l_s := l_s || 'i'; END LOOP;   -- "ii..i 9" fits, "ii..i 10" does not
+    start_i;
+    FOR i IN 1 .. 8 LOOP x := rad_pdf_ri.page_break(q, b); END LOOP;
+    FOR i IN 1 .. 62 LOOP p := para(b, 'Filler'); END LOOP;
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, 'Start', f); x := rad_pdf_ri.line_break(q, p);
+    x := rad_pdf_ri.run(q, p, l_s || ' ', f); x := rad_pdf_ri.field(q, p, 'PAGE', f);
+    dump_it;
+    assert_ok(yo(ln('^10 T [^ ]+ [^ ]+ 10 \[')) > yo(ln('^10 T .* i+ \[')),
+              'R3: near a wrap, the continuation''s "10" goes to its own line where "9" would have fit');
+  END;
+  -- R4: the borders of rows whose spans differ, segment by segment
+  FOR v IN 1 .. 3 LOOP
+    start_i;
+    t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100, 200), cf.borders);              -- a table without borders
+    r := rad_pdf_ri.row_(q, t);
+    IF v = 2 THEN cf.borders.bottom := rad_pdf_ri.border('SINGLE', 2, '0000FF'); END IF;
+    c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'A');
+    cf.borders := NULL;
+    IF v IN (1, 3) THEN cf.borders.bottom := rad_pdf_ri.border('SINGLE', 2, '00FF00'); END IF;
+    c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'B');
+    cf.borders := NULL;
+    r := rad_pdf_ri.row_(q, t);
+    IF v = 3 THEN cf.borders.top := rad_pdf_ri.border('SINGLE', 1, 'FF0000'); END IF;
+    cf.grid_span := 2; c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Span'); cf.grid_span := 1;
+    cf.borders := NULL;
+    dump_it;
+    IF v = 1 THEN
+      assert_ok(ln('^1 L 156\.7 [^ ]+ 356\.7 [^ ]+ 2 #00FF00') IS NOT NULL AND ln('^1 L 56\.7 [^ ]+ 156\.7 [^ ]+ [^ ]+ #') IS NULL,
+                'R4: the bottom of the upper right cell drawn over the right segment only, on a row whose cell spans both');
+    ELSIF v = 2 THEN
+      assert_ok(ln('^1 L 56\.7 [^ ]+ 156\.7 [^ ]+ 2 #0000FF') IS NOT NULL AND ln('^1 L 156\.7 [^ ]+ 356\.7 [^ ]+ [^ ]+ #') IS NULL,
+                'R4: the inverse: the upper left cell''s bottom not stretched over the right segment');
+    ELSE
+      assert_ok(ln('^1 L 56\.7 [^ ]+ 156\.7 [^ ]+ 1 #FF0000') IS NOT NULL AND ln('^1 L 156\.7 [^ ]+ 356\.7 [^ ]+ 2 #00FF00') IS NOT NULL
+                AND near(yo(ln('^1 T .* Span ')) - yo(ln('^1 T .* A ')), 10 * c_line + 2),
+                'R4: an explicit top (1 red) against an upper bottom (2 green): each segment resolved, the row as high as its widest');
+    END IF;
+  END LOOP;
 
   rad_pdf.close_document(l_doc);
   DBMS_OUTPUT.PUT_LINE('Phase 25 pager: ' || l_pass || ' passed, 0 failed.');

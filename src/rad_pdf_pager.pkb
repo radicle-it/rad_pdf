@@ -215,8 +215,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
 
   -- p_page, p_pages: the page and the page count the fields are measured with; p_body: the fields keep their code, so
   -- the drawing writes the page that holds them (the body); otherwise their text is final (a header, a footer)
+  -- p_from: lay out the paragraph from this token on (the continuation of a paragraph split by a page: no first-line
+  -- indent; the tokens before it belong to the previous page)
   FUNCTION plan_para(st IN OUT NOCOPY t_st, p_id IN rad_pdf_ri.t_id, p_width IN NUMBER, p_page IN PLS_INTEGER DEFAULT NULL,
-                     p_pages IN PLS_INTEGER DEFAULT NULL, p_body IN BOOLEAN DEFAULT FALSE) RETURN t_plan IS
+                     p_pages IN PLS_INTEGER DEFAULT NULL, p_body IN BOOLEAN DEFAULT FALSE, p_from IN PLS_INTEGER DEFAULT 1) RETURN t_plan IS
     p      t_plan;
     n      rad_pdf_ri.t_node;
     k      rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_id);
@@ -331,8 +333,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     END LOOP;
     -- the lines
     l_left := p.para.ind_left; l_right := p_width - p.para.ind_right;
-    x := l_left + p.para.ind_first;
-    FOR i IN 1 .. p.toks.COUNT LOOP
+    x := l_left + CASE WHEN p_from = 1 THEN p.para.ind_first ELSE 0 END;
+    l_first := p_from;
+    FOR i IN p_from .. p.toks.COUNT LOOP
       CASE p.toks(i).kind
         WHEN 'SP' THEN
           IF NOT l_vis AND l_line > 0 AND l_first = i THEN p.toks(i).w := 0; END IF;       -- a wrapped line starts with no space
@@ -468,12 +471,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     RETURN NULL;
   END cell_at;
 
-  -- the top edge of the cell starting at p_col of p_row: its own top, else the bottom of the cell above in p_prev,
-  -- else the table's top (the first row on a page: p_prev NULL) or inside_h
-  FUNCTION top_edge(st IN t_st, t rad_pdf_ri.t_node, p_cell rad_pdf_ri.t_id, p_col PLS_INTEGER, p_prev rad_pdf_ri.t_id) RETURN rad_pdf_ri.t_border IS
-    l_set rad_pdf_ri.t_border := st.inst.nodes(p_cell).cell.borders.top;
-    l_up  rad_pdf_ri.t_id;
+  -- the top edge of grid column p_col in p_row (R4: by segments of the grid, so a gridSpan that changes between rows
+  -- meets every neighbour): the top of the cell below and the bottom of the cell above in p_prev, the stronger; else the
+  -- table's top (the first row on a page: p_prev NULL) or inside_h
+  FUNCTION top_edge(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_col PLS_INTEGER, p_prev rad_pdf_ri.t_id) RETURN rad_pdf_ri.t_border IS
+    l_here rad_pdf_ri.t_id := cell_at(st, p_row, p_col);
+    l_set  rad_pdf_ri.t_border;
+    l_up   rad_pdf_ri.t_id;
   BEGIN
+    IF l_here IS NOT NULL THEN l_set := st.inst.nodes(l_here).cell.borders.top; END IF;
     IF p_prev IS NOT NULL THEN
       l_up := cell_at(st, p_prev, p_col);
       IF l_up IS NOT NULL THEN l_set := stronger(l_set, st.inst.nodes(l_up).cell.borders.bottom); END IF;
@@ -481,6 +487,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     IF l_set.style IS NOT NULL THEN RETURN l_set; END IF;
     RETURN CASE WHEN p_prev IS NULL THEN t.borders.top ELSE t.borders.inside_h END;
   END top_edge;
+
+  -- the bottom edge of grid column p_col under p_row when it ends the table or its part on a page: the cell's bottom,
+  -- else the table's
+  FUNCTION bottom_edge(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_col PLS_INTEGER) RETURN rad_pdf_ri.t_border IS
+    l_here rad_pdf_ri.t_id := cell_at(st, p_row, p_col);
+  BEGIN
+    IF l_here IS NOT NULL AND st.inst.nodes(l_here).cell.borders.bottom.style IS NOT NULL THEN
+      RETURN st.inst.nodes(l_here).cell.borders.bottom;
+    END IF;
+    RETURN t.borders.bottom;
+  END bottom_edge;
 
   -- the left edge of the cell starting at p_col: its own left and the right of the cell before it, else the table's
   FUNCTION left_edge(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_cell rad_pdf_ri.t_id, p_col PLS_INTEGER) RETURN rad_pdf_ri.t_border IS
@@ -495,16 +512,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     RETURN CASE WHEN p_col = 1 THEN t.borders.lft ELSE t.borders.inside_v END;
   END left_edge;
 
-  -- the top border width of a row: the widest of its cells' top edges
+  -- the top border width of a row: the widest of its segments' top edges
   FUNCTION row_top(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_prev rad_pdf_ri.t_id) RETURN NUMBER IS
-    k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
-    l_col PLS_INTEGER := 1;
-    l_w   NUMBER := 0;
+    l_w NUMBER := 0;
   BEGIN
-    FOR j IN 1 .. k.COUNT LOOP
-      l_w := greatest(l_w, bw(top_edge(st, t, k(j), l_col, p_prev)));
-      l_col := l_col + st.inst.nodes(k(j)).cell.grid_span;
-    END LOOP;
+    FOR c IN 1 .. t.grid.COUNT LOOP l_w := greatest(l_w, bw(top_edge(st, t, p_row, c, p_prev))); END LOOP;
     RETURN l_w;
   END row_top;
 
@@ -541,37 +553,33 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
         l_x1 := x0 + cx(l_col); l_x2 := x0 + cx(l_col + c.grid_span);
         op_fill(st, l_x1, y, l_x2 - l_x1, l_bt + l_h, c.shading);
         l_end := fixed_blocks(st, k(j), l_x1 + c.mar_left, l_x2 - l_x1 - c.mar_left - c.mar_right, y + l_bt + c.mar_top, p_page, p_pages);
-        l_b := top_edge(st, t, k(j), l_col, p_prev);
-        op_line(st, l_x1, y + bw(l_b) / 2, l_x2, y + bw(l_b) / 2, l_b);
         op_line(st, l_x1, y, l_x1, y + l_bt + l_h, left_edge(st, t, p_row, k(j), l_col));
         IF j = k.COUNT THEN
           op_line(st, l_x2, y, l_x2, y + l_bt + l_h, CASE WHEN c.borders.rgt.style IS NOT NULL THEN c.borders.rgt ELSE t.borders.rgt END);
         END IF;
         l_col := l_col + c.grid_span;
       END LOOP;
+      FOR g IN 1 .. t.grid.COUNT LOOP                    -- the top edge, segment by segment, over the shading
+        l_b := top_edge(st, t, p_row, g, p_prev);
+        op_line(st, x0 + cx(g), y + bw(l_b) / 2, x0 + cx(g + 1), y + bw(l_b) / 2, l_b);
+      END LOOP;
     END IF;
     RETURN l_bt + l_h;
   END do_row;
 
-  -- the bottom edge under p_row (the last row of the table, or of its part on a page): each cell's bottom, else the
-  -- table's; drawn at y when drawing; returns its width
+  -- the bottom edge under p_row (the last row of the table, or of its part on a page), segment by segment; drawn at y
+  -- when drawing; returns its width (the widest segment)
   FUNCTION bottom_border(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, p_row rad_pdf_ri.t_id, x0 NUMBER, y NUMBER,
                          p_draw BOOLEAN DEFAULT TRUE) RETURN NUMBER IS
     t     rad_pdf_ri.t_node := st.inst.nodes(p_tbl);
     cx    rad_pdf_ri.t_num_list := col_x(t.grid);
-    k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
-    l_col PLS_INTEGER := 1;
     l_b   rad_pdf_ri.t_border;
     l_w   NUMBER := 0;
   BEGIN
-    FOR j IN 1 .. k.COUNT LOOP
-      l_b := st.inst.nodes(k(j)).cell.borders.bottom;
-      IF l_b.style IS NULL THEN l_b := t.borders.bottom; END IF;
+    FOR g IN 1 .. t.grid.COUNT LOOP
+      l_b := bottom_edge(st, t, p_row, g);
       l_w := greatest(l_w, bw(l_b));
-      IF p_draw THEN
-        op_line(st, x0 + cx(l_col), y + bw(l_b) / 2, x0 + cx(l_col + st.inst.nodes(k(j)).cell.grid_span), y + bw(l_b) / 2, l_b);
-      END IF;
-      l_col := l_col + st.inst.nodes(k(j)).cell.grid_span;
+      IF p_draw THEN op_line(st, x0 + cx(g), y + bw(l_b) / 2, x0 + cx(g + 1), y + bw(l_b) / 2, l_b); END IF;
     END LOOP;
     RETURN l_w;
   END bottom_border;
@@ -663,7 +671,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   END table_hdr;
 
   -- the rows from..to measured as a group placed together on a page (the first after p_prev), with the bottom border
-  -- when the group ends the table
+  -- that closes it
   FUNCTION group_h(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, k rad_pdf_ri.t_num_list, p_from PLS_INTEGER, p_to PLS_INTEGER,
                    p_prev rad_pdf_ri.t_id) RETURN NUMBER IS
     l_h   NUMBER := 0;
@@ -673,7 +681,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     FOR j IN p_from .. p_to LOOP
       l_h := l_h + do_row(st, p_tbl, k(j), 0, 0, CASE WHEN j = p_from THEN p_prev ELSE k(j - 1) END, FALSE, st.pg, st.guess);
     END LOOP;
-    IF p_to = k.COUNT THEN l_h := l_h + bottom_border(st, p_tbl, k(p_to), 0, 0, FALSE); END IF;
+    -- R2: the closing border of the group's last row, reserved always: the group may end the table or its part on a page
+    l_h := l_h + bottom_border(st, p_tbl, k(p_to), 0, 0, FALSE);
     st.dry := l_dry;
     RETURN l_h;
   END group_h;
@@ -731,18 +740,23 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   PROCEDURE flow_para(st IN OUT NOCOPY t_st, p_id rad_pdf_ri.t_id) IS
     p     t_plan := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE);
     l_gap NUMBER := gap_of(st, st.inst.nodes(p_id));
-    l_y   NUMBER;
+    l     PLS_INTEGER := 1;
   BEGIN
     IF st.y + l_gap + p.lines(1).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN
       new_page(st); l_gap := 0;
       p := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE);    -- its fields measured on the page that holds it (R3)
     END IF;
     st.y := st.y + l_gap;
-    FOR l IN 1 .. p.lines.COUNT LOOP
-      IF st.y + p.lines(l).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN new_page(st); END IF;
-      l_y := draw_lines(st, p, l, l, st.left, st.y);
-      st.y := l_y;
+    WHILE l <= p.lines.COUNT LOOP
+      IF st.y + p.lines(l).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN
+        new_page(st);
+        -- R3: the continuation laid out again on its own page (its fields measured with that page's number)
+        p := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE, p.lines(l).first);
+        l := 1;
+      END IF;
+      st.y := draw_lines(st, p, l, l, st.left, st.y);
       st.fresh := FALSE;
+      l := l + 1;
     END LOOP;
     st.after := p.para.space_after;
   END flow_para;
