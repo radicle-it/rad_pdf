@@ -27,6 +27,7 @@ CREATE OR REPLACE TYPE BODY rad_pdf_jpeg_decoder AS
     l_cres     NUMBER    := 8;
     l_ncolors  NUMBER    := 3;
     l_grey     NUMBER(1) := 0;
+    l_sof      BOOLEAN   := FALSE;                 -- a frame header gives the dimensions: required
 
     FUNCTION blob2num(p_b IN BLOB, p_len IN PLS_INTEGER, p_pos IN PLS_INTEGER)
       RETURN PLS_INTEGER IS
@@ -63,6 +64,7 @@ CREATE OR REPLACE TYPE BODY rad_pdf_jpeg_decoder AS
         l_pos := l_pos + 2;
       ELSE
         IF l_buf IN (HEXTORAW('FFC0'), HEXTORAW('FFC2')) THEN  -- SOF0: baseline DCT
+          l_sof     := TRUE;
           l_cres    := blob2num(p_blob, 1, l_pos + 4);
           l_height  := blob2num(p_blob, 2, l_pos + 5);
           l_width   := blob2num(p_blob, 2, l_pos + 7);
@@ -74,6 +76,11 @@ CREATE OR REPLACE TYPE BODY rad_pdf_jpeg_decoder AS
         l_pos := l_pos + 2 + l_seg_len;
       END IF;
     END LOOP;
+
+    IF NOT l_sof THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+        'rad_pdf_jpeg_decoder.decode: no SOF0/SOF2 frame header before the scan', TRUE);
+    END IF;
 
     -- Copy original bytes as pixel stream (JPEG is passed as-is to DCTDecode).
     DBMS_LOB.CREATETEMPORARY(l_pixels, TRUE, DBMS_LOB.SESSION);

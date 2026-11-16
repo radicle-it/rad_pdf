@@ -8,7 +8,9 @@
 --      characters, images in the Oracle form;
 --   5. the instance: sealed, validated, read back; no tag nor region; budgets; a template altered by hand refused;
 --   6. codex-048: loop depth by structure, loop bindings restored, cumulative LOB and node budgets, the JSON limit in
---      bytes, temporaries released on image failures (V$TEMPORARY_LOBS), one IMAGE validation with the concrete path.
+--      bytes, temporaries released on image failures (V$TEMPORARY_LOBS), one IMAGE validation with the concrete path;
+--   7. codex-049: every temporary reserved before it is allocated (url, bytes, pixels, copy), the decoders' structure
+--      (IDAT, IEND), long IMAGE members, a long FIELD over budget leaking nothing.
 -- WHENEVER first: with it after SET SERVEROUTPUT, SQLcl refuses this block client-side (no ORA-, its WHENEVER help
 -- printed instead); SQL*Plus accepts either order.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
@@ -507,7 +509,7 @@ BEGIN
     x := rad_pdf_ri.run(t, p, '.', f);
     rad_pdf_ri.seal(t);
     DBMS_LOB.FREETEMPORARY(l_b);
-    assert_ok(merge_refused(t, s9, '{"lines":[]}', rad_pdf_merge.c_err_budget, '[PDF_BUDGET] the images of the template exceed 67108864 bytes'),
+    assert_ok(merge_refused(t, s9, '{"lines":[]}', rad_pdf_merge.c_err_budget, '[PDF_BUDGET] template image 2: its copy in the document would exceed the 67108864 bytes of temporary LOBs'),
               'R3: the cumulative LOB budget (64 MB): two template images of 33.6 MB refused before the second copy');
     rad_pdf_ri.free(t);
     DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
@@ -573,6 +575,110 @@ BEGIN
     assert_ok(q.images.COUNT = 1 AND show(q) = '|<IMG 0.75x0.75>', 'R5: a valid print in the same session after the failures');
     rad_pdf_ri.free(q);
     assert_ok(tmp_lobs <= l_n0, 'R5: and nothing left after it once freed');
+    DBMS_LOB.FREETEMPORARY(l_t);
+  END;
+
+  -- 7. codex-049: every temporary reserved before it exists; the decoders' structure; long IMAGE members --------------
+  DECLARE
+    s10  rad_pdf_merge.t_schema := rad_pdf_merge.t_schema(fld('logo', 'IMAGE', 'N'), fld('note', 'TEXT', 'N'),
+                                    fld('unused', 'IMAGE', 'N'));
+    c_cap CONSTANT NUMBER := rad_pdf_merge.c_max_lob_bytes;
+    l_png  BLOB;
+    l_u    CLOB;
+    l_d    CLOB;
+    l_t    CLOB;
+    l_fill BLOB;
+    l_raw  RAW(32767) := UTL_RAW.COPIES(HEXTORAW('00'), 32000);
+    l_url_n NUMBER;
+    l_est  NUMBER;
+    l_bytes_n NUMBER;
+    l_n0   NUMBER;
+
+    FUNCTION tmp_lobs RETURN NUMBER IS
+      n NUMBER;
+    BEGIN
+      EXECUTE IMMEDIATE 'SELECT cache_lobs + nocache_lobs + abstract_lobs FROM v$temporary_lobs WHERE sid = SYS_CONTEXT(''USERENV'', ''SID'')' INTO n;
+      RETURN n;
+    END;
+
+    -- a template holding an image resource of p_n bytes (its content is never decoded: template images are resources
+    -- of a sealed RI), p_extra as a second resource when given, and one IMAGE tag on logo
+    FUNCTION tpl_with(p_n NUMBER, p_extra BLOB DEFAULT NULL) RETURN rad_pdf_ri.t_ri IS
+      l_r rad_pdf_ri.t_ri;
+      l_b BLOB;
+    BEGIN
+      DBMS_LOB.CREATETEMPORARY(l_b, TRUE);
+      WHILE DBMS_LOB.GETLENGTH(l_b) + 32000 <= p_n LOOP DBMS_LOB.WRITEAPPEND(l_b, 32000, l_raw); END LOOP;
+      IF p_n - NVL(DBMS_LOB.GETLENGTH(l_b), 0) > 0 THEN
+        DBMS_LOB.WRITEAPPEND(l_b, p_n - DBMS_LOB.GETLENGTH(l_b), UTL_RAW.SUBSTR(l_raw, 1, p_n - DBMS_LOB.GETLENGTH(l_b)));
+      END IF;
+      l_r := rad_pdf_ri.new_ri;
+      x := rad_pdf_ri.section(l_r, 595.3, 841.9, 'P', 56.7, 56.7, 56.7, 56.7, 36, 36, 'N');
+      x := rad_pdf_ri.add_image(l_r, l_b, 'PNG', 1, 1);
+      DBMS_LOB.FREETEMPORARY(l_b);
+      IF p_extra IS NOT NULL THEN x := rad_pdf_ri.add_image(l_r, p_extra, 'PNG', 1, 1); END IF;
+      p := rad_pdf_ri.paragraph(l_r, rad_pdf_ri.zone(l_r, 'body'), pf);
+      x := rad_pdf_ri.tag(l_r, p, 'IMAGE', NULL, 'logo', f);
+      rad_pdf_ri.seal(l_r);
+      RETURN l_r;
+    END;
+  BEGIN
+    -- the data: a data-URL of a valid 1x1 PNG
+    DBMS_LOB.CREATETEMPORARY(l_d, TRUE);
+    DBMS_LOB.APPEND(l_d, '{"logo":{"source":"URL","url":"' || c_png || '"}}');
+    l_url_n := LENGTH(c_png);
+    l_est := CEIL((l_url_n - 22) * 3 / 4);
+    l_png := rad_pdf_codec.base64_decode(TO_CLOB(c_png), 23);
+    l_bytes_n := DBMS_LOB.GETLENGTH(l_png);
+    -- (a) the same bytes already a resource of the template: the url is still reserved, with no new resource
+    t := tpl_with(c_cap - l_bytes_n - l_url_n + 1, l_png);   -- the template: the same PNG + a filler
+    assert_ok(merge_refused(t, s10, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: its url would exceed%'),
+              'R3: the url of an image whose bytes the template already holds is reserved too (refused 1 byte over)');
+    rad_pdf_ri.free(t);
+    -- (b) a peak while decoding: the url and its bytes fit, the decoder's output does not
+    t := tpl_with(c_cap - l_url_n - l_est - l_bytes_n + 1);
+    assert_ok(merge_refused(t, s10, l_d, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: its pixels would exceed%'),
+              'R3: a peak during decoding refused before the decoder allocates');
+    rad_pdf_ri.free(t);
+    -- (c) the boundary: everything held at once fits exactly -> accepted
+    t := tpl_with(c_cap - l_url_n - l_est - l_bytes_n);
+    q := rad_pdf_merge.merge(t, s10, l_d);
+    assert_ok(q.images.COUNT = 2, 'R3: at the boundary (the url, the bytes and the pixels held together = 64 MB) accepted');
+    rad_pdf_ri.free(q);
+    rad_pdf_ri.free(t);
+    DBMS_LOB.FREETEMPORARY(l_png);
+    DBMS_LOB.FREETEMPORARY(l_d);
+    -- R6: the decoders' structure, for an IMAGE no tag uses too
+    assert_ok(data_refused(s10, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1Pe"}}',
+                           '[PRT_DATA] unused: not a valid PNG image%no IDAT%'),
+              'R6: a PNG of signature and IHDR only (codex-049 fixture) refused: no IDAT');
+    l_png := TO_BLOB(HEXTORAW('89504E470D0A1A0A0000000D4948445200000001000000010802000000907753DE0000000C4944415408D763F8CFC000000301010018DD8DB0'));
+    l_u := rad_pdf_codec.base64_encode(l_png);
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,');
+    DBMS_LOB.APPEND(l_t, l_u);
+    DBMS_LOB.APPEND(l_t, '"}}');
+    assert_ok(data_refused(s10, l_t, '[PRT_DATA] unused: not a valid PNG image%no IEND%'),
+              'R6: a PNG with IDAT but without IEND refused');
+    assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s10, REPLACE(l_t, '"unused"', '"logo"'), rad_pdf_merge.c_err_data,
+                            '[PRT_DATA] logo: not a valid PNG image%no IEND%'), 'R6: and in merge');
+    DBMS_LOB.FREETEMPORARY(l_t); DBMS_LOB.FREETEMPORARY(l_u); DBMS_LOB.FREETEMPORARY(l_png);
+    assert_ok(data_refused(s10, '{"logo":{"source":"' || RPAD('U', 4001, 'U') || '","url":"' || c_png || '"}}',
+                           '[PRT_DATA] logo.source: too long (4001 characters)'), 'R6: a source of 4001 characters refused with its path, no ORA-06502');
+    assert_ok(data_refused(s10, '{"logo":{"source":"URL","url":"' || c_png || '","width":"' || RPAD('9', 4001, '9') || 'cm"}}',
+                           '[PRT_DATA] logo.width: too long (4003 characters)'), 'R6: a width of 4003 characters refused');
+    -- P3: a long FIELD over the node budget, ten times: no temporary LOB left
+    DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
+    DBMS_LOB.APPEND(l_t, '{"note":"');
+    FOR i IN 1 .. 30 LOOP DBMS_LOB.APPEND(l_t, RPAD('\t', 2000, '\t')); END LOOP;
+    DBMS_LOB.APPEND(l_t, '"}');
+    FOR k IN 0 .. 10 LOOP
+      IF k = 1 THEN l_n0 := tmp_lobs; END IF;
+      IF k > 0 THEN l_pass := l_pass - 1; END IF;
+      assert_ok(merge_refused(one_tag('FIELD', NULL, 'note'), s10, l_t, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] the merged document exceeds 20000 nodes'),
+                'P3: a FIELD of 30000 tabs refused at the node budget');
+    END LOOP;
+    assert_ok(tmp_lobs <= l_n0, 'P3: ten such refusals leave no temporary LOB (' || tmp_lobs || ' <= ' || l_n0 || ')');
     DBMS_LOB.FREETEMPORARY(l_t);
   END;
 

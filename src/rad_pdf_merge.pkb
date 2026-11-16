@@ -10,20 +10,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
   TYPE t_img  IS RECORD (url CLOB, res rad_pdf_ri.t_id, px_w PLS_INTEGER, px_h PLS_INTEGER);
   TYPE t_imgs IS TABLE OF t_img INDEX BY PLS_INTEGER;
   TYPE t_bysha IS TABLE OF rad_pdf_ri.t_id INDEX BY VARCHAR2(64);
+  TYPE t_bypath IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(4000);   -- concrete path (lines[3].logo) -> m.imgs
+  TYPE t_ctxi IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(400);      -- the index of the current element of each LOOP
 
   -- the binding of a LOOP path before a loop opens it again (a LOOP may reopen the path of an outer one)
-  TYPE t_saved IS RECORD (had BOOLEAN, prev json_object_t);
+  TYPE t_saved IS RECORD (had BOOLEAN, prev json_object_t, prev_i PLS_INTEGER);
 
   -- the state of one merge, passed down (never package state)
   TYPE t_m IS RECORD (
     root      json_object_t,
     ctx       t_ctx,
+    ctxi      t_ctxi,
     sch       t_index,
     src       rad_pdf_ri.t_ri,
     out       rad_pdf_ri.t_ri,
     imgs      t_imgs,
     bysha     t_bysha,
-    lob_bytes NUMBER := 0);
+    bypath    t_bypath,
+    lob_bytes NUMBER := 0,                               -- the temporary LOB bytes held now (reserved before allocation)
+    json_bytes NUMBER := 0);                             -- the size of the data: a bound of any string read from it
 
   c_path_re CONSTANT VARCHAR2(100) := '^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)*$';
 
@@ -50,6 +55,21 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     m.imgs.DELETE;
     IF p_out THEN rad_pdf_ri.free(m.out); END IF;
   END free_state;
+
+  -- the LOB budget of one merge (96a §8, 64 MB): every temporary is reserved BEFORE it is allocated and released when
+  -- it is freed; one helper for every path
+  PROCEDURE reserve(m IN OUT NOCOPY t_m, p_bytes IN NUMBER, p_where IN VARCHAR2, p_what IN VARCHAR2) IS
+  BEGIN
+    IF m.lob_bytes + p_bytes > c_max_lob_bytes THEN
+      fail(c_err_budget, p_where || ': ' || p_what || ' would exceed the ' || c_max_lob_bytes || ' bytes of temporary LOBs');
+    END IF;
+    m.lob_bytes := m.lob_bytes + p_bytes;
+  END reserve;
+
+  PROCEDURE release(m IN OUT NOCOPY t_m, p_bytes IN NUMBER) IS
+  BEGIN
+    m.lob_bytes := m.lob_bytes - nvl(p_bytes, 0);
+  END release;
 
   -- ---------------------------------------------------------------------------
   -- the schema
@@ -209,9 +229,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
   -- an optional string member of an IMAGE value; '' is refused like a wrong value
   FUNCTION img_member(o IN json_object_t, k IN VARCHAR2, p_where IN VARCHAR2) RETURN VARCHAR2 IS
     l VARCHAR2(4000);
+    c CLOB;
+    n NUMBER;
   BEGIN
     IF NOT o.has(k) THEN RETURN NULL; END IF;
     IF NOT o.get(k).is_string THEN fail(c_err_data, p_where || '.' || k || ': a string'); END IF;
+    c := o.get_clob(k);                                  -- its length first: a long value never reaches a VARCHAR2
+    n := nvl(dbms_lob.getlength(c), 0);
+    IF c IS NOT NULL AND dbms_lob.istemporary(c) = 1 THEN dbms_lob.freetemporary(c); END IF;
+    IF n > 100 THEN fail(c_err_data, p_where || '.' || k || ': too long (' || n || ' characters)'); END IF;
     l := o.get_string(k);
     IF l IS NULL THEN fail(c_err_data, p_where || '.' || k || ': empty'); END IF;
     RETURN l;
@@ -230,6 +256,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     l_res   rad_pdf_ri.t_id;
     l_n     PLS_INTEGER;
     l_len   NUMBER;
+    l_rurl  NUMBER;                                      -- the reservations held by this call
+    l_rbytes NUMBER;
+    l_rpix  NUMBER;
   BEGIN
     IF nvl(img_member(o, 'source', p_where), '#') <> 'URL' THEN fail(c_err_data, p_where || ': an IMAGE has source "URL"'); END IF;
     IF NOT o.has('url') OR NOT o.get('url').is_string THEN fail(c_err_data, p_where || ': an IMAGE has its url'); END IF;
@@ -240,20 +269,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
              || ': a positive size with a unit cm, mm, in or px');
       END IF;
     END LOOP;
+    reserve(m, m.json_bytes, p_where, 'its url');       -- a bound: the url is a part of the data
+    l_rurl := m.json_bytes;
     l_url := o.get_clob('url');
+    l_len := dbms_lob.getlength(l_url);
+    release(m, l_rurl - l_len); l_rurl := l_len;         -- the url as it is
     data_url(l_url, l_fmt, l_start);
     IF l_fmt IS NULL THEN fail(c_err_data, p_where || ': only data:image/png or data:image/jpeg base64 URLs'); END IF;
-    l_len := dbms_lob.getlength(l_url);
     IF (l_len - l_start + 1) * 3 / 4 > c_max_image_bytes THEN
       fail(c_err_budget, p_where || ': an image over ' || c_max_image_bytes || ' bytes');
     END IF;
     -- the same URL already checked (an image repeated by a loop): its entry
     FOR i IN 1 .. m.imgs.COUNT LOOP
       IF dbms_lob.getlength(m.imgs(i).url) = l_len AND dbms_lob.compare(m.imgs(i).url, l_url) = 0 THEN
-        free_lob(l_url);
+        free_lob(l_url); release(m, l_rurl);
         RETURN i;
       END IF;
     END LOOP;
+    l_rbytes := ceil((l_len - l_start + 1) * 3 / 4);
+    reserve(m, l_rbytes, p_where, 'its bytes');
     BEGIN
       l_bytes := rad_pdf_codec.base64_decode(l_url, l_start);
     EXCEPTION WHEN OTHERS THEN fail(c_err_data, p_where || ': the url is not valid base64 (' || sqlerrm || ')');
@@ -262,11 +296,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     IF l_dec.detect(dbms_lob.substr(l_bytes, 16, 1)) <> 1 THEN
       fail(c_err_data, p_where || ': the bytes are not a ' || l_fmt || ' image');
     END IF;
+    l_rpix := dbms_lob.getlength(l_bytes);               -- the decoders return at most the bytes (PNG: its IDAT
+    reserve(m, l_rpix, p_where, 'its pixels');           -- data; JPEG: a copy)
     BEGIN
       l_img := l_dec.decode(l_bytes);
     EXCEPTION WHEN OTHERS THEN fail(c_err_data, p_where || ': not a valid ' || l_fmt || ' image (' || sqlerrm || ')');
     END;
-    free_lob(l_img.pixels);
+    free_lob(l_img.pixels); release(m, l_rpix); l_rpix := NULL;
     IF l_img.width > c_max_image_px OR l_img.height > c_max_image_px THEN
       fail(c_err_budget, p_where || ': an image over ' || c_max_image_px || 'x' || c_max_image_px || ' pixels');
     END IF;
@@ -274,16 +310,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     IF m.bysha.EXISTS(l_sha) THEN                        -- the same bytes under another URL: one resource
       l_res := m.bysha(l_sha);
     ELSE
-      m.lob_bytes := m.lob_bytes + dbms_lob.getlength(l_bytes);
-      IF m.lob_bytes + l_len > c_max_lob_bytes THEN
-        fail(c_err_budget, p_where || ': the images of the document exceed ' || c_max_lob_bytes || ' bytes');
-      END IF;
+      reserve(m, dbms_lob.getlength(l_bytes), p_where, 'its copy in the document');   -- kept by the instance
       l_res := rad_pdf_ri.add_image(m.out, l_bytes, l_fmt, l_img.width, l_img.height);
       m.bysha(l_sha) := l_res;
     END IF;
-    free_lob(l_bytes);
-    m.lob_bytes := m.lob_bytes + l_len;                  -- the URL kept by the cache
-    l_n := m.imgs.COUNT + 1;
+    free_lob(l_bytes); release(m, l_rbytes); l_rbytes := NULL;
+    l_n := m.imgs.COUNT + 1;                             -- the url stays reserved: the cache keeps it
     m.imgs(l_n).url := l_url; m.imgs(l_n).res := l_res;
     m.imgs(l_n).px_w := l_img.width; m.imgs(l_n).px_h := l_img.height;
     RETURN l_n;
@@ -291,7 +323,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     WHEN OTHERS THEN
       free_lob(l_bytes);
       IF l_img IS NOT NULL THEN free_lob(l_img.pixels); END IF;
-      IF l_n IS NULL THEN free_lob(l_url); END IF;       -- not kept by the cache
+      IF l_n IS NULL THEN free_lob(l_url); release(m, l_rurl); END IF;   -- not kept by the cache
+      release(m, l_rbytes); release(m, l_rpix);
       RAISE;
   END check_image;
 
@@ -325,6 +358,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
       WHEN 'IMAGE'   THEN
         IF NOT e.is_object THEN fail(c_err_data, p_where || ': an IMAGE is an object {"source":"URL","url":...}'); END IF;
         l_i := check_image(m, treat(e AS json_object_t), p_where);
+        m.bypath(p_where) := l_i;                        -- the emission finds it by this path, with no allocation
     END CASE;
   END check_value;
 
@@ -373,11 +407,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     RETURN l_bytes;
   END text_bytes;
 
-  FUNCTION parse_data(p_data IN CLOB) RETURN json_object_t IS
+  FUNCTION parse_data(p_data IN CLOB, p_bytes OUT NUMBER) RETURN json_object_t IS
     o json_object_t;
   BEGIN
     IF p_data IS NULL THEN fail(c_err_data, 'no data'); END IF;
-    IF text_bytes(p_data) > c_max_json_bytes THEN fail(c_err_budget, 'data over ' || c_max_json_bytes || ' bytes'); END IF;
+    p_bytes := text_bytes(p_data);
+    IF p_bytes > c_max_json_bytes THEN fail(c_err_budget, 'data over ' || c_max_json_bytes || ' bytes'); END IF;
     BEGIN
       o := json_object_t.parse(p_data);
     EXCEPTION WHEN OTHERS THEN fail(c_err_data, 'the data is not a JSON object: ' || sqlerrm);
@@ -396,7 +431,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     m t_m;
   BEGIN
     m.sch := index_of(p_schema);                         -- the schema checked first
-    m.root := parse_data(p_data);
+    m.root := parse_data(p_data, m.json_bytes);
     m.out := rad_pdf_ri.new_instance;                    -- a scratch instance: the images are decoded and counted
     check_data_m(m, p_schema);
     free_state(m, TRUE);
@@ -493,13 +528,14 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     s t_saved;
   BEGIN
     s.had := m.ctx.EXISTS(p_path);
-    IF s.had THEN s.prev := m.ctx(p_path); END IF;
+    IF s.had THEN s.prev := m.ctx(p_path); s.prev_i := m.ctxi(p_path); END IF;
     RETURN s;
   END loop_enter;
 
   PROCEDURE loop_leave(m IN OUT NOCOPY t_m, p_path IN VARCHAR2, s IN t_saved) IS
   BEGIN
-    IF s.had THEN m.ctx(p_path) := s.prev; ELSE m.ctx.DELETE(p_path); END IF;
+    IF s.had THEN m.ctx(p_path) := s.prev; m.ctxi(p_path) := s.prev_i;
+    ELSE m.ctx.DELETE(p_path); m.ctxi.DELETE(p_path); END IF;
   END loop_leave;
 
   PROCEDURE budget(m IN t_m) IS
@@ -545,14 +581,34 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     flush;
   END emit_text;
 
-  -- an IMAGE value: the entry check_data has made (same URL), sized by 96a §5.1
+  -- the concrete path of a resolved reference with the loops open now, as check_data names it: lines[].logo in the
+  -- third element -> lines[2].logo; an index lines.0.logo -> lines[0].logo
+  FUNCTION concrete(m IN t_m, p_path IN VARCHAR2) RETURN VARCHAR2 IS
+    l_out VARCHAR2(4000);
+    l_at  PLS_INTEGER;
+    l_k   PLS_INTEGER := 1;
+  BEGIN
+    l_out := regexp_replace(p_path, '\.([0-9]+)', '[\1]');
+    LOOP
+      l_at := instr(p_path, '[]', 1, l_k);
+      EXIT WHEN l_at = 0;
+      l_out := regexp_replace(l_out, '\[\]', '[' || m.ctxi(substr(p_path, 1, l_at - 1)) || ']', 1, 1);
+      l_k := l_k + 1;
+    END LOOP;
+    RETURN l_out;
+  END concrete;
+
+  -- an IMAGE value: the entry check_data has made for this concrete path, sized by 96a §5.1 (no second reading)
   PROCEDURE emit_image(m IN OUT NOCOPY t_m, p_par IN rad_pdf_ri.t_id, p_loc IN t_loc, p_avail IN NUMBER, p_where IN VARCHAR2) IS
     o   json_object_t := treat(elem(p_loc) AS json_object_t);
-    i   PLS_INTEGER := check_image(m, o, p_where);       -- found in the cache: no second decoding
+    l_p VARCHAR2(4000) := concrete(m, p_where);
+    i   PLS_INTEGER;
     l_w NUMBER := CASE WHEN o.has('width') THEN dim_pt(o.get_string('width')) END;
     l_h NUMBER := CASE WHEN o.has('height') THEN dim_pt(o.get_string('height')) END;
     x   rad_pdf_ri.t_id;
   BEGIN
+    IF NOT m.bypath.EXISTS(l_p) THEN fail(c_err_data, l_p || ': an IMAGE the data check has not seen'); END IF;
+    i := m.bypath(l_p);
     IF l_w IS NULL AND l_h IS NULL THEN                  -- natural size at 96 dpi, within the available width
       l_w := m.imgs(i).px_w * 72 / 96; l_h := m.imgs(i).px_h * 72 / 96;
       IF p_avail > 0 AND l_w > p_avail THEN l_h := l_h * p_avail / l_w; l_w := p_avail; END IF;
@@ -592,7 +648,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
                 WHEN 'FIELD' THEN
                   IF NOT e.is_string THEN fail(c_err_data, n.ref_path || ': a text is expected'); END IF;
                   t := text_of(l);
-                  emit_text(m, p_par, t, n.fmt);
+                  BEGIN
+                    emit_text(m, p_par, t, n.fmt);
+                  EXCEPTION WHEN OTHERS THEN free_lob(t); RAISE;
+                  END;
                   free_lob(t);
                 WHEN 'IMAGE' THEN emit_image(m, p_par, l, p_avail, n.ref_path);
                 ELSE                                     -- PAGEBREAK: BOOLEAN only; true splits the paragraph
@@ -609,7 +668,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
             a := elements(m, n.ref_scope, n.ref_path);
             s := loop_enter(m, n.ref_path);
             FOR i IN 0 .. a.get_size - 1 LOOP
-              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t);
+              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.ref_path) := i;
               m_inlines(m, k(j), p_par, p_container, p_para, p_avail);
               budget(m);
             END LOOP;
@@ -682,7 +741,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
         a := elements(m, rn.ref_scope, rn.ref_path);
         s := loop_enter(m, rn.ref_path);
         FOR i IN 0 .. a.get_size - 1 LOOP
-          m.ctx(rn.ref_path) := treat(a.get(i) AS json_object_t);
+          m.ctx(rn.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(rn.ref_path) := i;
           m_row(m, rad_pdf_ri.kids(m.src, k(j))(1), l_t, n.grid);
           budget(m);
         END LOOP;
@@ -712,7 +771,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
             a := elements(m, n.ref_scope, n.ref_path);
             s := loop_enter(m, n.ref_path);
             FOR i IN 0 .. a.get_size - 1 LOOP
-              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t);
+              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.ref_path) := i;
               m_blocks(m, k(j), p_dst, p_avail);
               budget(m);
             END LOOP;
@@ -735,12 +794,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     IF p_ri.instance = 'Y' THEN fail(c_err_schema, 'an instance is not a template'); END IF;
     m.sch := index_of(p_schema);
     check_template_idx(p_ri, m.sch);
-    m.root := parse_data(p_data);
+    m.root := parse_data(p_data, m.json_bytes);
     m.src := p_ri;
     m.out := rad_pdf_ri.new_instance;
     FOR i IN 1 .. p_ri.images.COUNT LOOP                 -- the template's images keep their ids
-      m.lob_bytes := m.lob_bytes + dbms_lob.getlength(p_ri.images(i).bytes);
-      IF m.lob_bytes > c_max_lob_bytes THEN fail(c_err_budget, 'the images of the template exceed ' || c_max_lob_bytes || ' bytes'); END IF;
+      reserve(m, dbms_lob.getlength(p_ri.images(i).bytes), 'template image ' || i, 'its copy in the document');
       x := rad_pdf_ri.add_image(m.out, p_ri.images(i).bytes, p_ri.images(i).format, p_ri.images(i).px_w, p_ri.images(i).px_h);
       m.bysha(p_ri.images(i).sha256) := x;
     END LOOP;

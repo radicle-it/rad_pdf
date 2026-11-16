@@ -27,6 +27,8 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
     l_pixels     BLOB;
     l_color_tab  RAW(768);
     l_width      NUMBER    := 0;
+    l_idat       BOOLEAN   := FALSE;               -- PNG section 11.2: IHDR, at least one IDAT, IEND are required
+    l_iend       BOOLEAN   := FALSE;
     l_height     NUMBER    := 0;
     l_cres       NUMBER    := 8;
     l_ncolors    NUMBER    := 3;
@@ -88,12 +90,13 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
         WHEN 'PLTE' THEN
           l_color_tab := DBMS_LOB.SUBSTR(p_blob, LEAST(l_chunk_len, 768), l_pos + 8);
         WHEN 'IDAT' THEN
+          l_idat := TRUE;
           -- Concatenate all IDAT chunks; the result is the raw FlateDecode stream.
           IF l_chunk_len > 0 THEN
             DBMS_LOB.COPY(l_pixels, p_blob, l_chunk_len,
                           DBMS_LOB.GETLENGTH(l_pixels) + 1, l_pos + 8);
           END IF;
-        WHEN 'IEND' THEN EXIT;
+        WHEN 'IEND' THEN l_iend := TRUE; EXIT;
         ELSE NULL;
       END CASE;
 
@@ -103,6 +106,14 @@ CREATE OR REPLACE TYPE BODY rad_pdf_png_decoder AS
     IF l_width = 0 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
         'rad_pdf_png_decoder.decode: IHDR chunk not found', TRUE);
+    END IF;
+    IF NOT l_idat THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+        'rad_pdf_png_decoder.decode: no IDAT chunk (PNG section 11.2)', TRUE);
+    END IF;
+    IF NOT l_iend THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_image,
+        'rad_pdf_png_decoder.decode: no IEND chunk (PNG section 11.2)', TRUE);
     END IF;
 
     RETURN rad_pdf_img_data('PNG', l_width, l_height, l_cres, l_ncolors,
