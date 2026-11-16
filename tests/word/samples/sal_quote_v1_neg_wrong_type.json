@@ -1,0 +1,390 @@
+{
+ "quote": {
+  "no": "OFF-2026/0142",
+  "title": "Carenaggio e pitturazione scafo",
+  "date": "16/11/2026",
+  "valid_until": "16/12/2026",
+  "reference": "RDA 4711"
+ },
+ "company": {
+  "name": "Cantiere Demo S.r.l.",
+  "address": "Via del Porto 1, 16100 Genova",
+  "vat": "IT01234567890"
+ },
+ "customer": {
+  "name": "Armatore Demo S.p.A.",
+  "address": "Calata Gadda 3, 16126 Genova",
+  "vat": "IT09876543210"
+ },
+ "intro_text": "Facendo seguito alla Vostra richiesta, Vi sottoponiamo la nostra migliore offerta per i lavori in oggetto, eseguiti presso il nostro bacino secondo le specifiche tecniche concordate durante il sopralluogo.",
+ "lines": [
+  {
+   "line_no": "1",
+   "code": "LAV-001",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "2",
+   "code": "LAV-002",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "3",
+   "code": "LAV-003",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "4",
+   "code": "LAV-004",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "5",
+   "code": "LAV-005",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "6",
+   "code": "LAV-006",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "7",
+   "code": "LAV-007",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "8",
+   "code": "LAV-008",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "9",
+   "code": "LAV-009",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "10",
+   "code": "LAV-010",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "11",
+   "code": "LAV-011",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "12",
+   "code": "LAV-012",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "13",
+   "code": "LAV-013",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "14",
+   "code": "LAV-014",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "15",
+   "code": "LAV-015",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "16",
+   "code": "LAV-016",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "17",
+   "code": "LAV-017",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "18",
+   "code": "LAV-018",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "19",
+   "code": "LAV-019",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "20",
+   "code": "LAV-020",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "21",
+   "code": "LAV-021",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "22",
+   "code": "LAV-022",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "23",
+   "code": "LAV-023",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "24",
+   "code": "LAV-024",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "25",
+   "code": "LAV-025",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "26",
+   "code": "LAV-026",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "27",
+   "code": "LAV-027",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "28",
+   "code": "LAV-028",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "29",
+   "code": "LAV-029",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "30",
+   "code": "LAV-030",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "31",
+   "code": "LAV-031",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "32",
+   "code": "LAV-032",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "33",
+   "code": "LAV-033",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "34",
+   "code": "LAV-034",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "35",
+   "code": "LAV-035",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  },
+  {
+   "line_no": "36",
+   "code": "LAV-036",
+   "description": "Ingresso e uscita dal bacino, ormeggio e assistenza",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "4.500,00",
+   "amount": "4.500,00"
+  },
+  {
+   "line_no": "37",
+   "code": "LAV-037",
+   "description": "Sabbiatura carena grado SA 2,5",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "12,50",
+   "amount": "10.625,00"
+  },
+  {
+   "line_no": "38",
+   "code": "LAV-038",
+   "description": "Pitturazione antivegetativa, due mani",
+   "qty": "850",
+   "uom": "m²",
+   "unit_price": "9,80",
+   "amount": "8.330,00"
+  },
+  {
+   "line_no": "39",
+   "code": "LAV-039",
+   "description": "Sostituzione anodi sacrificali in zinco",
+   "qty": "24",
+   "uom": "nr",
+   "unit_price": "85,00",
+   "amount": "2.040,00"
+  },
+  {
+   "line_no": "40",
+   "code": "LAV-040",
+   "description": "Controllo e revisione eliche e linee d'asse",
+   "qty": "1",
+   "uom": "nr",
+   "unit_price": "3.200,00",
+   "amount": "3.200,00"
+  }
+ ],
+ "has_discount": "yes",
+ "totals": {
+  "net": "229.560,00",
+  "vat": "50.503,20",
+  "gross": "280.063,20"
+ },
+ "payment_term": "30% all'ordine, saldo a fine lavori",
+ "closing_text": "I prezzi si intendono IVA esclusa. L'offerta è valida fino alla data indicata; eventuali lavori aggiuntivi saranno quotati a parte previa approvazione del cliente."
+}

@@ -1,0 +1,31 @@
+{
+ "quote": {
+  "no": "OFF-2026/0142",
+  "title": "Carenaggio e pitturazione scafo",
+  "date": "16/11/2026",
+  "valid_until": "16/12/2026",
+  "reference": "RDA 4711"
+ },
+ "company": {
+  "name": "Cantiere Demo S.r.l.",
+  "address": "Via del Porto 1, 16100 Genova",
+  "vat": "IT01234567890"
+ },
+ "customer": {
+  "name": "Armatore Demo S.p.A.",
+  "address": "Calata Gadda 3, 16126 Genova",
+  "vat": "IT09876543210"
+ },
+ "intro_text": "Facendo seguito alla Vostra richiesta, Vi sottoponiamo la nostra migliore offerta per i lavori in oggetto, eseguiti presso il nostro bacino secondo le specifiche tecniche concordate durante il sopralluogo.",
+ "lines": {
+  "x": 1
+ },
+ "has_discount": true,
+ "totals": {
+  "net": "229.560,00",
+  "vat": "50.503,20",
+  "gross": "280.063,20"
+ },
+ "payment_term": "30% all'ordine, saldo a fine lavori",
+ "closing_text": "I prezzi si intendono IVA esclusa. L'offerta è valida fino alla data indicata; eventuali lavori aggiuntivi saranno quotati a parte previa approvazione del cliente."
+}
