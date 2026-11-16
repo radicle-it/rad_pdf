@@ -770,8 +770,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   END toggle;
 
   -- rPr; p_mode: D direct or docDefaults, P paragraph style, T table or character style
+  -- p_mark: the paragraph mark's properties (pPr/rPr): the same classification, without the warnings of effects
+  -- that are never drawn
   PROCEDURE rpr_of(c IN OUT NOCOPY t_ctx, x IN t_els, p_i IN PLS_INTEGER, r IN OUT NOCOPY t_rp, p_mode IN CHAR,
-                   p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN) IS
+                   p_part VARCHAR2, p_pos VARCHAR2, p_near VARCHAR2, p_once BOOLEAN, p_mark BOOLEAN DEFAULT FALSE) IS
     k   PLS_INTEGER;
     l_t VARCHAR2(100);
     l_u VARCHAR2(30);
@@ -794,13 +796,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
           WHEN 'u' THEN
             l_u := nvl(attr(x(k), 'w:val'), 'single');
             r.underline := CASE WHEN l_u = 'none' THEN 'N' ELSE 'Y' END;
-            IF l_u NOT IN ('none', 'single', 'words') THEN issue(c, 'RUN_EFFECT', 'underline ' || l_u, p_part, p_pos, p_near, TRUE); END IF;
+            IF l_u NOT IN ('none', 'single', 'words') AND NOT p_mark THEN issue(c, 'RUN_EFFECT', 'underline ' || l_u, p_part, p_pos, p_near, TRUE); END IF;
           WHEN 'color' THEN r.color := color(attr(x(k), 'w:val'));
           WHEN 'sz' THEN r.size_pt := pts(attr(x(k), 'w:val'), 2);
           WHEN 'highlight' THEN
-            IF attr(x(k), 'w:val') <> 'none' THEN issue(c, 'HIGHLIGHT', NULL, p_part, p_pos, p_near, TRUE); END IF;
+            IF attr(x(k), 'w:val') <> 'none' AND NOT p_mark THEN issue(c, 'HIGHLIGHT', NULL, p_part, p_pos, p_near, TRUE); END IF;
           WHEN 'rtl' THEN
-            IF onoff(x(k)) = 'Y' THEN issue(c, 'RTL', NULL, p_part, p_pos, p_near, p_once); END IF;
+            IF onoff(x(k)) = 'Y' AND NOT p_mark THEN issue(c, 'RTL', NULL, p_part, p_pos, p_near, p_once); END IF;
           ELSE
             IF x(k).nm IN ('bCs', 'iCs', 'szCs', 'lang', 'noProof', 'webHidden', 'specVanish', 'kern', 'cs',
                            'eastAsianLayout', 'snapToGrid', 'oMath') THEN
@@ -810,7 +812,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
                               'vanish') THEN
               IF NOT (x(k).nm IN ('caps', 'smallCaps', 'strike', 'dstrike', 'shadow', 'outline', 'emboss', 'imprint',
                                   'vanish') AND onoff(x(k)) = 'N')
-                 AND NOT (x(k).nm = 'vertAlign' AND attr(x(k), 'w:val') = 'baseline') THEN
+                 AND NOT (x(k).nm = 'vertAlign' AND attr(x(k), 'w:val') = 'baseline') AND NOT p_mark THEN
                 issue(c, 'RUN_EFFECT', 'w:' || x(k).nm, p_part, p_pos, p_near, TRUE);
               END IF;
             ELSE
@@ -896,12 +898,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
               issue(c, 'INDENT', 'indent in characters', p_part, p_pos, p_near, TRUE);
             END IF;
           WHEN 'tabs' THEN tabs_of(c, x, k, p, p_part, p_pos, p_near, p_once);
-          WHEN 'rPr' THEN                                  -- the paragraph mark: only revisions and unknowns matter
-            q := x(k).first;
-            WHILE q IS NOT NULL LOOP
-              IF NOT other_child(c, x, q, p_part, p_pos, p_near, p_once) THEN NULL; END IF;
-              q := x(q).nxt;
-            END LOOP;
+          WHEN 'rPr' THEN                                  -- the paragraph mark: classified like a run's, never drawn
+            DECLARE l_mark t_rp; BEGIN
+              rpr_of(c, x, k, l_mark, 'D', p_part, p_pos, p_near, p_once, TRUE);
+            END;
           WHEN 'sectPr' THEN issue(c, 'SECTION', 'a section break', p_part, p_pos, p_near, p_once);
           WHEN 'numPr' THEN issue(c, 'LIST', NULL, p_part, p_pos, p_near, TRUE);
           WHEN 'keepLines' THEN
@@ -1563,14 +1563,17 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     END IF;
     l_style := nvl(l_style, c.def_table);
     -- the table's properties: its style chain, then its own tblPr, classified by the same procedures
+    -- the cell margins: a cell's own tcMar (style or direct) wins over the table's tblCellMar (style or direct),
+    -- which wins over 0; NULL marks "not set" until the composition below
+    l_cf0.mar_top := NULL; l_cf0.mar_bottom := NULL; l_cf0.mar_left := NULL; l_cf0.mar_right := NULL;
     apply_style(c, l_style, 'table', p0, r0, t, l_cf0);
     tblpr_of(c, c.x, l_tpr, t, c.part, l_pos, l_near, FALSE);
     c.tbl_style := l_style;
     l_tbl := new_obj(c, 'TABLE', p_container, l_pos, l_near);
     c.objs(l_tbl).borders := t.borders;
     l_cf0.grid_span := 1;
-    l_cf0.mar_top := nvl(t.mar_top, 0); l_cf0.mar_bottom := nvl(t.mar_bottom, 0);
-    l_cf0.mar_left := nvl(t.mar_left, 0); l_cf0.mar_right := nvl(t.mar_right, 0);
+    l_cf0.mar_top := coalesce(l_cf0.mar_top, t.mar_top, 0); l_cf0.mar_bottom := coalesce(l_cf0.mar_bottom, t.mar_bottom, 0);
+    l_cf0.mar_left := coalesce(l_cf0.mar_left, t.mar_left, 0); l_cf0.mar_right := coalesce(l_cf0.mar_right, t.mar_right, 0);
     -- the grid
     q := child(c.x, p_el, 'w', 'tblGrid');
     k := CASE WHEN q IS NOT NULL THEN c.x(q).first END;

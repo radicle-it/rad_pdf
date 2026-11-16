@@ -415,6 +415,46 @@ case('err_ext_unknown', docx(P(R('kept'), '<w14:container><w:r><w:t>hidden text<
 case('pos_ext_known', docx(P(R('x', '<w14:ligatures w14:val="standard"/>')), ignorable='w14'),
      'RI', [fmt_is('x', bold='N')])
 
+# ---- codex-067 R3: the cell margins of a table style, composed with the table's defaults and the cell's own -----
+def cell_mar(i, **want):
+    """the i-th cell of the document has these margins"""
+    def check(ri):
+        cells = list(nodes(ri['document'], 'cell'))
+        got = {k: cells[i][k] for k in want}
+        return None if got == want else f'cell {i}: {got} instead of {want}'
+    return check
+
+
+MAR_STYLES = (STYLES
+              + '<w:style w:type="table" w:styleId="M1"><w:tcPr><w:tcMar><w:left w:w="720" w:type="dxa"/></w:tcMar></w:tcPr></w:style>'
+              + '<w:style w:type="table" w:styleId="M2"><w:tblPr><w:tblCellMar><w:left w:w="108" w:type="dxa"/>'
+                '<w:right w:w="200" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tcPr><w:tcMar><w:left w:w="720" w:type="dxa"/>'
+                '</w:tcMar></w:tcPr></w:style>'
+              + '<w:style w:type="table" w:styleId="M3"><w:basedOn w:val="M1"/><w:tblPr><w:tblCellMar>'
+                '<w:left w:w="400" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>')
+case('pos_style_cell_margins', docx(
+    TBL(TR(TC(P('a')), TC(P('b'))), tblpr='<w:tblStyle w:val="M1"/>'),
+    TBL(TR(TC(P('c')), TC(P('d'))), tblpr='<w:tblStyle w:val="M2"/>'),
+    TBL(TR(TC(P('e')), TC(P('f'))), tblpr='<w:tblStyle w:val="M3"/>'),
+    TBL(TR(TC(P('g'), tcpr='<w:tcW w:w="2000" w:type="dxa"/><w:tcMar><w:left w:w="0" w:type="dxa"/></w:tcMar>'),
+           TC(P('h'))), tblpr='<w:tblStyle w:val="M2"/>'),
+    TBL(TR(TC(P('i')), TC(P('j')))), styles=MAR_STYLES),
+    'RI', [cell_mar(0, mar_left=36, mar_right=0),          # style tcMar, no table default
+           cell_mar(2, mar_left=36, mar_right=10),         # style tcMar wins over the style's tblCellMar; right from it
+           cell_mar(4, mar_left=36),                       # basedOn: tcMar of M1 over tblCellMar of M3
+           cell_mar(6, mar_left=0, mar_right=10),          # an explicit 0 on the cell
+           cell_mar(7, mar_left=36),
+           cell_mar(8, mar_left=5.4, mar_right=5.4)])      # TableNormal's defaults
+
+# ---- codex-067 R3: the paragraph mark's run properties classified like a run's ---------------------------------
+case('err_mark_unknown_direct', docx(P('x', ppr='<w:rPr><w:foo/></w:rPr>')), 'ERRORS', {'ELEMENT'})
+case('err_mark_unknown_style', docx(P('x', ppr='<w:pStyle w:val="Mk"/>'),
+                                    styles=STYLES + '<w:style w:type="paragraph" w:styleId="Mk"><w:pPr><w:rPr><w:foo/></w:rPr>'
+                                           '</w:pPr></w:style>'), 'ERRORS', {'ELEMENT'})
+case('pos_mark_known', docx(P('x', ppr='<w:rPr><w:b/><w:sz w:val="30"/><w:highlight w:val="yellow"/><w:caps/></w:rPr>')),
+     'RI', [fmt_is('x', bold='N', size=10), ('NOWARN', 'HIGHLIGHT'), ('NOWARN', 'RUN_EFFECT')])
+case('err_mark_revision', docx(P('x', ppr='<w:rPr><w:ins w:id="1" w:author="a"/></w:rPr>')), 'ERRORS', {'REVISION'})
+
 # ---- codex-062 R6: widow control on its effective value ---------------------------------------------------------
 WIDOW_OFF = STYLES.replace('<w:spacing w:after="0"/>', '<w:spacing w:after="0"/><w:widowControl w:val="0"/>')
 case('warn_widow_default', docx(P('x')), 'RI', [('WARN', 'WIDOW')])
