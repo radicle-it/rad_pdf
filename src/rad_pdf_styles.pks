@@ -40,7 +40,14 @@ CREATE OR REPLACE PACKAGE rad_pdf_styles AUTHID DEFINER IS
   FUNCTION get(p_name IN VARCHAR2) RETURN rad_pdf_types.t_cell_format;
 
   -- Full format copy for derived styles, preserving margins, borders and alignment.
+  -- Names starting with c_derived_prefix are reserved for define_derived (error c_err_validation).
   PROCEDURE define_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format);
+
+  -- A style owned by the caller that derives it (the template engine, per document): stored under a new name of the
+  -- reserved namespace ('#' and a session counter, never reused), which define and define_format refuse, so neither
+  -- a caller's style nor a later definition can overwrite it; the owner drops it with drop_style.
+  c_derived_prefix CONSTANT VARCHAR2(1) := '#';
+  FUNCTION define_derived(p_format IN rad_pdf_types.t_cell_format) RETURN VARCHAR2;
   FUNCTION revision(p_name IN VARCHAR2) RETURN NUMBER;
 
   FUNCTION  exists_style(p_name IN VARCHAR2) RETURN BOOLEAN;

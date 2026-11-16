@@ -1613,9 +1613,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
 -- ---------------------------------------------------------------------------
 -- Public: close_doc
---   Frees only the fonts in g_doc_state(p_doc).doc_fonts.
---   Rebuilds g_name_idx from surviving fonts.
---   Deletes the doc entry from g_doc_state.
+--   Frees only the fonts in g_doc_state(p_doc).doc_fonts and deletes the doc
+--   entry of g_doc_state (with its glyphs and font names); g_name_idx holds
+--   only session fonts and is untouched.
 -- ---------------------------------------------------------------------------
   PROCEDURE close_doc(p_doc IN rad_pdf_types.t_doc_handle) IS
     l_di  PLS_INTEGER;

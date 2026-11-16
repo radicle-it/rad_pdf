@@ -9,6 +9,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
   g_versions t_versions;
   g_revision NUMBER := 0;
   g_defaults_loaded BOOLEAN := FALSE;
+  g_next_derived    PLS_INTEGER := 0;   -- the counter of define_derived: never reset, a name is never reused
   PROCEDURE touch(p_name IN VARCHAR2) IS
   BEGIN
     g_revision := g_revision+1;
@@ -130,18 +131,36 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_styles IS
   END define;
 
 -- ---------------------------------------------------------------------------
-  PROCEDURE define_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format) IS
+  PROCEDURE put_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format) IS
   BEGIN
-    IF p_name IS NULL OR LENGTH(p_name)>100 THEN
-      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'Style name must contain 1..100 characters');
-    END IF;
     IF NVL(p_format.font_size,0)<=0 THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'Font size must be positive');
     END IF;
     load_defaults;
     g_styles(p_name) := p_format;
     touch(p_name);
+  END put_format;
+
+  PROCEDURE define_format(p_name IN VARCHAR2, p_format IN rad_pdf_types.t_cell_format) IS
+  BEGIN
+    IF p_name IS NULL OR LENGTH(p_name)>100 THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,'Style name must contain 1..100 characters');
+    END IF;
+    IF SUBSTR(p_name,1,1) = c_derived_prefix THEN
+      RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
+        'Style names starting with '||c_derived_prefix||' are reserved for derived styles: '||p_name);
+    END IF;
+    put_format(p_name,p_format);
   END define_format;
+
+  FUNCTION define_derived(p_format IN rad_pdf_types.t_cell_format) RETURN VARCHAR2 IS
+    l_name VARCHAR2(100);
+  BEGIN
+    g_next_derived := g_next_derived + 1;
+    l_name := c_derived_prefix || TO_CHAR(g_next_derived);
+    put_format(l_name,p_format);
+    RETURN l_name;
+  END define_derived;
 
   FUNCTION revision(p_name IN VARCHAR2) RETURN NUMBER IS
   BEGIN

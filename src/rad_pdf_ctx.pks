@@ -1,6 +1,6 @@
 CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
 /*
-  rad_pdf_ctx — document handle allocation and lifecycle coordinator.
+  rad_pdf_ctx — document handles, document info and conformance.
   Oracle 19c+.
 
   This package allocates and frees document handles and keeps the document info
@@ -18,8 +18,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_ctx AUTHID DEFINER IS
   -- Raises c_err_handle if the handle is not valid.
   PROCEDURE assert_valid(p_doc IN rad_pdf_types.t_doc_handle);
 
-  -- Release all per-document resources. Idempotent on already-closed handles.
-  -- Calls _close_doc on every package with per-document state, then removes the handle.
   -- Free the handle with its info and conformance. Only rad_pdf_doc.close_doc calls it, after closing every
   -- package (A4): to close a document call rad_pdf_doc.close_doc (or rad_pdf.close_document).
   PROCEDURE release_doc(p_doc IN rad_pdf_types.t_doc_handle);

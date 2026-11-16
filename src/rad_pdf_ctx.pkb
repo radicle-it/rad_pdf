@@ -1,15 +1,7 @@
 CREATE OR REPLACE PACKAGE BODY rad_pdf_ctx IS
 /*
-  rad_pdf_ctx body.
-
-  close_doc calls close_doc on each package that owns per-document state.
-  The call list is extended in each phase:
-    Phase 2  (this file): handle + info only
-    Phase 3: + rad_pdf_serial.close_doc
-    Phase 4: + rad_pdf_fonts.close_doc  (added in this phase)
-    Phase 5: + rad_pdf_images.close_doc (added in this phase)
-    Phase 6: + rad_pdf_canvas.close_doc
-    Phase 7: + rad_pdf_layout.close_doc (called FIRST) + rad_pdf_table.close_doc
+  rad_pdf_ctx body: a leaf (A4). Handles count up and are never reused; the
+  packages with per-document state are closed by rad_pdf_doc.close_doc.
 */
 
   TYPE t_handle_set   IS TABLE OF BOOLEAN              INDEX BY PLS_INTEGER;

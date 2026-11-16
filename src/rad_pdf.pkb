@@ -67,7 +67,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf IS
     RETURN l_doc;
   EXCEPTION
     WHEN OTHERS THEN
-      rad_pdf_doc.close_doc(l_doc);
+      -- the initialization error wins: a cleanup error must not replace it
+      BEGIN rad_pdf_doc.close_doc(l_doc); EXCEPTION WHEN OTHERS THEN NULL; END;
       RAISE;
   END new_document;
 

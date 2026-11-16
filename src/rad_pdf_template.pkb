@@ -67,9 +67,10 @@ g_col_registry t_col_registry;
 -- Value = raw bind value (not XML-escaped; SQL binding handles quoting)
 -- Sentinel chars: CHR(1) opens, CHR(2) closes the placeholder in the query.
 -- ---------------------------------------------------------------------------
--- A3 (2026-11-16, doc 96 §11): the styles derived from inline formatting belong to the document that rendered them
--- -- remembered per document by their key (base, formatting, revision of the base), named inline_<doc>_<n> in the
--- style registry, dropped by close_doc: no hash per run, no growth across documents, no document seeing another's
+-- A3 (2026-11-16, doc 96 §11): the styles derived from inline formatting belong to the document that rendered them,
+-- remembered per document by their key (base, formatting, revision of the base). They live in the reserved namespace
+-- of the style registry (rad_pdf_styles.define_derived), so no caller style is overwritten or dropped, and close_doc
+-- drops them: no hash per run, no growth across documents, no document seeing another document's styles.
 TYPE t_derived IS TABLE OF VARCHAR2(150) INDEX BY VARCHAR2(400);
 TYPE t_doc_derived IS TABLE OF t_derived INDEX BY PLS_INTEGER;
 g_doc_derived t_doc_derived;
@@ -250,13 +251,13 @@ END parse_unit_attr;
 -- Private: lazily derive a style variant of p_base combining bold/italic,
 -- optional ink colour, and optional font size.
 --
--- Name scheme (suffixes appended in order):
+-- The key of the document's map (suffixes appended in order):
 --   Bold/italic : __b | __i | __bi
 --   Colour      : __c<rrggbb>     e.g. __cff0000
---   Exact font size and base-style revision participate in the hashed key.
+--   Size        : __s<size>, then ':' and the revision of the base style.
 --
--- The resulting style is created once in the rad_pdf_styles registry;
--- subsequent calls with the same parameters return the cached name instantly.
+-- The style is created once per document and key under a reserved name
+-- (rad_pdf_styles.define_derived); the same key returns the same name.
 -- Returns p_base unchanged when all optional parameters are at their defaults.
 -- ---------------------------------------------------------------------------
 FUNCTION derive_style(
@@ -303,24 +304,19 @@ BEGIN
   IF g_doc_derived.EXISTS(p_doc) AND g_doc_derived(p_doc).EXISTS(l_key) THEN
     RETURN g_doc_derived(p_doc)(l_key);
   END IF;
-  l_name := 'inline_' || TO_CHAR(p_doc) || '_'
-            || TO_CHAR(CASE WHEN g_doc_derived.EXISTS(p_doc) THEN g_doc_derived(p_doc).COUNT ELSE 0 END + 1);
+  l_fmt := rad_pdf_styles.get(p_base);
+  IF l_sty IS NOT NULL THEN
+    l_fmt.font_style := l_sty;
+  END IF;
+  IF p_color IS NOT NULL THEN
+    l_fmt.font_color := p_color;
+  END IF;
+  IF p_font_size IS NOT NULL THEN
+    l_fmt.font_size := p_font_size;
+  END IF;
+  -- a name of the reserved namespace, owned by this document (dropped by close_doc)
+  l_name := rad_pdf_styles.define_derived(l_fmt);
   g_doc_derived(p_doc)(l_key) := l_name;
-  BEGIN
-    l_fmt := rad_pdf_styles.get(p_base);
-    -- Apply bold/italic if requested
-    IF l_sty IS NOT NULL THEN
-      l_fmt.font_style := l_sty;
-    END IF;
-    -- Apply overrides
-    IF p_color IS NOT NULL THEN
-      l_fmt.font_color := p_color;
-    END IF;
-    IF p_font_size IS NOT NULL THEN
-      l_fmt.font_size := p_font_size;
-    END IF;
-    rad_pdf_styles.define_format(l_name,l_fmt);
-  END;
   RETURN l_name;
 END derive_style;
 

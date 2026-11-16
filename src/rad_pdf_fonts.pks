@@ -7,11 +7,16 @@ CREATE OR REPLACE PACKAGE rad_pdf_fonts AUTHID DEFINER IS
     g_fonts(1-14)  : standard PDF fonts, initialised once per session.
     g_fonts(15+)   : custom TTF/TTC fonts.
     g_std_init     : guard for idempotent load_standard_fonts.
-    g_name_idx     : O(1) lookup table (LOWER(fontname) -> idx).
+    g_name_idx     : O(1) lookup (LOWER(fontname) -> idx) of the session's fonts:
+                     the standard ones and those of preload_ttf.
 
   Per-document state (g_doc_state):
     doc_fonts      : custom font indices belonging to a specific document.
     used_fonts     : font indices emitted to page streams (for write_font_objects).
+    used_chars     : per font, the codes or glyph ids the document wrote (A2).
+    glyph_uni      : per CID font, glyph id -> Unicode for the ToUnicode map.
+    name_idx       : the names of the document's own fonts; find_font looks
+                     here first, then in g_name_idx.
 
   Standard font indices 1-14 are permanent. Custom fonts loaded without
   preloading are scoped to a document handle and freed by close_doc.
