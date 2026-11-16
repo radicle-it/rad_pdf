@@ -23,7 +23,6 @@ SET SERVEROUTPUT ON SIZE UNLIMITED
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 
 DECLARE
-  c_cm    CONSTANT NUMBER := 72 / 2.54;
   c_arial CONSTANT NUMBER := (1854 + 434 + 67) / 2048;   -- Arial: (ascent + descent + line gap) / em = Word's single line
   l_data  CLOB := q'~@@DATA@@~';
   ri      rad_pdf_ri.t_ri;
@@ -57,7 +56,8 @@ DECLARE
     fI   rad_pdf_ri.t_run_fmt;
     fH   rad_pdf_ri.t_run_fmt;     -- Heading 1: Arial 16 bold 1F3A5F
     pN   rad_pdf_ri.t_para_fmt;    -- Normal: after 10 pt, line 1.15 (docDefaults 200/276)
-    pHF  rad_pdf_ri.t_para_fmt;    -- Header/Footer: after 0, single
+    pHF  rad_pdf_ri.t_para_fmt;    -- Header/Footer: after 0, single, its right tab (the centred one is ignored)
+    tHF  rad_pdf_ri.t_tab_list := rad_pdf_ri.t_tab_list();
     pX   rad_pdf_ri.t_para_fmt;
     cf   rad_pdf_ri.t_cell_fmt;
     bd   rad_pdf_ri.t_borders;
@@ -65,12 +65,12 @@ DECLARE
     TYPE t_cols IS TABLE OF VARCHAR2(30);
     l_lab t_cols := t_cols('Pos.', 'Codice', 'Descrizione', 'Q.t' || UNISTR('\00E0'), 'UM', 'Prezzo', 'Importo');
     l_key t_cols := t_cols('line_no', 'code', 'description', 'qty', 'uom', 'unit_price', 'amount');
-    l_w   rad_pdf_ri.t_num_list := rad_pdf_ri.t_num_list(1.2, 2.3, 6.5, 1.5, 1.2, 2.2, 2.1);
+    l_w   rad_pdf_ri.t_num_list := rad_pdf_ri.t_num_list(680, 1304, 3685, 850, 680, 1247, 1191);   -- tcW, twips
 
     PROCEDURE totals(p_label VARCHAR2, p_path VARCHAR2, p_fmt rad_pdf_ri.t_run_fmt) IS
       l_tabs rad_pdf_ri.t_tab_list := rad_pdf_ri.t_tab_list();
     BEGIN
-      l_tabs.EXTEND; l_tabs(1).pos := 17 * c_cm; l_tabs(1).kind := 'D';
+      l_tabs.EXTEND; l_tabs(1).pos := 9638 / 20; l_tabs(1).kind := 'D';
       pX := pN; pX.keep_next := 'Y';
       p := rad_pdf_ri.paragraph(q, b, pX, l_tabs);
       x := rad_pdf_ri.run(q, p, p_label, p_fmt);
@@ -83,20 +83,21 @@ DECLARE
     fI := fN; fI.italic := 'Y';
     fH := fN; fH.size_pt := 16; fH.bold := 'Y'; fH.color := '1F3A5F';
     pN.space_after := 10; pN.line_mult := 1.15;
+    tHF.EXTEND; tHF(1).pos := 9360 / 20; tHF(1).kind := 'R';
     q := rad_pdf_ri.new_ri;
     -- A4 11906x16838 twips, margins top 1417 right/bottom/left 1134, header/footer 720, titlePg
     s := rad_pdf_ri.section(q, 11906 / 20, 16838 / 20, 'P', 1417 / 20, 1134 / 20, 1134 / 20, 1134 / 20, 36, 36, 'Y');
     -- headers and footers
-    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pHF);
+    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pHF, tHF);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'company.name', fB);
-    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pHF);
+    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pN);       -- no style: Normal
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'company.address', fN);
-    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_default'), pHF);
+    p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_default'), pHF, tHF);
     x := rad_pdf_ri.run(q, p, 'Offerta ', fN);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'quote.no', fN);
     pX := pHF; pX.align := 'R';
     FOR z IN 1 .. 2 LOOP
-      p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, CASE z WHEN 1 THEN 'footer_first' ELSE 'footer_default' END), pX);
+      p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, CASE z WHEN 1 THEN 'footer_first' ELSE 'footer_default' END), pX, tHF);
       x := rad_pdf_ri.run(q, p, 'Pagina ', fN);
       x := rad_pdf_ri.field(q, p, 'PAGE', fN);
       x := rad_pdf_ri.run(q, p, ' di ', fN);
@@ -110,7 +111,7 @@ DECLARE
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'quote.no', fH);
     x := rad_pdf_ri.run(q, p, ' ' || UNISTR('\00B7') || ' ', fH);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'quote.title', fH);
-    tabs.EXTEND; tabs(1).pos := 17 * c_cm; tabs(1).kind := 'R';
+    tabs.EXTEND; tabs(1).pos := 9638 / 20; tabs(1).kind := 'R';
     p := rad_pdf_ri.paragraph(q, b, pN, tabs);
     x := rad_pdf_ri.run(q, p, 'Data: ', fN);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'quote.date', fN);
@@ -128,7 +129,7 @@ DECLARE
     p := rad_pdf_ri.paragraph(q, b, pX);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'intro_text', fN);
     -- the lines: a repeated header row, one row repeated by the LOOP lines (a row_region)
-    FOR i IN 1 .. l_w.COUNT LOOP l_w(i) := l_w(i) * c_cm; END LOOP;
+    FOR i IN 1 .. l_w.COUNT LOOP l_w(i) := l_w(i) / 20; END LOOP;
     bd := rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 0.5, '999999'));
     t := rad_pdf_ri.table_(q, b, l_w, bd);
     r := rad_pdf_ri.row_(q, t, 'Y', 'Y');
@@ -151,10 +152,10 @@ DECLARE
     totals('Imponibile', 'totals.net', fN);
     totals('IVA', 'totals.vat', fN);
     totals('Totale', 'totals.gross', fB);
-    -- {#has_discount}...{/has_discount} inside one paragraph: an inline_region (the paragraph stays when false)
-    p := rad_pdf_ri.paragraph(q, b, pN);
-    g := rad_pdf_ri.inline_region(q, p, 'SECTION', NULL, 'has_discount');
-    x := rad_pdf_ri.run(q, g, 'Gli importi includono gli sconti indicati.', fN);
+    -- {#has_discount}...{/has_discount} spanning a whole paragraph: PARAGRAPHS (96a §6.2), the paragraph goes when false
+    g := rad_pdf_ri.block_region(q, b, 'SECTION', NULL, 'has_discount');
+    p := rad_pdf_ri.paragraph(q, g, pN);
+    x := rad_pdf_ri.run(q, p, 'Gli importi includono gli sconti indicati.', fN);
     p := rad_pdf_ri.paragraph(q, b, pN);
     x := rad_pdf_ri.run(q, p, 'Condizioni di pagamento: ', fN);
     x := rad_pdf_ri.tag(q, p, 'FIELD', NULL, 'payment_term', fN);
@@ -401,6 +402,27 @@ BEGIN
   END IF;
   DBMS_OUTPUT.PUT_LINE('RINODES:' || rad_pdf_ri.node_count(ri));
   out_lob('RIJSON:', l_json);
+  -- the reader (B4): the template read from sal_quote_v1.docx gives the same RI as the one built by hand, text for text
+  DECLARE
+    l_b64  CLOB;
+    l_docx BLOB;
+    l_rd   rad_pdf_docx.t_result;
+    l_rj   CLOB;
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(l_b64, TRUE);
+@@DOCX@@
+    l_docx := rad_pdf_codec.base64_decode(l_b64);
+    l_rd := rad_pdf_docx.read(l_docx, rad_pdf_merge.schema_from_json(l_schema));
+    out_lob('READREPORT:', rad_pdf_docx.report_json(l_rd));
+    IF l_rd.errors = 0 THEN
+      l_rj := rad_pdf_ri.to_json(l_rd.ri);
+      DBMS_OUTPUT.PUT_LINE('READRI:' || CASE WHEN DBMS_LOB.COMPARE(l_rj, l_json) = 0 THEN 'SAME' ELSE 'DIFFERENT' END);
+      IF DBMS_LOB.COMPARE(l_rj, l_json) <> 0 THEN out_lob('READJSON:', l_rj); END IF;
+      rad_pdf_ri.free(l_rd.ri);
+    END IF;
+    DBMS_LOB.FREETEMPORARY(l_docx);
+    DBMS_LOB.FREETEMPORARY(l_b64);
+  END;
   -- the merge (B2): the template + the schema + the data -> the instance, then the bridge renders the instance
   l_sch := rad_pdf_merge.schema_from_json(l_schema);
   rad_pdf_merge.check_template(ri, l_sch);

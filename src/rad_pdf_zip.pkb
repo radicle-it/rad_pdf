@@ -1,0 +1,217 @@
+CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
+
+  c_sig_eocd    CONSTANT RAW(4) := HEXTORAW('504B0506');
+  c_sig_central CONSTANT RAW(4) := HEXTORAW('504B0102');
+  c_sig_local   CONSTANT RAW(4) := HEXTORAW('504B0304');
+  c_gzip_head   CONSTANT RAW(10) := HEXTORAW('1F8B08000000000000FF');   -- deflate, no flags, no mtime, OS unknown
+
+  PROCEDURE refuse(p_msg IN VARCHAR2) IS
+  BEGIN
+    raise_application_error(c_err_docx, '[PDF_DOCX] ' || p_msg);
+  END refuse;
+
+  PROCEDURE over(p_msg IN VARCHAR2) IS
+  BEGIN
+    raise_application_error(c_err_budget, '[PDF_BUDGET] ' || p_msg);
+  END over;
+
+  -- an unsigned little-endian integer of p_n bytes at the 1-based offset p_off
+  FUNCTION u(p_zip IN BLOB, p_off IN NUMBER, p_n IN PLS_INTEGER) RETURN NUMBER IS
+    l_r RAW(4) := dbms_lob.substr(p_zip, p_n, p_off);
+  BEGIN
+    IF l_r IS NULL OR utl_raw.length(l_r) <> p_n THEN refuse('truncated archive at byte ' || p_off); END IF;
+    RETURN to_number(rawtohex(utl_raw.reverse(l_r)), 'XXXXXXXX');
+  END u;
+
+  -- a safe OPC part name: relative, '/' separated, no '\', no '.' or '..' or empty segment, no control character
+  PROCEDURE check_name(p_name IN VARCHAR2) IS
+    l_seg VARCHAR2(400);
+    l_dir BOOLEAN := substr(p_name, -1) = '/';
+    l_body VARCHAR2(401) := CASE WHEN l_dir THEN substr(p_name, 1, length(p_name) - 1) ELSE p_name END;
+    l_a    PLS_INTEGER := 1;
+    l_b    PLS_INTEGER;
+  BEGIN
+    IF p_name IS NULL OR instr(p_name, '\') > 0 OR substr(p_name, 1, 1) = '/' OR regexp_like(p_name, '[[:cntrl:]]')
+       OR regexp_like(p_name, '^[A-Za-z]:') THEN
+      refuse('entry name not allowed: "' || substr(p_name, 1, 100) || '"');
+    END IF;
+    l_body := l_body || '/';
+    LOOP                                                 -- the segments between the slashes
+      l_b := instr(l_body, '/', l_a);
+      EXIT WHEN l_b = 0;
+      l_seg := substr(l_body, l_a, l_b - l_a);
+      l_a := l_b + 1;
+      IF l_seg IS NULL OR l_seg IN ('.', '..') THEN
+        refuse('entry name with an empty, "." or ".." segment: "' || substr(p_name, 1, 100) || '"');
+      END IF;
+    END LOOP;
+  END check_name;
+
+  FUNCTION open_zip(p_zip IN BLOB) RETURN t_zip IS
+    l_len   NUMBER := nvl(dbms_lob.getlength(p_zip), 0);
+    l_eocd  NUMBER := 0;
+    l_pos   NUMBER;
+    l_nth   PLS_INTEGER := 1;
+    l_from  NUMBER;
+    l_count PLS_INTEGER;
+    l_cd    NUMBER;
+    l_cdlen NUMBER;
+    l_p     NUMBER;
+    l_flags PLS_INTEGER;
+    l_nlen  PLS_INTEGER;
+    l_lh    NUMBER;
+    l_raw   RAW(2000);
+    l_e     t_entry;
+    l_z     t_zip;
+    l_sum   NUMBER := 0;
+    TYPE t_seen IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(400);
+    l_seen  t_seen;
+    TYPE t_span IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    l_start t_span;
+    l_end   t_span;
+    l_k     PLS_INTEGER;
+    l_prev  NUMBER := 0;
+  BEGIN
+    IF l_len < 22 THEN refuse('not a ZIP archive (' || l_len || ' bytes)'); END IF;
+    -- the end of central directory record: the LAST signature whose comment reaches exactly the end of the file
+    l_from := greatest(1, l_len - 22 - 65535 + 1);
+    LOOP
+      l_pos := dbms_lob.instr(p_zip, c_sig_eocd, l_from, l_nth);
+      EXIT WHEN nvl(l_pos, 0) = 0;
+      IF l_pos + 21 <= l_len AND l_pos + 22 + u(p_zip, l_pos + 20, 2) = l_len + 1 THEN l_eocd := l_pos; END IF;
+      l_nth := l_nth + 1;
+    END LOOP;
+    IF l_eocd = 0 THEN refuse('not a ZIP archive: no end of central directory'); END IF;
+    IF u(p_zip, l_eocd + 4, 2) <> 0 OR u(p_zip, l_eocd + 6, 2) <> 0 THEN refuse('multi-disk archive'); END IF;
+    l_count := u(p_zip, l_eocd + 10, 2);
+    l_cdlen := u(p_zip, l_eocd + 12, 4);
+    l_cd    := u(p_zip, l_eocd + 16, 4) + 1;
+    IF l_count = 65535 OR l_cd = 4294967296 OR l_cdlen = 4294967295 THEN refuse('ZIP64 archive'); END IF;
+    IF u(p_zip, l_eocd + 8, 2) <> l_count THEN refuse('multi-disk archive'); END IF;
+    IF l_count > c_max_parts THEN over('the archive has ' || l_count || ' entries (at most ' || c_max_parts || ')'); END IF;
+    IF l_cd + l_cdlen > l_eocd THEN refuse('central directory outside the archive'); END IF;
+    l_z.entries := t_entries();
+    l_p := l_cd;
+    FOR i IN 1 .. l_count LOOP
+      IF l_p + 46 > l_eocd OR dbms_lob.substr(p_zip, 4, l_p) <> c_sig_central THEN
+        refuse('central directory record ' || i || ' damaged');
+      END IF;
+      l_flags := u(p_zip, l_p + 8, 2);
+      IF bitand(l_flags, 1) <> 0 OR bitand(l_flags, 64) <> 0 THEN refuse('encrypted entry'); END IF;
+      l_e.method := u(p_zip, l_p + 10, 2);
+      l_e.crc32  := dbms_lob.substr(p_zip, 4, l_p + 16);
+      l_e.csize  := u(p_zip, l_p + 20, 4);
+      l_e.usize  := u(p_zip, l_p + 24, 4);
+      l_nlen     := u(p_zip, l_p + 28, 2);
+      l_lh       := u(p_zip, l_p + 42, 4) + 1;
+      IF l_e.csize = 4294967295 OR l_e.usize = 4294967295 OR l_lh = 4294967296 THEN refuse('ZIP64 entry'); END IF;
+      IF u(p_zip, l_p + 34, 2) <> 0 THEN refuse('multi-disk archive'); END IF;
+      IF l_nlen = 0 OR l_nlen > 400 THEN refuse('entry ' || i || ': name length ' || l_nlen); END IF;
+      l_raw := dbms_lob.substr(p_zip, l_nlen, l_p + 46);
+      IF bitand(l_flags, 2048) = 0 AND NOT regexp_like(utl_raw.cast_to_varchar2(l_raw), '^[ -~]*$') THEN
+        refuse('entry ' || i || ': a non-ASCII name without the UTF-8 flag');
+      END IF;
+      l_e.name := utl_i18n.raw_to_char(l_raw, 'AL32UTF8');
+      check_name(l_e.name);
+      IF l_seen.EXISTS(upper(l_e.name)) THEN
+        refuse('duplicate entry (names compared ignoring case): "' || l_e.name || '"');
+      END IF;
+      l_seen(upper(l_e.name)) := i;
+      IF l_e.method NOT IN (0, 8) THEN refuse('entry "' || l_e.name || '": compression method ' || l_e.method); END IF;
+      IF l_e.method = 0 AND l_e.csize <> l_e.usize THEN refuse('stored entry "' || l_e.name || '" with two sizes'); END IF;
+      -- the local header: same name, data right after it
+      IF l_lh + 30 > l_cd OR dbms_lob.substr(p_zip, 4, l_lh) <> c_sig_local THEN
+        refuse('entry "' || l_e.name || '": local header missing');
+      END IF;
+      IF u(p_zip, l_lh + 26, 2) <> l_nlen OR dbms_lob.substr(p_zip, l_nlen, l_lh + 30) <> l_raw THEN
+        refuse('entry "' || l_e.name || '": local and central names differ');
+      END IF;
+      l_e.data_off := l_lh + 30 + l_nlen + u(p_zip, l_lh + 28, 2);
+      IF l_e.data_off + l_e.csize > l_cd THEN refuse('entry "' || l_e.name || '" runs into the central directory'); END IF;
+      IF l_e.usize > c_max_ratio * greatest(l_e.csize, 1) THEN
+        over('entry "' || l_e.name || '": compression ratio above ' || c_max_ratio);
+      END IF;
+      l_sum := l_sum + l_e.usize;
+      IF l_sum > c_max_bytes THEN over('the archive declares more than ' || c_max_bytes || ' decompressed bytes'); END IF;
+      l_start(l_lh) := i;
+      l_end(i) := l_e.data_off + l_e.csize;
+      l_z.entries.EXTEND;
+      l_z.entries(i) := l_e;
+      l_p := l_p + 46 + l_nlen + u(p_zip, l_p + 30, 2) + u(p_zip, l_p + 32, 2);
+    END LOOP;
+    IF l_p <> l_cd + l_cdlen THEN refuse('central directory size does not match its records'); END IF;
+    -- no two entries share bytes (the overlapping-entries bomb)
+    l_k := l_start.FIRST;
+    WHILE l_k IS NOT NULL LOOP
+      IF l_k < l_prev THEN refuse('entries overlap'); END IF;
+      l_prev := l_end(l_start(l_k));
+      l_k := l_start.NEXT(l_k);
+    END LOOP;
+    IF l_start.COUNT <> l_count THEN refuse('two entries share a local header'); END IF;
+    RETURN l_z;
+  END open_zip;
+
+  FUNCTION find(p_z IN t_zip, p_name IN VARCHAR2) RETURN PLS_INTEGER IS
+  BEGIN
+    FOR i IN 1 .. p_z.entries.COUNT LOOP
+      IF p_z.entries(i).name = p_name THEN RETURN i; END IF;
+    END LOOP;
+    RETURN 0;
+  END find;
+
+  FUNCTION extract(p_zip IN BLOB, p_z IN OUT NOCOPY t_zip, p_index IN PLS_INTEGER) RETURN BLOB IS
+    l_e   t_entry := p_z.entries(p_index);
+    l_gz  BLOB;
+    l_out BLOB;
+    l_h   BINARY_INTEGER;
+    l_r   RAW(32767);
+    l_n   NUMBER := 0;
+    PROCEDURE grow(p_by IN NUMBER) IS
+    BEGIN
+      l_n := l_n + p_by;
+      IF l_n > l_e.usize THEN refuse('entry "' || l_e.name || '" decompresses beyond its declared size'); END IF;
+      IF p_z.used + l_n > c_max_bytes THEN over('more than ' || c_max_bytes || ' decompressed bytes'); END IF;
+    END grow;
+  BEGIN
+    dbms_lob.createtemporary(l_out, TRUE, dbms_lob.session);
+    IF l_e.usize > 0 AND l_e.method = 0 THEN
+      grow(l_e.usize);
+      dbms_lob.copy(l_out, p_zip, l_e.csize, 1, l_e.data_off);
+    ELSIF l_e.usize > 0 THEN
+      dbms_lob.createtemporary(l_gz, TRUE, dbms_lob.session);
+      dbms_lob.writeappend(l_gz, 10, c_gzip_head);
+      IF l_e.csize > 0 THEN dbms_lob.copy(l_gz, p_zip, l_e.csize, 11, l_e.data_off); END IF;
+      dbms_lob.writeappend(l_gz, 4, l_e.crc32);
+      dbms_lob.writeappend(l_gz, 4, utl_raw.reverse(hextoraw(lpad(to_char(mod(l_e.usize, 4294967296), 'FMXXXXXXXX'), 8, '0'))));
+      BEGIN
+        l_h := utl_compress.lz_uncompress_open(l_gz);
+        BEGIN
+          LOOP
+            utl_compress.lz_uncompress_extract(l_h, l_r);
+            grow(utl_raw.length(l_r));
+            dbms_lob.writeappend(l_out, utl_raw.length(l_r), l_r);
+          END LOOP;
+        EXCEPTION
+          WHEN no_data_found THEN NULL;                  -- the end of the stream
+        END;
+        utl_compress.lz_uncompress_close(l_h);
+      EXCEPTION
+        WHEN OTHERS THEN
+          IF l_h IS NOT NULL AND utl_compress.isopen(l_h) THEN utl_compress.lz_uncompress_close(l_h); END IF;
+          IF sqlcode IN (c_err_docx, c_err_budget) THEN RAISE; END IF;
+          refuse('entry "' || l_e.name || '" cannot be decompressed (' || substr(sqlerrm, 1, 200) || ')');
+      END;
+      dbms_lob.freetemporary(l_gz);
+    END IF;
+    IF l_n <> l_e.usize THEN refuse('entry "' || l_e.name || '" is shorter than its declared size'); END IF;
+    p_z.used := p_z.used + l_n;
+    RETURN l_out;
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF l_gz IS NOT NULL AND dbms_lob.istemporary(l_gz) = 1 THEN dbms_lob.freetemporary(l_gz); END IF;
+      IF l_out IS NOT NULL AND dbms_lob.istemporary(l_out) = 1 THEN dbms_lob.freetemporary(l_out); END IF;
+      RAISE;
+  END extract;
+
+END rad_pdf_zip;
+/

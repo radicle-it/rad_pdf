@@ -105,7 +105,7 @@
         "keep_next": "N",
         "tabs": [
          {
-          "pos": 481.8897637795276,
+          "pos": 481.9,
           "kind": "R"
          }
         ],
@@ -266,13 +266,13 @@
        {
         "kind": "table",
         "grid": [
-         34.01574803149607,
-         65.19685039370079,
-         184.251968503937,
-         42.51968503937008,
-         34.01574803149607,
-         62.36220472440945,
-         59.52755905511811
+         34,
+         65.2,
+         184.25,
+         42.5,
+         34,
+         62.35,
+         59.55
         ],
         "borders": {
          "top": {
@@ -889,7 +889,7 @@
         "keep_next": "Y",
         "tabs": [
          {
-          "pos": 481.8897637795276,
+          "pos": 481.9,
           "kind": "D"
          }
         ],
@@ -937,7 +937,7 @@
         "keep_next": "Y",
         "tabs": [
          {
-          "pos": 481.8897637795276,
+          "pos": 481.9,
           "kind": "D"
          }
         ],
@@ -985,7 +985,7 @@
         "keep_next": "Y",
         "tabs": [
          {
-          "pos": 481.8897637795276,
+          "pos": 481.9,
           "kind": "D"
          }
         ],
@@ -1022,22 +1022,22 @@
         ]
        },
        {
-        "kind": "paragraph",
-        "align": "L",
-        "ind_left": 0,
-        "ind_right": 0,
-        "ind_first": 0,
-        "space_before": 0,
-        "space_after": 10,
-        "line_mult": 1.15,
-        "keep_next": "N",
-        "tabs": [],
+        "kind": "block_region",
+        "region": "SECTION",
+        "scope": null,
+        "path": "has_discount",
         "children": [
          {
-          "kind": "inline_region",
-          "region": "SECTION",
-          "scope": null,
-          "path": "has_discount",
+          "kind": "paragraph",
+          "align": "L",
+          "ind_left": 0,
+          "ind_right": 0,
+          "ind_first": 0,
+          "space_before": 0,
+          "space_after": 10,
+          "line_mult": 1.15,
+          "keep_next": "N",
+          "tabs": [],
           "children": [
            {
             "kind": "run",
@@ -1139,7 +1139,12 @@
         "space_after": 0,
         "line_mult": 1,
         "keep_next": "N",
-        "tabs": [],
+        "tabs": [
+         {
+          "pos": 468,
+          "kind": "R"
+         }
+        ],
         "children": [
          {
           "kind": "tag",
@@ -1164,8 +1169,8 @@
         "ind_right": 0,
         "ind_first": 0,
         "space_before": 0,
-        "space_after": 0,
-        "line_mult": 1,
+        "space_after": 10,
+        "line_mult": 1.15,
         "keep_next": "N",
         "tabs": [],
         "children": [
@@ -1201,7 +1206,12 @@
         "space_after": 0,
         "line_mult": 1,
         "keep_next": "N",
-        "tabs": [],
+        "tabs": [
+         {
+          "pos": 468,
+          "kind": "R"
+         }
+        ],
         "children": [
          {
           "kind": "run",
@@ -1247,7 +1257,12 @@
         "space_after": 0,
         "line_mult": 1,
         "keep_next": "N",
-        "tabs": [],
+        "tabs": [
+         {
+          "pos": 468,
+          "kind": "R"
+         }
+        ],
         "children": [
          {
           "kind": "run",
@@ -1315,7 +1330,12 @@
         "space_after": 0,
         "line_mult": 1,
         "keep_next": "N",
-        "tabs": [],
+        "tabs": [
+         {
+          "pos": 468,
+          "kind": "R"
+         }
+        ],
         "children": [
          {
           "kind": "run",

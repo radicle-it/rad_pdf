@@ -9,6 +9,8 @@ of its rendering through the existing engine against Word's export.
                                                 clock is fixed); since B2 the bridge renders the instance of the merge
                                                 (template + samples/sal_quote_v1_schema.json + data);
                                               - each negative sample refused by the merge with its [PRT_DATA] message;
+                                              - the reader (rad_pdf_docx, B4) on samples/sal_quote_v1.docx: the SAME RI
+                                                text as the one built by hand, no error, the expected warnings;
                                               - the paginator's PDF (rad_pdf_pager, B3) with samples/sal_quote_v1_pager.pdf
                                                 (same bytes), the fidelity thresholds of 96a section 10 against Word
                                                 (tests/word/fidelity.py), and complete composite glyphs in its subsets
@@ -52,6 +54,15 @@ def ascii_json(path):
         sys.exit(f"{path.name} holds ~' and cannot go in a q'~...~' literal")
     return text
 WORD_PDF = SAMPLES / 'sal_quote_v1_word.pdf'
+DOCX = SAMPLES / 'sal_quote_v1.docx'
+# the reader's report on the quote: no error; these warnings, each once (96a section 7.2)
+READ_WARNINGS = [('KEEP_LINES', 'style Heading1'), ('TAB_CENTER', 'style Header'), ('TAB_CENTER', 'style Footer')]
+
+
+def b64_appends(path, var='l_b64'):
+    import base64
+    b = base64.b64encode(path.read_bytes()).decode('ascii')
+    return '\n'.join(f"    DBMS_LOB.APPEND({var}, '{b[i:i + 30000]}');" for i in range(0, len(b), 30000))
 
 
 def composites_complete(pdf):
@@ -103,12 +114,13 @@ def main():
                     for i, name in enumerate(NEGATIVES, start=1))
     script = (HERE / 'quote_ri.sql').read_text(encoding='utf-8') \
         .replace('@@DATA@@', ascii_json(SAMPLES / 'sal_quote_v1.json')).replace('@@SCHEMA@@', ascii_json(SCHEMA)) \
-        .replace('@@NEG@@', neg)
+        .replace('@@NEG@@', neg).replace('@@DOCX@@', b64_appends(DOCX))
     rc, out = bench.sqlcl(bench.DUMP_PROC)
     if rc or 'compiled' not in out.lower():
         sys.exit('cannot create rad_pdf_test_dump:\n' + out[-2000:])
     rc, out = bench.sqlcl(script, cwd=HERE)
     js, nodes, inst, negs, vol = [], None, None, {}, None
+    report, readri, readjs = [], None, []
     pdfs, name = {}, None
     for line in out.splitlines():
         if line.startswith('RIJSON:'):
@@ -118,6 +130,12 @@ def main():
             pdfs[name] = []
         elif line.startswith('PDFHEX:') and name:
             pdfs[name].append(line[7:].strip())
+        elif line.startswith('READREPORT:'):
+            report.append(line[11:])
+        elif line.startswith('READRI:'):
+            readri = line[7:].strip()
+        elif line.startswith('READJSON:'):
+            readjs.append(line[9:])
         elif line.startswith('RINODES:'):
             nodes = int(line[8:])
         elif line.startswith('VOLUME:'):
@@ -161,6 +179,15 @@ def main():
         else:
             print(f'paginator PDF identical to {REF_PAGER.name} ({REF_PAGER.stat().st_size} bytes)')
     print(f'merge: the instance has {inst} nodes')
+    rep = json.loads(''.join(report)) if report else {'errors': -1, 'issues': []}
+    warns = [(i['code'], i['position']) for i in rep['issues'] if i['severity'] == 'WARNING']
+    good = rep['errors'] == 0 and sorted(warns) == sorted(READ_WARNINGS) and readri == 'SAME'
+    ok = ok and good
+    print(f'reader: {DOCX.name} -> {rep["errors"]} errors, warnings {warns}, RI {readri} as the one built by hand '
+          f'-> {"OK" if good else "FAILED"}')
+    if readjs:
+        (OUT / 'sal_quote_v1_read.json').write_text(json.dumps(json.loads(''.join(readjs)), ensure_ascii=False, indent=1))
+        print(f'   the reader\'s RI: {OUT / "sal_quote_v1_read.json"}')
     for name, want in NEGATIVES.items():
         got = negs.get(name)
         good = got == want
