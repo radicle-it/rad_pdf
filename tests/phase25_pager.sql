@@ -7,7 +7,9 @@
 --   3. blocks: max(space_after, space_before), the gap dropped at the top of a page, keep_next chains, page breaks;
 --   4. tables: shading, borders, the row = its top border + its tallest cell, header rows repeated, a row never split;
 --   5. zones per page (first page different), PAGE / NUMPAGES and the double pass, a tall header pushes the body;
---   6. fonts: the D3 substitutes, the original first, a missing file, fsType refused; images; refusals.
+--   6. fonts: the D3 substitutes, the original first, a missing file, fsType refused; images; refusals;
+--   7. codex-052: the gap in keep chains, header rows + row as one group, fields and zones measured per page, cell
+--      borders on every side, 500 pages, a word of several runs.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
@@ -344,6 +346,156 @@ BEGIN
   x := rad_pdf_ri.section(q, 595.3, 841.9, 'P', c_top, c_top, c_left, c_left, 36, 36, 'N');
   p := para(rad_pdf_ri.zone(q, 'body'), 'template');
   assert_ok(refused(rad_pdf_pager.c_err_layout, '[PDF_LAYOUT] the paginator draws an instance%'), 'a template (not an instance) refused');
+
+  -- 7. codex-052 ------------------------------------------------------------------------------------------------------------
+  -- R1: the leading gap counts in the chain; a first page taller than the others
+  start_i;
+  FOR i IN 1 .. 61 LOOP p := para(b, 'Filler'); END LOOP;            -- 27 pt left
+  pf.keep_next := 'Y'; pf.space_before := 10; p := para(b, 'Kept'); pf.space_before := 0; pf.keep_next := 'N';
+  p := para(b, 'Next');
+  dump_it;
+  assert_ok(pg(ln('^[0-9]+ T .* Kept ')) = 2 AND pg(ln('^[0-9]+ T .* Next ')) = 2,
+            'R1: the gap of the first block counts (10 + 11.5 + 11.5 > 27 pt): the chain moves whole, never split');
+  start_i('Y');
+  FOR i IN 1 .. 30 LOOP p := para(rad_pdf_ri.zone(q, 'header_default'), 'Tall'); END LOOP;   -- page 2: a body of 404 pt
+  pf.keep_next := 'Y';
+  FOR i IN 1 .. 50 LOOP p := para(b, 'Chain'); END LOOP;              -- 575 pt: fits page 1 (728.5), not page 2
+  pf.keep_next := 'N';
+  p := para(b, 'End');
+  dump_it;
+  assert_ok(pages = 1, 'R1: a chain that fits the first page (taller than the others) is not refused');
+  -- R2: header rows and a row as one group; the bottom border reserved; nothing beyond the body
+  start_i;
+  t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(300), rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 0.5, '999999')));
+  r := rad_pdf_ri.row_(q, t, 'Y'); c := rad_pdf_ri.cell(q, r, cf); p := rad_pdf_ri.paragraph(q, c, pf);
+  FOR i IN 1 .. 60 LOOP x := rad_pdf_ri.run(q, p, 'H', f); x := rad_pdf_ri.line_break(q, p); END LOOP;   -- 690 pt
+  r := rad_pdf_ri.row_(q, t); c := rad_pdf_ri.cell(q, r, cf); p := rad_pdf_ri.paragraph(q, c, pf);
+  FOR i IN 1 .. 4 LOOP x := rad_pdf_ri.run(q, p, 'R', f); x := rad_pdf_ri.line_break(q, p); END LOOP;   -- 58 pt
+  assert_ok(refused(rad_pdf_pager.c_err_layout, '[PDF_LAYOUT] % taller than the page%'),
+            'R2: the header row and the first row together taller than an empty page refused');
+  start_i;
+  FOR i IN 1 .. 60 LOOP p := para(b, 'Filler'); END LOOP;            -- 38.5 pt left: the header rows (24) fit, with the row (47.5) not
+  t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(300), rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 0.5, '999999')));
+  FOR h IN 1 .. 2 LOOP
+    r := rad_pdf_ri.row_(q, t, 'Y'); c := rad_pdf_ri.cell(q, r, cf); p := para(c, CASE h WHEN 1 THEN 'HeadOne' ELSE 'HeadTwo' END);
+  END LOOP;
+  FOR i IN 1 .. 120 LOOP
+    r := rad_pdf_ri.row_(q, t); c := rad_pdf_ri.cell(q, r, cf); p := rad_pdf_ri.paragraph(q, c, pf);
+    x := rad_pdf_ri.run(q, p, 'Body', f); x := rad_pdf_ri.line_break(q, p); x := rad_pdf_ri.run(q, p, 'Body', f);
+  END LOOP;
+  dump_it;
+  assert_ok(pg(ln('^[0-9]+ T .* HeadOne ')) = 2 AND pg(ln('^[0-9]+ T .* HeadTwo ')) = 2,
+            'R2: two header rows that fit without their first row move with it (never left alone at a page bottom)');
+  DECLARE
+    l_bad PLS_INTEGER := 0;
+    l_line VARCHAR2(4000);
+  BEGIN
+    FOR i IN 1 .. REGEXP_COUNT(d, '^[0-9]+ [TL] ', 1, 'm') LOOP
+      l_line := REGEXP_SUBSTR(d, '^[0-9]+ [TL] [^' || CHR(10) || ']*', 1, i, 'm');
+      IF yo(l_line) > 841.9 - c_top + 0.01 OR (l_line LIKE '% L %' AND num(REGEXP_SUBSTR(l_line, '[^ ]+', 1, 6)) > 841.9 - c_top + 0.01) THEN
+        l_bad := l_bad + 1;
+      END IF;
+    END LOOP;
+    l_msg := 'beyond the body: ' || l_bad || ', pages ' || pages || ', header rows on ' || REGEXP_COUNT(d, '^[0-9]+ T .* HeadTwo ', 1, 'm');
+    assert_ok(l_bad = 0 AND REGEXP_COUNT(d, '^[0-9]+ T .* HeadTwo ', 1, 'm') = pages - 1,       -- page 1: the fillers only
+              'R2: every page of the table repeats both header rows; no text nor border beyond the body (the bottom border reserved)');
+  END;
+  -- R3: fields measured on their page; a zone that grows with the page number
+  start_i;
+  pf.align := 'R'; p := rad_pdf_ri.paragraph(q, b, pf); x := rad_pdf_ri.field(q, p, 'PAGE', f);
+  pf.align := 'C'; p := rad_pdf_ri.paragraph(q, b, pf); x := rad_pdf_ri.field(q, p, 'PAGE', f); pf.align := 'L';
+  FOR i IN 1 .. 11 LOOP x := rad_pdf_ri.page_break(q, b); p := para(b, 'More'); END LOOP;
+  dump_it;
+  assert_ok(pages = 12 AND near(xo(ln('^1 T [^ ]+ [^ ]+ 1 \[')) + w('1'), c_left + 481.9),
+            'R3: PAGE right aligned on page 1 of 12: placed as "1", not as "12"');
+  assert_ok(near(xo(REGEXP_SUBSTR(d, '^1 T [^ ]+ [^ ]+ 1 \[[^' || CHR(10) || ']*', 1, 2, 'm')), c_left + (481.9 - w('1')) / 2),
+            'R3: PAGE centred on page 1 of 12');
+  start_i;
+  pf.ind_right := 481.9 - w('Pagina 9') - 0.5;
+  p := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_default'), pf);
+  x := rad_pdf_ri.run(q, p, 'Pagina ', f); x := rad_pdf_ri.field(q, p, 'PAGE', f);
+  pf.ind_right := 0;
+  p := para(b, 'Top');
+  FOR i IN 1 .. 10 LOOP x := rad_pdf_ri.page_break(q, b); p := para(b, 'Top'); END LOOP;
+  dump_it;
+  assert_ok(near(yo(ln('^9 T .* Top ')), c_top + 10 * c_asc) AND near(yo(ln('^10 T .* Top ')), 36 + 2 * 10 * c_line + 10 * c_asc),
+            'R3: a header that wraps from page 10 ("Pagina 10" on two lines) pushes the body of that page, measured per page');
+  DECLARE
+    l_s VARCHAR2(4000);
+  BEGIN
+    WHILE w(l_s || 'i') + w(' 9') <= 481.9 LOOP l_s := l_s || 'i'; END LOOP;      -- "iii..i 9" fits, "iii..i 12" does not
+    start_i;
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, l_s || ' ', f); x := rad_pdf_ri.field(q, p, 'NUMPAGES', f);
+    FOR i IN 1 .. 11 LOOP x := rad_pdf_ri.page_break(q, b); p := para(b, 'More'); END LOOP;
+    dump_it;
+    assert_ok(yo(ln('^1 T [^ ]+ [^ ]+ 12 \[')) > yo(ln('^1 T .* i+ \[')),
+              'R3: NUMPAGES measured with the final count: "12" wraps to the next line where "9" would have fit');
+  END;
+  -- R4: the borders of the cells win on every side
+  start_i;
+  t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100, 200), cf.borders);                 -- a table without borders
+  r := rad_pdf_ri.row_(q, t);
+  cf.borders.rgt := rad_pdf_ri.border('SINGLE', 1.5, 'FF0000'); cf.borders.top := rad_pdf_ri.border('SINGLE', 3, '0000FF');
+  c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Left');
+  cf.borders := NULL; cf.borders.bottom := rad_pdf_ri.border('SINGLE', 2, '00FF00');
+  c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'Right');
+  cf.borders := NULL;
+  dump_it;
+  assert_ok(ln('^1 L 156\.7 [^ ]+ 156\.7 [^ ]+ 1\.5 #FF0000') IS NOT NULL, 'R4: the right border of the left cell drawn on the inner divider');
+  assert_ok(ln('^1 L 156\.7 [^ ]+ 356\.7 [^ ]+ 2 #00FF00') IS NOT NULL AND ln('^1 L 56\.7 7[0-9.]+ 156\.7 ') IS NULL,          -- no bottom under the left cell
+            'R4: the bottom of the last row from the cells (the right one only: the table has none)');
+  assert_ok(ln('^1 L 56\.7 [^ ]+ 156\.7 [^ ]+ 3 #0000FF') IS NOT NULL AND near(yo(ln('^1 T .* Left ')), c_top + 3 + 10 * c_asc),
+            'R4: a cell top of 3 pt drawn and counted in the row height');
+  start_i;
+  t := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100, 200), rad_pdf_ri.borders_all(rad_pdf_ri.border('SINGLE', 0.5, '999999')));
+  r := rad_pdf_ri.row_(q, t);
+  cf.borders.rgt := rad_pdf_ri.border('NONE'); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'A');
+  cf.borders := NULL; cf.borders.lft := rad_pdf_ri.border('NONE'); c := rad_pdf_ri.cell(q, r, cf); p := para(c, 'B');
+  cf.borders := NULL;
+  dump_it;
+  assert_ok(ln('^1 L 156\.7 [^ ]+ 156\.7 ') IS NULL AND ln('^1 L 56\.7 [^ ]+ 56\.7 ') IS NOT NULL,
+            'R4: NONE set by both cells removes the inner divider of a bordered table; the outer edges stay');
+  -- R5: 500 pages
+  start_i;
+  FOR i IN 1 .. 499 LOOP x := rad_pdf_ri.page_break(q, b); END LOOP;
+  p := para(b, 'Last');
+  dump_it;
+  assert_ok(pages = 500, 'R5: 500 pages accepted');
+  start_i;
+  FOR i IN 1 .. 500 LOOP x := rad_pdf_ri.page_break(q, b); END LOOP;
+  assert_ok(refused(rad_pdf_pager.c_err_budget, '[PDF_BUDGET] the document exceeds 500 pages'), 'R5: 501 pages by manual breaks refused');
+  start_i;
+  pf.space_after := 720;                                              -- 11.5 + 720 + 11.5 > 728.5: one paragraph a page
+  FOR i IN 1 .. 501 LOOP p := para(b, 'Page'); END LOOP;
+  pf.space_after := 0;
+  assert_ok(refused(rad_pdf_pager.c_err_budget, '[PDF_BUDGET] the document exceeds 500 pages'), 'R5: 501 pages by automatic breaks refused');
+  start_i; p := para(b, 'After'); dump_it;
+  assert_ok(pages = 1 AND ln('^1 T .* After ') IS NOT NULL, 'R5: a valid layout in the same session after the refusals');
+  -- R6: a word of several runs moves whole
+  DECLARE
+    l_s VARCHAR2(4000);
+    fb  rad_pdf_ri.t_run_fmt := f;
+  BEGIN
+    WHILE w(l_s) + w(' Hello') <= 481.9 LOOP l_s := l_s || 'i'; END LOOP;          -- "Hello" does not fit, "Hel" does
+    start_i;
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, l_s || ' Hel', f); x := rad_pdf_ri.run(q, p, 'lo', f);
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, l_s || ' Hello', f);
+    fb.bold := 'Y';
+    p := rad_pdf_ri.paragraph(q, b, pf);
+    x := rad_pdf_ri.run(q, p, l_s || ' Hel', f); x := rad_pdf_ri.run(q, p, 'lo', fb);
+    dump_it;
+    assert_ok(near(xo(ln('^1 T .* Hel ')), c_left) AND near(xo(ln('^1 T .* lo ')), c_left + w('Hel'))
+              AND near(yo(ln('^1 T .* lo ')), yo(ln('^1 T .* Hel '))),
+              'R6: "Hel"+"lo" in two runs moves whole to the next line, as one word');
+    assert_ok(near(xo(ln('^1 T .* Hello ')), c_left) AND near(yo(ln('^1 T .* Hello ')) - yo(ln('^1 T .* Hel ')), 2 * 10 * c_line),
+              'R6: the same as the single run "Hello"');
+    assert_ok(near(yo(REGEXP_SUBSTR(d, '^1 T [^ ]+ [^ ]+ lo [^' || CHR(10) || ']*', 1, 2, 'm')),
+                   yo(REGEXP_SUBSTR(d, '^1 T [^ ]+ [^ ]+ Hel [^' || CHR(10) || ']*', 1, 2, 'm'))),
+              'R6: and with a bold second half');
+  END;
 
   rad_pdf.close_document(l_doc);
   DBMS_OUTPUT.PUT_LINE('Phase 25 pager: ' || l_pass || ' passed, 0 failed.');

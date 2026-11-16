@@ -25,6 +25,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_pager AUTHID DEFINER AS
 
   c_err_layout CONSTANT PLS_INTEGER := -20844;          -- [PDF_LAYOUT]
   c_err_font   CONSTANT PLS_INTEGER := -20845;          -- [PDF_FONT]
+  c_err_budget CONSTANT PLS_INTEGER := -20842;          -- [PDF_BUDGET] (the code of rad_pdf_merge too)
+  c_max_pages  CONSTANT PLS_INTEGER := 500;             -- 96a §8
 
   -- a font file: a family in one variant R (regular) B (bold) I (italic) X (bold italic)
   TYPE t_font_file IS RECORD (family VARCHAR2(100), variant CHAR(1), bytes BLOB);

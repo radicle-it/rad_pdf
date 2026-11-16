@@ -20,6 +20,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   TYPE t_ops IS TABLE OF t_op INDEX BY PLS_INTEGER;
 
   TYPE t_imgids IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;   -- resource of the instance -> image of the document
+  TYPE t_frames IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
 
   -- one render (never package state)
   TYPE t_st IS RECORD (
@@ -34,7 +35,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     left     NUMBER, width NUMBER,
     pg       PLS_INTEGER,                                -- the current page
     y        NUMBER,                                     -- the cursor on it (from the top)
-    top1 NUMBER, bottom1 NUMBER, topn NUMBER, bottomn NUMBER,   -- the body frame of page 1 and of the others
+    tops     t_frames,                                   -- the body frame of each page (R3: measured per page)
+    bottoms  t_frames,
     after    NUMBER := 0,                                -- the space_after still to place
     fresh    BOOLEAN := FALSE,                           -- at the top of a page after an automatic break
     guess    PLS_INTEGER := 1,                           -- the page count the fields are measured with
@@ -43,7 +45,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
 
   PROCEDURE fail(p_code IN PLS_INTEGER, p_msg IN VARCHAR2) IS
   BEGIN
-    raise_application_error(p_code, CASE p_code WHEN c_err_font THEN '[PDF_FONT] ' ELSE '[PDF_LAYOUT] ' END || substr(p_msg, 1, 1900));
+    raise_application_error(p_code, CASE p_code WHEN c_err_font THEN '[PDF_FONT] ' WHEN c_err_budget THEN '[PDF_BUDGET] '
+                                                ELSE '[PDF_LAYOUT] ' END || substr(p_msg, 1, 1900));
   END fail;
 
   -- ---------------------------------------------------------------------------
@@ -210,8 +213,10 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     END LOOP;
   END text_toks;
 
+  -- p_page, p_pages: the page and the page count the fields are measured with; p_body: the fields keep their code, so
+  -- the drawing writes the page that holds them (the body); otherwise their text is final (a header, a footer)
   FUNCTION plan_para(st IN OUT NOCOPY t_st, p_id IN rad_pdf_ri.t_id, p_width IN NUMBER, p_page IN PLS_INTEGER DEFAULT NULL,
-                     p_pages IN PLS_INTEGER DEFAULT NULL) RETURN t_plan IS
+                     p_pages IN PLS_INTEGER DEFAULT NULL, p_body IN BOOLEAN DEFAULT FALSE) RETURN t_plan IS
     p      t_plan;
     n      rad_pdf_ri.t_node;
     k      rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_id);
@@ -230,6 +235,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     l_spos NUMBER;
     l_sx   NUMBER;                                       -- x at the tab
     l_brk  BOOLEAN;
+    l_word NUMBER;
     fm     t_fm;
 
     PROCEDURE end_segment(p_to PLS_INTEGER) IS
@@ -310,7 +316,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
         WHEN 'run' THEN text_toks(st, p, n.text, n.fmt); l_last := n.fmt;
         WHEN 'field' THEN
           text_toks(st, p, CASE WHEN n.field_code = 'PAGE' THEN to_char(nvl(p_page, st.guess))
-                                ELSE to_char(nvl(p_pages, st.guess)) END, n.fmt, 'FLD', CASE WHEN p_page IS NULL THEN n.field_code END);
+                                ELSE to_char(nvl(p_pages, st.guess)) END, n.fmt, 'FLD', CASE WHEN p_body THEN n.field_code END);
           l_last := n.fmt;
         WHEN 'tab' THEN
           t := NULL; t.kind := 'TAB'; t.w := 0; fm := font_of(st, l_last);
@@ -351,9 +357,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
           end_line(i, TRUE);
           x := l_left; l_vis := FALSE;
         ELSE                                             -- T FLD IMG
-          IF l_vis AND x + p.toks(i).w > l_right + 0.001 THEN
-            end_line(i - 1, FALSE);
-            x := l_left; l_vis := FALSE;
+          -- R6: a line breaks only before a word, never inside one: the tokens of a word (several runs, several
+          -- formats, no space between them) are measured together and move together
+          IF i = 1 OR p.toks(i - 1).kind NOT IN ('T', 'FLD') OR p.toks(i).kind = 'IMG' THEN
+            l_word := p.toks(i).w;
+            IF p.toks(i).kind <> 'IMG' THEN
+              FOR w IN i + 1 .. p.toks.COUNT LOOP
+                EXIT WHEN p.toks(w).kind NOT IN ('T', 'FLD');
+                l_word := l_word + p.toks(w).w;
+              END LOOP;
+            END IF;
+            IF l_vis AND x + l_word > l_right + 0.001 THEN
+              end_line(i - 1, FALSE);
+              x := l_left; l_vis := FALSE;
+            END IF;
           END IF;
           p.toks(i).x := x; x := x + p.toks(i).w; l_vis := TRUE;
       END CASE;
@@ -422,32 +439,91 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     RETURN l;
   END col_x;
 
-  FUNCTION edge(p_cell rad_pdf_ri.t_border, p_table rad_pdf_ri.t_border) RETURN rad_pdf_ri.t_border IS
-  BEGIN
-    RETURN CASE WHEN p_cell.style IS NOT NULL THEN p_cell ELSE p_table END;
-  END edge;
-
-  -- the top border of a row: the table's top for the first row on a page, inside_h otherwise
-  FUNCTION top_width(t rad_pdf_ri.t_node, p_first BOOLEAN) RETURN NUMBER IS
-    b rad_pdf_ri.t_border := CASE WHEN p_first THEN t.borders.top ELSE t.borders.inside_h END;
+  -- ---------------------------------------------------------------------------
+  -- borders (R4): one resolution of every edge, for the measure and for the drawing. A border a cell sets wins over
+  -- the table's; between two cells (or two rows) the set one wins, SINGLE over NONE, the wider SINGLE over the other
+  -- ---------------------------------------------------------------------------
+  FUNCTION bw(b rad_pdf_ri.t_border) RETURN NUMBER IS
   BEGIN
     RETURN CASE WHEN b.style = 'SINGLE' THEN nvl(b.width, 0) ELSE 0 END;
-  END top_width;
+  END bw;
 
-  -- a row measured (dry) or drawn at y; returns its height (its top border + its tallest cell)
+  FUNCTION stronger(a rad_pdf_ri.t_border, b rad_pdf_ri.t_border) RETURN rad_pdf_ri.t_border IS
+  BEGIN
+    IF a.style IS NULL THEN RETURN b; END IF;
+    IF b.style IS NULL THEN RETURN a; END IF;
+    IF bw(b) > bw(a) THEN RETURN b; END IF;
+    RETURN a;
+  END stronger;
+
+  -- the cell of a row that covers grid column p_col (NULL when none)
+  FUNCTION cell_at(st IN t_st, p_row rad_pdf_ri.t_id, p_col PLS_INTEGER) RETURN rad_pdf_ri.t_id IS
+    k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
+    l_col PLS_INTEGER := 1;
+  BEGIN
+    FOR j IN 1 .. k.COUNT LOOP
+      IF p_col BETWEEN l_col AND l_col + st.inst.nodes(k(j)).cell.grid_span - 1 THEN RETURN k(j); END IF;
+      l_col := l_col + st.inst.nodes(k(j)).cell.grid_span;
+    END LOOP;
+    RETURN NULL;
+  END cell_at;
+
+  -- the top edge of the cell starting at p_col of p_row: its own top, else the bottom of the cell above in p_prev,
+  -- else the table's top (the first row on a page: p_prev NULL) or inside_h
+  FUNCTION top_edge(st IN t_st, t rad_pdf_ri.t_node, p_cell rad_pdf_ri.t_id, p_col PLS_INTEGER, p_prev rad_pdf_ri.t_id) RETURN rad_pdf_ri.t_border IS
+    l_set rad_pdf_ri.t_border := st.inst.nodes(p_cell).cell.borders.top;
+    l_up  rad_pdf_ri.t_id;
+  BEGIN
+    IF p_prev IS NOT NULL THEN
+      l_up := cell_at(st, p_prev, p_col);
+      IF l_up IS NOT NULL THEN l_set := stronger(l_set, st.inst.nodes(l_up).cell.borders.bottom); END IF;
+    END IF;
+    IF l_set.style IS NOT NULL THEN RETURN l_set; END IF;
+    RETURN CASE WHEN p_prev IS NULL THEN t.borders.top ELSE t.borders.inside_h END;
+  END top_edge;
+
+  -- the left edge of the cell starting at p_col: its own left and the right of the cell before it, else the table's
+  FUNCTION left_edge(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_cell rad_pdf_ri.t_id, p_col PLS_INTEGER) RETURN rad_pdf_ri.t_border IS
+    l_set rad_pdf_ri.t_border := st.inst.nodes(p_cell).cell.borders.lft;
+    l_lft rad_pdf_ri.t_id;
+  BEGIN
+    IF p_col > 1 THEN
+      l_lft := cell_at(st, p_row, p_col - 1);
+      IF l_lft IS NOT NULL THEN l_set := stronger(l_set, st.inst.nodes(l_lft).cell.borders.rgt); END IF;
+    END IF;
+    IF l_set.style IS NOT NULL THEN RETURN l_set; END IF;
+    RETURN CASE WHEN p_col = 1 THEN t.borders.lft ELSE t.borders.inside_v END;
+  END left_edge;
+
+  -- the top border width of a row: the widest of its cells' top edges
+  FUNCTION row_top(st IN t_st, t rad_pdf_ri.t_node, p_row rad_pdf_ri.t_id, p_prev rad_pdf_ri.t_id) RETURN NUMBER IS
+    k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
+    l_col PLS_INTEGER := 1;
+    l_w   NUMBER := 0;
+  BEGIN
+    FOR j IN 1 .. k.COUNT LOOP
+      l_w := greatest(l_w, bw(top_edge(st, t, k(j), l_col, p_prev)));
+      l_col := l_col + st.inst.nodes(k(j)).cell.grid_span;
+    END LOOP;
+    RETURN l_w;
+  END row_top;
+
+  -- a row measured (dry) or drawn at y, after p_prev on this page (NULL: the first); returns its height (its top border +
+  -- its tallest cell)
   FUNCTION do_row(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, p_row rad_pdf_ri.t_id, x0 NUMBER, y NUMBER,
-                  p_first BOOLEAN, p_draw BOOLEAN, p_page PLS_INTEGER DEFAULT NULL, p_pages PLS_INTEGER DEFAULT NULL) RETURN NUMBER IS
+                  p_prev rad_pdf_ri.t_id, p_draw BOOLEAN, p_page PLS_INTEGER DEFAULT NULL, p_pages PLS_INTEGER DEFAULT NULL) RETURN NUMBER IS
     t     rad_pdf_ri.t_node := st.inst.nodes(p_tbl);
     cx    rad_pdf_ri.t_num_list := col_x(t.grid);
     k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
     c     rad_pdf_ri.t_cell_fmt;
     l_col PLS_INTEGER := 1;
-    l_bt  NUMBER := top_width(t, p_first);
+    l_bt  NUMBER := row_top(st, t, p_row, p_prev);
     l_h   NUMBER := 0;
     l_x1  NUMBER;
     l_x2  NUMBER;
     l_dry BOOLEAN := st.dry;
     l_end NUMBER;
+    l_b   rad_pdf_ri.t_border;
   BEGIN
     st.dry := TRUE;                                      -- the height first
     FOR j IN 1 .. k.COUNT LOOP
@@ -465,12 +541,11 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
         l_x1 := x0 + cx(l_col); l_x2 := x0 + cx(l_col + c.grid_span);
         op_fill(st, l_x1, y, l_x2 - l_x1, l_bt + l_h, c.shading);
         l_end := fixed_blocks(st, k(j), l_x1 + c.mar_left, l_x2 - l_x1 - c.mar_left - c.mar_right, y + l_bt + c.mar_top, p_page, p_pages);
-        -- borders: top, left; right of the last cell
-        op_line(st, l_x1, y + l_bt / 2, l_x2, y + l_bt / 2,
-                edge(c.borders.top, CASE WHEN p_first THEN t.borders.top ELSE t.borders.inside_h END));
-        op_line(st, l_x1, y, l_x1, y + l_bt + l_h, edge(c.borders.lft, CASE WHEN l_col = 1 THEN t.borders.lft ELSE t.borders.inside_v END));
+        l_b := top_edge(st, t, k(j), l_col, p_prev);
+        op_line(st, l_x1, y + bw(l_b) / 2, l_x2, y + bw(l_b) / 2, l_b);
+        op_line(st, l_x1, y, l_x1, y + l_bt + l_h, left_edge(st, t, p_row, k(j), l_col));
         IF j = k.COUNT THEN
-          op_line(st, l_x2, y, l_x2, y + l_bt + l_h, edge(c.borders.rgt, t.borders.rgt));
+          op_line(st, l_x2, y, l_x2, y + l_bt + l_h, CASE WHEN c.borders.rgt.style IS NOT NULL THEN c.borders.rgt ELSE t.borders.rgt END);
         END IF;
         l_col := l_col + c.grid_span;
       END LOOP;
@@ -478,14 +553,27 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     RETURN l_bt + l_h;
   END do_row;
 
-  -- the bottom border of a table (or of its part on a page) under the row ending at y
-  FUNCTION bottom_border(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, x0 NUMBER, y NUMBER) RETURN NUMBER IS
-    t  rad_pdf_ri.t_node := st.inst.nodes(p_tbl);
-    cx rad_pdf_ri.t_num_list := col_x(t.grid);
-    w  NUMBER := CASE WHEN t.borders.bottom.style = 'SINGLE' THEN nvl(t.borders.bottom.width, 0) ELSE 0 END;
+  -- the bottom edge under p_row (the last row of the table, or of its part on a page): each cell's bottom, else the
+  -- table's; drawn at y when drawing; returns its width
+  FUNCTION bottom_border(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, p_row rad_pdf_ri.t_id, x0 NUMBER, y NUMBER,
+                         p_draw BOOLEAN DEFAULT TRUE) RETURN NUMBER IS
+    t     rad_pdf_ri.t_node := st.inst.nodes(p_tbl);
+    cx    rad_pdf_ri.t_num_list := col_x(t.grid);
+    k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_row);
+    l_col PLS_INTEGER := 1;
+    l_b   rad_pdf_ri.t_border;
+    l_w   NUMBER := 0;
   BEGIN
-    op_line(st, x0, y + w / 2, x0 + cx(cx.COUNT), y + w / 2, t.borders.bottom);
-    RETURN w;
+    FOR j IN 1 .. k.COUNT LOOP
+      l_b := st.inst.nodes(k(j)).cell.borders.bottom;
+      IF l_b.style IS NULL THEN l_b := t.borders.bottom; END IF;
+      l_w := greatest(l_w, bw(l_b));
+      IF p_draw THEN
+        op_line(st, x0 + cx(l_col), y + bw(l_b) / 2, x0 + cx(l_col + st.inst.nodes(k(j)).cell.grid_span), y + bw(l_b) / 2, l_b);
+      END IF;
+      l_col := l_col + st.inst.nodes(k(j)).cell.grid_span;
+    END LOOP;
+    RETURN l_w;
   END bottom_border;
 
   FUNCTION fixed_table(st IN OUT NOCOPY t_st, p_id rad_pdf_ri.t_id, x0 NUMBER, y NUMBER, p_page PLS_INTEGER, p_pages PLS_INTEGER) RETURN NUMBER IS
@@ -493,59 +581,123 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     l_y NUMBER := y;
   BEGIN
     FOR j IN 1 .. k.COUNT LOOP
-      l_y := l_y + do_row(st, p_id, k(j), x0, l_y, j = 1, TRUE, p_page, p_pages);
+      l_y := l_y + do_row(st, p_id, k(j), x0, l_y, CASE WHEN j > 1 THEN k(j - 1) END, TRUE, p_page, p_pages);
     END LOOP;
-    RETURN l_y + bottom_border(st, p_id, x0, l_y);
+    RETURN l_y + bottom_border(st, p_id, k(k.COUNT), x0, l_y, NOT st.dry);
   END fixed_table;
+
+  -- ---------------------------------------------------------------------------
+  -- the frames of the pages (R3): per page, the header and the footer measured with that page's number and the page
+  -- count of this pass
+  -- ---------------------------------------------------------------------------
+  FUNCTION zone_name(st IN t_st, p_kind VARCHAR2, p_pg PLS_INTEGER) RETURN VARCHAR2 IS
+  BEGIN
+    RETURN p_kind || CASE WHEN p_pg = 1 AND st.inst.nodes(st.inst.section_id).title_page = 'Y' THEN '_first' ELSE '_default' END;
+  END zone_name;
+
+  FUNCTION zone_h(st IN OUT NOCOPY t_st, p_zone VARCHAR2, p_pg PLS_INTEGER, p_pages PLS_INTEGER) RETURN NUMBER IS
+    l_dry BOOLEAN := st.dry;
+    l_h   NUMBER;
+  BEGIN
+    st.dry := TRUE;
+    l_h := fixed_blocks(st, rad_pdf_ri.zone(st.inst, p_zone), st.left, st.width, 0, p_pg, p_pages);
+    st.dry := l_dry;
+    RETURN l_h;
+  END zone_h;
+
+  PROCEDURE frame(st IN OUT NOCOPY t_st, p_pg PLS_INTEGER) IS
+    s rad_pdf_ri.t_node := st.inst.nodes(st.inst.section_id);
+  BEGIN
+    IF st.tops.EXISTS(p_pg) THEN RETURN; END IF;
+    st.tops(p_pg) := greatest(s.mar_top, s.mar_header + zone_h(st, zone_name(st, 'header', p_pg), p_pg, st.guess));
+    st.bottoms(p_pg) := st.page_h - greatest(s.mar_bottom, s.mar_footer + zone_h(st, zone_name(st, 'footer', p_pg), p_pg, st.guess));
+    IF st.bottoms(p_pg) - st.tops(p_pg) < 1 THEN fail(c_err_layout, 'the header and footer of page ' || p_pg || ' leave no body'); END IF;
+  END frame;
+
+  FUNCTION top_of(st IN OUT NOCOPY t_st, p_pg PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    frame(st, p_pg);
+    RETURN st.tops(p_pg);
+  END top_of;
+
+  FUNCTION bottom_of(st IN OUT NOCOPY t_st, p_pg PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    frame(st, p_pg);
+    RETURN st.bottoms(p_pg);
+  END bottom_of;
+
+  FUNCTION height_of(st IN OUT NOCOPY t_st, p_pg PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    RETURN bottom_of(st, p_pg) - top_of(st, p_pg);
+  END height_of;
 
   -- ---------------------------------------------------------------------------
   -- the page flow of the body
   -- ---------------------------------------------------------------------------
-  FUNCTION top_of(st IN t_st, p_pg PLS_INTEGER) RETURN NUMBER IS
+  -- the one way to a new page (R5): automatic or manual, within the budget of 96a §8
+  PROCEDURE new_page(st IN OUT NOCOPY t_st, p_manual BOOLEAN DEFAULT FALSE) IS
   BEGIN
-    RETURN CASE WHEN p_pg = 1 THEN st.top1 ELSE st.topn END;
-  END top_of;
-
-  FUNCTION bottom_of(st IN t_st, p_pg PLS_INTEGER) RETURN NUMBER IS
-  BEGIN
-    RETURN CASE WHEN p_pg = 1 THEN st.bottom1 ELSE st.bottomn END;
-  END bottom_of;
-
-  PROCEDURE new_page(st IN OUT NOCOPY t_st) IS
-  BEGIN
+    IF st.pg + 1 > c_max_pages THEN fail(c_err_budget, 'the document exceeds ' || c_max_pages || ' pages'); END IF;
     st.pg := st.pg + 1;
     st.y := top_of(st, st.pg);
-    st.fresh := TRUE;
+    st.fresh := NOT p_manual;                            -- after a manual break the space_before stays
     st.after := 0;
   END new_page;
 
+  -- the leading gap a block gets here: none at the top of a page after an automatic break, else the larger of the
+  -- space_after still to place and the block's space_before (R1: the same rule for the measure and for the flow)
+  FUNCTION gap_of(st IN t_st, n rad_pdf_ri.t_node) RETURN NUMBER IS
+  BEGIN
+    IF st.fresh THEN RETURN 0; END IF;
+    RETURN greatest(st.after, CASE WHEN n.kind = 'paragraph' THEN n.para.space_before ELSE 0 END);
+  END gap_of;
+
+  FUNCTION table_hdr(st IN t_st, k rad_pdf_ri.t_num_list) RETURN PLS_INTEGER IS
+    l PLS_INTEGER := 0;
+  BEGIN
+    FOR j IN 1 .. k.COUNT LOOP
+      EXIT WHEN st.inst.nodes(k(j)).header <> 'Y';
+      l := j;
+    END LOOP;
+    RETURN l;
+  END table_hdr;
+
+  -- the rows from..to measured as a group placed together on a page (the first after p_prev), with the bottom border
+  -- when the group ends the table
+  FUNCTION group_h(st IN OUT NOCOPY t_st, p_tbl rad_pdf_ri.t_id, k rad_pdf_ri.t_num_list, p_from PLS_INTEGER, p_to PLS_INTEGER,
+                   p_prev rad_pdf_ri.t_id) RETURN NUMBER IS
+    l_h   NUMBER := 0;
+    l_dry BOOLEAN := st.dry;
+  BEGIN
+    st.dry := TRUE;
+    FOR j IN p_from .. p_to LOOP
+      l_h := l_h + do_row(st, p_tbl, k(j), 0, 0, CASE WHEN j = p_from THEN p_prev ELSE k(j - 1) END, FALSE, st.pg, st.guess);
+    END LOOP;
+    IF p_to = k.COUNT THEN l_h := l_h + bottom_border(st, p_tbl, k(p_to), 0, 0, FALSE); END IF;
+    st.dry := l_dry;
+    RETURN l_h;
+  END group_h;
+
   -- the height a block needs at the top of a chain: a paragraph whole (p_whole) or its first line; a table its header
-  -- rows and its first body row
+  -- rows and its first body row (an indivisible group)
   FUNCTION need_of(st IN OUT NOCOPY t_st, p_id rad_pdf_ri.t_id, p_whole BOOLEAN) RETURN NUMBER IS
     n  rad_pdf_ri.t_node := st.inst.nodes(p_id);
     p  t_plan;
     k  rad_pdf_ri.t_num_list;
-    l_h NUMBER := 0;
-    l_dry BOOLEAN := st.dry;
   BEGIN
     IF n.kind = 'paragraph' THEN
-      p := plan_para(st, p_id, st.width);
+      p := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE);
       RETURN CASE WHEN p_whole THEN p.h ELSE p.lines(1).h END;
     ELSIF n.kind = 'table' THEN
-      st.dry := TRUE;
       k := rad_pdf_ri.kids(st.inst, p_id);
-      FOR j IN 1 .. k.COUNT LOOP
-        l_h := l_h + do_row(st, p_id, k(j), 0, 0, j = 1, FALSE);
-        EXIT WHEN st.inst.nodes(k(j)).header <> 'Y';
-      END LOOP;
-      st.dry := l_dry;
-      RETURN l_h;
+      RETURN group_h(st, p_id, k, 1, least(table_hdr(st, k) + 1, k.COUNT), NULL);
     ELSIF n.kind = 'fixed_box' THEN RETURN n.height;
     END IF;
     RETURN 0;
   END need_of;
 
-  -- keep_next (96a §8): the chain from block j must fit; it starts on a new page when it does not fit here
+  -- keep_next (96a §8): the chain from block j, with the gap its first block gets here (R1); it starts on a new page
+  -- when it does not fit here; taller than the page that would hold it: [PDF_LAYOUT]
   PROCEDURE keep_chain(st IN OUT NOCOPY t_st, k IN rad_pdf_ri.t_num_list, j IN PLS_INTEGER) IS
     l_need NUMBER := 0;
     l_i    PLS_INTEGER := j;
@@ -566,19 +718,25 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
         EXIT;
       END IF;
     END LOOP;
-    IF l_need > bottom_of(st, st.pg + 1) - top_of(st, st.pg + 1) + 0.001 THEN
+    IF st.y + gap_of(st, st.inst.nodes(k(j))) + l_need <= bottom_of(st, st.pg) + 0.001 THEN RETURN; END IF;   -- fits here
+    IF st.fresh THEN                                     -- already at the top of a page: nowhere better
       fail(c_err_layout, 'a keep-with-next chain of ' || round(l_need, 2) || ' pt is taller than the page');
     END IF;
-    IF st.y + l_need > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN new_page(st); END IF;
+    IF l_need > height_of(st, st.pg + 1) + 0.001 THEN
+      fail(c_err_layout, 'a keep-with-next chain of ' || round(l_need, 2) || ' pt is taller than the page');
+    END IF;
+    new_page(st);
   END keep_chain;
 
   PROCEDURE flow_para(st IN OUT NOCOPY t_st, p_id rad_pdf_ri.t_id) IS
-    p     t_plan := plan_para(st, p_id, st.width);
-    l_gap NUMBER := greatest(st.after, p.para.space_before);
+    p     t_plan := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE);
+    l_gap NUMBER := gap_of(st, st.inst.nodes(p_id));
     l_y   NUMBER;
   BEGIN
-    IF st.fresh THEN l_gap := 0; END IF;                 -- the top of a page after an automatic break
-    IF st.y + l_gap + p.lines(1).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN new_page(st); l_gap := 0; END IF;
+    IF st.y + l_gap + p.lines(1).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN
+      new_page(st); l_gap := 0;
+      p := plan_para(st, p_id, st.width, st.pg, st.guess, TRUE);    -- its fields measured on the page that holds it (R3)
+    END IF;
     st.y := st.y + l_gap;
     FOR l IN 1 .. p.lines.COUNT LOOP
       IF st.y + p.lines(l).h > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN new_page(st); END IF;
@@ -589,47 +747,60 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     st.after := p.para.space_after;
   END flow_para;
 
+  -- a table (R2): the leading header rows and the first body row are one group; after a page break the repeated header
+  -- rows and the row are one group; the bottom border is reserved with the last row; a group taller than an empty page
+  -- is [PDF_LAYOUT]; a row is never split (v1)
   PROCEDURE flow_table(st IN OUT NOCOPY t_st, p_id rad_pdf_ri.t_id) IS
     k     rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, p_id);
-    l_hdr PLS_INTEGER := 0;                              -- the leading header rows
-    l_h   NUMBER;
-    l_first BOOLEAN := TRUE;                             -- the first row of the table on this page
+    l_hdr PLS_INTEGER := table_hdr(st, k);
+    j     PLS_INTEGER := 1;
+    l_to  PLS_INTEGER;
+    l_need NUMBER;
+    l_prev rad_pdf_ri.t_id;                              -- the row before on this page (NULL: none)
   BEGIN
-    FOR j IN 1 .. k.COUNT LOOP
-      EXIT WHEN st.inst.nodes(k(j)).header <> 'Y';
-      l_hdr := j;
-    END LOOP;
-    IF NOT st.fresh THEN st.y := st.y + st.after; END IF;
+    st.y := st.y + gap_of(st, st.inst.nodes(p_id));
     st.after := 0;
-    FOR j IN 1 .. k.COUNT LOOP
-      l_h := do_row(st, p_id, k(j), st.left, st.y, l_first, FALSE);
-      IF st.y + l_h > bottom_of(st, st.pg) + 0.001 AND NOT (st.fresh AND l_first) THEN
-        IF NOT l_first THEN st.y := st.y + bottom_border(st, p_id, st.left, st.y); END IF;
+    WHILE j <= k.COUNT LOOP
+      l_to := CASE WHEN j = 1 AND l_hdr > 0 THEN least(l_hdr + 1, k.COUNT) ELSE j END;
+      l_need := group_h(st, p_id, k, j, l_to, l_prev);
+      IF st.y + l_need > bottom_of(st, st.pg) + 0.001 AND NOT (st.fresh AND l_prev IS NULL) THEN
+        IF l_prev IS NOT NULL THEN st.y := st.y + bottom_border(st, p_id, l_prev, st.left, st.y); END IF;
         new_page(st);
-        l_first := TRUE;
-        IF j > l_hdr THEN                                -- the header rows repeated
+        l_prev := NULL;
+        IF j > l_hdr AND l_hdr > 0 THEN                  -- the header rows repeated, with the row: one group
+          l_need := group_h(st, p_id, k, 1, l_hdr, NULL);
+          FOR h IN 1 .. l_hdr LOOP l_prev := k(h); END LOOP;
+          l_need := l_need + group_h(st, p_id, k, j, l_to, l_prev);
+          IF l_need > height_of(st, st.pg) + 0.001 THEN
+            fail(c_err_layout, 'the header rows and a table row of ' || round(l_need, 2) || ' pt are taller than the page');
+          END IF;
+          l_prev := NULL;
           FOR h IN 1 .. l_hdr LOOP
-            st.y := st.y + do_row(st, p_id, k(h), st.left, st.y, l_first, TRUE);
-            l_first := FALSE;
+            st.y := st.y + do_row(st, p_id, k(h), st.left, st.y, l_prev, TRUE, st.pg, st.guess);
+            l_prev := k(h);
           END LOOP;
         END IF;
-        l_h := do_row(st, p_id, k(j), st.left, st.y, l_first, FALSE);
       END IF;
-      IF l_h > bottom_of(st, st.pg) - top_of(st, st.pg) + 0.001 THEN
-        fail(c_err_layout, 'a table row of ' || round(l_h, 2) || ' pt is taller than the page (rows are not split in v1)');
+      IF group_h(st, p_id, k, j, l_to, l_prev) > height_of(st, st.pg) + 0.001 THEN
+        fail(c_err_layout, 'a table row of ' || round(group_h(st, p_id, k, j, l_to, l_prev), 2)
+             || ' pt is taller than the page (rows are not split in v1)');
       END IF;
-      st.y := st.y + do_row(st, p_id, k(j), st.left, st.y, l_first, TRUE);
-      l_first := FALSE;
+      FOR r IN j .. l_to LOOP
+        st.y := st.y + do_row(st, p_id, k(r), st.left, st.y, l_prev, TRUE, st.pg, st.guess);
+        l_prev := k(r);
+      END LOOP;
       st.fresh := FALSE;
+      j := l_to + 1;
     END LOOP;
-    st.y := st.y + bottom_border(st, p_id, st.left, st.y);
+    st.y := st.y + bottom_border(st, p_id, k(k.COUNT), st.left, st.y);
   END flow_table;
 
   PROCEDURE flow_body(st IN OUT NOCOPY t_st) IS
     k rad_pdf_ri.t_num_list := rad_pdf_ri.kids(st.inst, rad_pdf_ri.zone(st.inst, 'body'));
     n rad_pdf_ri.t_node;
   BEGIN
-    st.pg := 1; st.y := st.top1; st.fresh := FALSE; st.after := 0; st.ops.DELETE;
+    st.tops.DELETE; st.bottoms.DELETE;
+    st.pg := 1; st.y := top_of(st, 1); st.fresh := FALSE; st.after := 0; st.ops.DELETE;
     FOR j IN 1 .. k.COUNT LOOP
       n := st.inst.nodes(k(j));
       IF (n.kind = 'paragraph' AND n.para.keep_next = 'Y') OR (n.kind = 'fixed_box' AND n.keep_next = 'Y') THEN
@@ -641,9 +812,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
       CASE n.kind
         WHEN 'paragraph'  THEN flow_para(st, k(j));
         WHEN 'table'      THEN flow_table(st, k(j));
-        WHEN 'page_break' THEN st.pg := st.pg + 1; st.y := top_of(st, st.pg); st.fresh := FALSE; st.after := 0;
+        WHEN 'page_break' THEN new_page(st, TRUE);
         WHEN 'fixed_box'  THEN
-          IF NOT st.fresh THEN st.y := st.y + st.after; END IF;
+          st.y := st.y + gap_of(st, n);
           IF st.y + n.height > bottom_of(st, st.pg) + 0.001 AND NOT st.fresh THEN new_page(st); END IF;
           op_image(st, st.left, st.y, n.width, n.height, n.image_res);
           st.y := st.y + n.height; st.after := 0; st.fresh := FALSE;
@@ -655,31 +826,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
   -- ---------------------------------------------------------------------------
   -- zones and the render
   -- ---------------------------------------------------------------------------
-  FUNCTION zone_name(st IN t_st, p_kind VARCHAR2, p_pg PLS_INTEGER) RETURN VARCHAR2 IS
-  BEGIN
-    RETURN p_kind || CASE WHEN p_pg = 1 AND st.inst.nodes(st.inst.section_id).title_page = 'Y' THEN '_first' ELSE '_default' END;
-  END zone_name;
-
-  FUNCTION zone_h(st IN OUT NOCOPY t_st, p_zone VARCHAR2, p_pg PLS_INTEGER, p_pages PLS_INTEGER) RETURN NUMBER IS
-    l_dry BOOLEAN := st.dry;
-    l_h   NUMBER;
-  BEGIN
-    st.dry := TRUE;
-    l_h := fixed_blocks(st, rad_pdf_ri.zone(st.inst, p_zone), st.left, st.width, 0, p_pg, p_pages);
-    st.dry := l_dry;
-    RETURN l_h;
-  END zone_h;
-
-  PROCEDURE frames(st IN OUT NOCOPY t_st) IS
-    s rad_pdf_ri.t_node := st.inst.nodes(st.inst.section_id);
-  BEGIN
-    st.top1    := greatest(s.mar_top, s.mar_header + zone_h(st, zone_name(st, 'header', 1), 1, st.guess));
-    st.bottom1 := st.page_h - greatest(s.mar_bottom, s.mar_footer + zone_h(st, zone_name(st, 'footer', 1), 1, st.guess));
-    st.topn    := greatest(s.mar_top, s.mar_header + zone_h(st, zone_name(st, 'header', 2), 2, st.guess));
-    st.bottomn := st.page_h - greatest(s.mar_bottom, s.mar_footer + zone_h(st, zone_name(st, 'footer', 2), 2, st.guess));
-    IF st.bottom1 - st.top1 < 1 OR st.bottomn - st.topn < 1 THEN fail(c_err_layout, 'the header and footer leave no body'); END IF;
-  END frames;
-
   PROCEDURE zones(st IN OUT NOCOPY t_st, p_pages PLS_INTEGER) IS
     s   rad_pdf_ri.t_node := st.inst.nodes(st.inst.section_id);
     l_y NUMBER;
@@ -757,12 +903,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_pager AS
     l_tpl.margin_left := s.mar_left; l_tpl.margin_right := s.mar_right;
     l_info.title := p_options.title;
     st.doc := rad_pdf.new_document(p_info => l_info, p_template => l_tpl);
-    -- the double pass of NUMPAGES: again while the count has more digits than the guess
-    FOR pass IN 1 .. 3 LOOP
-      frames(st);
+    -- PAGE and NUMPAGES (R3): the body is laid out with a page count, and again with the count it gave, until the count
+    -- it gives is the count it was laid out with (the fields, the zones and their heights then agree)
+    FOR pass IN 1 .. 4 LOOP
       flow_body(st);
       l_pages := st.pg;
-      EXIT WHEN length(to_char(l_pages)) <= length(to_char(st.guess));
+      EXIT WHEN l_pages = st.guess;
+      IF pass = 4 THEN fail(c_err_layout, 'the page count does not settle (' || st.guess || ', ' || l_pages || ')'); END IF;
       st.guess := l_pages;
     END LOOP;
     zones(st, l_pages);
