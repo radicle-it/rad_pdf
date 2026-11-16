@@ -5,12 +5,14 @@ of its rendering through the existing engine against Word's export.
     python3 tests/word/quote_ri.py            run tests/word/quote_ri.sql in the test schema (connection: the golden
                                               bench's, tests/golden/bench.py) and compare:
                                               - the RI dump with tests/word/samples/sal_quote_v1_ri.json (same text);
+                                              - the bridge's PDF with samples/sal_quote_v1_ri.pdf (same bytes: the
+                                                clock is fixed);
                                               - the page count with sal_quote_v1_word.pdf (Word 16.111.2: 3 pages), and
                                                 the lines of the table on each page (reported, not required in B1)
-    python3 tests/word/quote_ri.py --record   write the RI dump as the new reference (say why in the commit)
+    python3 tests/word/quote_ri.py --record   write the RI dump and the PDF as the new references (say why in the commit)
 
 Writes tests/word/out/ (not versioned): sal_quote_v1_ri.json and sal_quote_v1_ri.pdf. Exit 1 when the dump differs from
-its reference or the page count from Word's.
+its reference, the PDF from its reference or the page count from Word's.
 """
 import json
 import re
@@ -25,6 +27,7 @@ import bench  # noqa: E402  (connection, sqlcl, the dump procedure)
 SAMPLES = HERE / 'samples'
 OUT = HERE / 'out'
 REF_JSON = SAMPLES / 'sal_quote_v1_ri.json'
+REF_PDF = SAMPLES / 'sal_quote_v1_ri.pdf'
 WORD_PDF = SAMPLES / 'sal_quote_v1_word.pdf'
 
 
@@ -73,12 +76,19 @@ def main():
     ok = True
     if record:
         REF_JSON.write_text(ri, encoding='utf-8')
-        print(f'RI dump recorded: {REF_JSON.relative_to(HERE.parent.parent)} ({nodes} nodes)')
-    elif not REF_JSON.exists() or REF_JSON.read_text(encoding='utf-8') != ri:
-        ok = False
-        print(f'RI dump DIFFERS from {REF_JSON.name} (see {OUT / "sal_quote_v1_ri.json"})')
+        REF_PDF.write_bytes(pdf.read_bytes())
+        print(f'recorded: {REF_JSON.name} ({nodes} nodes), {REF_PDF.name} ({REF_PDF.stat().st_size} bytes)')
     else:
-        print(f'RI dump identical to {REF_JSON.name} ({nodes} nodes)')
+        if not REF_JSON.exists() or REF_JSON.read_text(encoding='utf-8') != ri:
+            ok = False
+            print(f'RI dump DIFFERS from {REF_JSON.name} (see {OUT / "sal_quote_v1_ri.json"})')
+        else:
+            print(f'RI dump identical to {REF_JSON.name} ({nodes} nodes)')
+        if not REF_PDF.exists() or REF_PDF.read_bytes() != pdf.read_bytes():
+            ok = False
+            print(f'PDF DIFFERS from {REF_PDF.name} (see {pdf})')
+        else:
+            print(f'PDF identical to {REF_PDF.name} ({REF_PDF.stat().st_size} bytes)')
     ours, word = pages(pdf), pages(WORD_PDF)
     print(f'pages: engine {ours}, Word {word} -> {"SAME" if ours == word else "DIFFERENT"}')
     print(f'table lines per page: engine {lines_per_page(pdf)}, Word {lines_per_page(WORD_PDF)}')

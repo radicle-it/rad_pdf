@@ -1,5 +1,7 @@
 CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
 
+  TYPE t_seen IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(16);       -- the zones already read back
+
   c_path_re CONSTANT VARCHAR2(200) :=
     '^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.([A-Za-z_][A-Za-z0-9_]*(\[\])?|[0-9]+))*$';
 
@@ -123,14 +125,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     check_color('run color', p_fmt.color);
   END check_fmt;
 
+  FUNCTION scope_of(p_path IN VARCHAR2) RETURN VARCHAR2 IS
+    l_last PLS_INTEGER := instr(p_path, '[]', -1);
+  BEGIN
+    RETURN CASE WHEN l_last > 0 THEN substr(p_path, 1, l_last - 1) END;
+  END scope_of;
+
   PROCEDURE check_ref(p_kind IN VARCHAR2, p_scope IN VARCHAR2, p_path IN VARCHAR2) IS
   BEGIN
     IF p_path IS NULL OR NOT regexp_like(p_path, c_path_re) THEN fail(p_kind || ': invalid resolved path ' || p_path); END IF;
-    IF p_scope IS NOT NULL THEN
-      IF NOT regexp_like(p_scope, c_path_re) THEN fail(p_kind || ': invalid scope ' || p_scope); END IF;
-      IF substr(p_path, 1, length(p_scope) + 3) <> p_scope || '[].' THEN
-        fail(p_kind || ': the path ' || p_path || ' is not inside its scope ' || p_scope);
-      END IF;
+    -- the scope is the part of the path before its last [] (96a §6.3: the element of the innermost loop it reads),
+    -- NULL when the path has no []: any other scope is incoherent
+    IF nvl(p_scope, '#') <> nvl(scope_of(p_path), '#') THEN
+      fail(p_kind || ': the path ' || p_path || ' is not inside its scope ' || nvl(p_scope, '(the root)')
+           || ' (its scope is ' || nvl(scope_of(p_path), 'the root') || ')');
     END IF;
   END check_ref;
 
@@ -205,15 +213,20 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     fail('no zone ' || p_name);
   END zone;
 
+  PROCEDURE check_image(p_bytes IN BLOB, p_format IN VARCHAR2, p_px_w IN PLS_INTEGER, p_px_h IN PLS_INTEGER) IS
+  BEGIN
+    IF p_format IS NULL OR p_format NOT IN ('PNG', 'JPEG') THEN fail('image format PNG or JPEG'); END IF;
+    IF p_bytes IS NULL OR dbms_lob.getlength(p_bytes) = 0 THEN fail('an image needs its bytes'); END IF;
+    IF p_px_w IS NULL OR p_px_w <= 0 OR p_px_h IS NULL OR p_px_h <= 0 THEN fail('image pixels must be positive'); END IF;
+  END check_image;
+
   FUNCTION add_image(p_ri IN OUT NOCOPY t_ri, p_bytes IN BLOB, p_format IN VARCHAR2,
                      p_px_w IN PLS_INTEGER, p_px_h IN PLS_INTEGER) RETURN t_id IS
     l_i t_image;
     l_id t_id;
   BEGIN
     check_open(p_ri);
-    IF p_format IS NULL OR p_format NOT IN ('PNG', 'JPEG') THEN fail('image format PNG or JPEG'); END IF;
-    IF p_bytes IS NULL OR dbms_lob.getlength(p_bytes) = 0 THEN fail('an image needs its bytes'); END IF;
-    IF p_px_w IS NULL OR p_px_w <= 0 OR p_px_h IS NULL OR p_px_h <= 0 THEN fail('image pixels must be positive'); END IF;
+    check_image(p_bytes, p_format, p_px_w, p_px_h);
     dbms_lob.createtemporary(l_i.bytes, TRUE);
     dbms_lob.copy(l_i.bytes, p_bytes, dbms_lob.getlength(p_bytes));
     l_i.format := p_format; l_i.px_w := p_px_w; l_i.px_h := p_px_h;
@@ -426,6 +439,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     l_body  PLS_INTEGER := 0;
     l_seen_body_row BOOLEAN;
     l_n     PLS_INTEGER;
+    l_loops VARCHAR2(4000);
+    l_pre   VARCHAR2(400);
   BEGIN
     check_open(p_ri);
     IF p_ri.section_id IS NULL THEN fail('a document needs its section'); END IF;
@@ -465,12 +480,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
           IF l_k.COUNT = 0 THEN fail('block_region ' || id || ' is empty'); END IF;
         ELSE NULL;
       END CASE;
-      -- the scope of a tag or a region: the root, or a LOOP around it
-      IF l.kind IN ('tag', 'inline_region', 'block_region', 'row_region') AND l.ref_scope IS NOT NULL THEN
-        IF instr(loops_around(p_ri, id), ',' || l.ref_scope || ',') = 0 THEN
-          fail(l.kind || ' ' || id || ': ' || l.ref_path || ' resolved in the scope ' || l.ref_scope
-               || ', which no loop around it opens');
-        END IF;
+      -- every [] of a resolved path reads the current element of a LOOP around the node (the scope is the last one)
+      IF l.kind IN ('tag', 'inline_region', 'block_region', 'row_region') AND instr(l.ref_path, '[]') > 0 THEN
+        l_loops := loops_around(p_ri, id);
+        FOR k IN 1 .. regexp_count(l.ref_path, '\[\]') LOOP
+          l_pre := substr(l.ref_path, 1, instr(l.ref_path, '[]', 1, k) - 1);
+          IF instr(l_loops, ',' || l_pre || ',') = 0 THEN
+            fail(l.kind || ' ' || id || ': ' || l.ref_path || ' reads an element of ' || l_pre
+                 || ', which no loop around it opens');
+          END IF;
+        END LOOP;
       END IF;
       IF l.kind = 'zone' AND l.zone_name = 'body' THEN l_body := l_body + 1; END IF;
     END LOOP;
@@ -641,7 +660,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     fr t_font_reqs;
     l_b64 CLOB;
   BEGIN
-    IF p_ri.sealed <> 'Y' THEN fail('only a sealed RI is serialized'); END IF;
+    validate(p_ri);                                      -- the consume boundary: the sealed flag is not trusted
     o.put('ri_version', p_ri.ri_version);
     FOR i IN 1 .. p_ri.images.COUNT LOOP
       t := json_object_t();
@@ -663,14 +682,101 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     RETURN o.to_clob;
   END to_json;
 
-  -- reading back: through the builder
+  -- ---------------------------------------------------------------------------
+  -- one node through the builder: from_json and validate both rebuild an RI by this one dispatcher, so every rule
+  -- lives once, in the builder and in seal
+  -- ---------------------------------------------------------------------------
+  FUNCTION add_from_node(p_ri IN OUT NOCOPY t_ri, p_in IN t_id, l IN t_node, p_seen IN OUT NOCOPY t_seen) RETURN t_id IS
+    l_id t_id;
+  BEGIN
+    CASE l.kind
+      WHEN 'section' THEN
+        IF p_in <> 1 THEN fail('a section only in the document'); END IF;
+        RETURN section(p_ri, l.page_w, l.page_h, l.orientation, l.mar_top, l.mar_bottom, l.mar_left, l.mar_right,
+                       l.mar_header, l.mar_footer, l.title_page);
+      WHEN 'zone' THEN
+        IF kind_of(p_ri, p_in) <> 'section' THEN fail('a zone only in the section'); END IF;
+        l_id := zone(p_ri, l.zone_name);
+        IF p_seen.EXISTS(l.zone_name) THEN fail('the zone ' || l.zone_name || ' twice'); END IF;
+        p_seen(l.zone_name) := l_id;
+        RETURN l_id;
+      WHEN 'paragraph'     THEN RETURN paragraph(p_ri, p_in, l.para, l.tabs);
+      WHEN 'table'         THEN RETURN table_(p_ri, p_in, l.grid, l.borders);
+      WHEN 'page_break'    THEN RETURN page_break(p_ri, p_in);
+      WHEN 'fixed_box'     THEN RETURN fixed_box(p_ri, p_in, l.image_res, l.width, l.height, l.keep_next);
+      WHEN 'block_region'  THEN RETURN block_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'run'           THEN RETURN run(p_ri, p_in, l.text, l.fmt);
+      WHEN 'field'         THEN RETURN field(p_ri, p_in, l.field_code, l.fmt);
+      WHEN 'tab'           THEN RETURN tab(p_ri, p_in);
+      WHEN 'line_break'    THEN RETURN line_break(p_ri, p_in);
+      WHEN 'image'         THEN RETURN image(p_ri, p_in, l.image_res, l.width, l.height);
+      WHEN 'tag'           THEN RETURN tag(p_ri, p_in, l.tag_op, l.ref_scope, l.ref_path, l.fmt);
+      WHEN 'inline_region' THEN RETURN inline_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'row'           THEN RETURN row_(p_ri, p_in, l.header, l.cant_split);
+      WHEN 'row_region'    THEN RETURN row_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'cell'          THEN RETURN cell(p_ri, p_in, l.cell);
+      ELSE fail('unknown node kind ' || nvl(l.kind, 'NULL'));
+    END CASE;
+  END add_from_node;
+
+  -- ---------------------------------------------------------------------------
+  -- strict readers of the serialized form: a member present, of its JSON type (null only where allowed)
+  -- ---------------------------------------------------------------------------
+  FUNCTION j_member(o IN json_object_t, k IN VARCHAR2, p_null IN BOOLEAN, p_type IN VARCHAR2) RETURN json_element_t IS
+    e json_element_t;
+  BEGIN
+    IF NOT o.has(k) THEN fail('member ' || k || ' missing'); END IF;
+    e := o.get(k);
+    IF e.is_null THEN
+      IF p_null THEN RETURN NULL; END IF;
+      fail('member ' || k || ' is null');
+    END IF;
+    IF (p_type = 'S' AND NOT e.is_string) OR (p_type = 'N' AND NOT e.is_number) OR (p_type = 'O' AND NOT e.is_object)
+       OR (p_type = 'A' AND NOT e.is_array) THEN
+      fail('member ' || k || ' is not ' || CASE p_type WHEN 'S' THEN 'a string' WHEN 'N' THEN 'a number'
+                                                        WHEN 'O' THEN 'an object' ELSE 'an array' END);
+    END IF;
+    RETURN e;
+  END j_member;
+
+  FUNCTION rs(o IN json_object_t, k IN VARCHAR2, p_null IN BOOLEAN DEFAULT FALSE) RETURN VARCHAR2 IS
+  BEGIN
+    RETURN CASE WHEN j_member(o, k, p_null, 'S') IS NOT NULL THEN o.get_string(k) END;
+  END rs;
+
+  FUNCTION rc(o IN json_object_t, k IN VARCHAR2) RETURN CLOB IS     -- a long string (the base64 of an image)
+  BEGIN
+    RETURN CASE WHEN j_member(o, k, FALSE, 'S') IS NOT NULL THEN o.get_clob(k) END;
+  END rc;
+
+  FUNCTION rn(o IN json_object_t, k IN VARCHAR2, p_null IN BOOLEAN DEFAULT FALSE) RETURN NUMBER IS
+  BEGIN
+    RETURN CASE WHEN j_member(o, k, p_null, 'N') IS NOT NULL THEN o.get_number(k) END;
+  END rn;
+
+  FUNCTION ro(o IN json_object_t, k IN VARCHAR2) RETURN json_object_t IS
+  BEGIN
+    RETURN treat(j_member(o, k, FALSE, 'O') AS json_object_t);
+  END ro;
+
+  FUNCTION ra(o IN json_object_t, k IN VARCHAR2) RETURN json_array_t IS
+  BEGIN
+    RETURN treat(j_member(o, k, FALSE, 'A') AS json_array_t);
+  END ra;
+
+  FUNCTION ao(a IN json_array_t, i IN PLS_INTEGER, p_what IN VARCHAR2) RETURN json_object_t IS
+  BEGIN
+    IF NOT a.get(i).is_object THEN fail(p_what || ' ' || i || ' is not an object'); END IF;
+    RETURN treat(a.get(i) AS json_object_t);
+  END ao;
+
   FUNCTION r_border(o IN json_object_t, k IN VARCHAR2) RETURN t_border IS
     b t_border;
     x json_object_t;
   BEGIN
-    IF o IS NULL OR NOT o.has(k) THEN RETURN b; END IF;
-    x := o.get_object(k);
-    b.style := x.get_string('style'); b.width := x.get_number('width'); b.color := x.get_string('color');
+    IF NOT o.has(k) THEN RETURN b; END IF;               -- a side not set is written as absent
+    x := ro(o, k);
+    b.style := rs(x, 'style'); b.width := rn(x, 'width', TRUE); b.color := rs(x, 'color', TRUE);
     RETURN b;
   END r_border;
 
@@ -685,74 +791,65 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   FUNCTION r_fmt(o IN json_object_t) RETURN t_run_fmt IS
     f t_run_fmt;
   BEGIN
-    f.font := o.get_string('font'); f.size_pt := o.get_number('size'); f.bold := o.get_string('bold');
-    f.italic := o.get_string('italic'); f.underline := o.get_string('underline'); f.color := o.get_string('color');
+    f.font := rs(o, 'font'); f.size_pt := rn(o, 'size'); f.bold := rs(o, 'bold');
+    f.italic := rs(o, 'italic'); f.underline := rs(o, 'underline'); f.color := rs(o, 'color');
     RETURN f;
   END r_fmt;
 
-  PROCEDURE r_node(p_ri IN OUT NOCOPY t_ri, p_in IN t_id, o IN json_object_t) IS
-    k    VARCHAR2(16) := o.get_string('kind');
+  PROCEDURE r_node(p_ri IN OUT NOCOPY t_ri, p_in IN t_id, o IN json_object_t, p_seen IN OUT NOCOPY t_seen) IS
+    l    t_node;
     l_id t_id;
     a    json_array_t;
-    pf   t_para_fmt;
-    tb   t_tab_list := t_tab_list();
-    cf   t_cell_fmt;
-    g    t_num_list := t_num_list();
     t    json_object_t;
   BEGIN
-    CASE k
+    l.kind := rs(o, 'kind');
+    CASE l.kind
       WHEN 'section' THEN
-        IF p_in <> 1 THEN fail('a section only in the document'); END IF;
-        l_id := section(p_ri, o.get_number('page_w'), o.get_number('page_h'), o.get_string('orientation'),
-                        o.get_number('mar_top'), o.get_number('mar_bottom'), o.get_number('mar_left'),
-                        o.get_number('mar_right'), o.get_number('mar_header'), o.get_number('mar_footer'),
-                        o.get_string('title_page'));
-      WHEN 'zone' THEN
-        IF kind_of(p_ri, p_in) <> 'section' THEN fail('a zone only in the section'); END IF;
-        l_id := zone(p_ri, o.get_string('name'));
-        IF p_ri.children(l_id).COUNT > 0 THEN fail('the zone ' || o.get_string('name') || ' twice'); END IF;
+        l.page_w := rn(o, 'page_w'); l.page_h := rn(o, 'page_h'); l.orientation := rs(o, 'orientation');
+        l.mar_top := rn(o, 'mar_top'); l.mar_bottom := rn(o, 'mar_bottom'); l.mar_left := rn(o, 'mar_left');
+        l.mar_right := rn(o, 'mar_right'); l.mar_header := rn(o, 'mar_header'); l.mar_footer := rn(o, 'mar_footer');
+        l.title_page := rs(o, 'title_page');
+      WHEN 'zone' THEN l.zone_name := rs(o, 'name');
       WHEN 'paragraph' THEN
-        pf.align := o.get_string('align'); pf.ind_left := o.get_number('ind_left'); pf.ind_right := o.get_number('ind_right');
-        pf.ind_first := o.get_number('ind_first'); pf.space_before := o.get_number('space_before');
-        pf.space_after := o.get_number('space_after'); pf.line_mult := o.get_number('line_mult');
-        pf.keep_next := o.get_string('keep_next');
-        a := o.get_array('tabs');
+        l.para.align := rs(o, 'align'); l.para.ind_left := rn(o, 'ind_left'); l.para.ind_right := rn(o, 'ind_right');
+        l.para.ind_first := rn(o, 'ind_first'); l.para.space_before := rn(o, 'space_before');
+        l.para.space_after := rn(o, 'space_after'); l.para.line_mult := rn(o, 'line_mult');
+        l.para.keep_next := rs(o, 'keep_next');
+        l.tabs := t_tab_list();
+        a := ra(o, 'tabs');
         FOR i IN 0 .. a.get_size - 1 LOOP
-          t := treat(a.get(i) AS json_object_t);
-          tb.EXTEND; tb(tb.COUNT).pos := t.get_number('pos'); tb(tb.COUNT).kind := t.get_string('kind');
+          t := ao(a, i, 'tab');
+          l.tabs.EXTEND; l.tabs(l.tabs.COUNT).pos := rn(t, 'pos'); l.tabs(l.tabs.COUNT).kind := rs(t, 'kind');
         END LOOP;
-        l_id := paragraph(p_ri, p_in, pf, tb);
-      WHEN 'run' THEN l_id := run(p_ri, p_in, o.get_string('text'), r_fmt(o.get_object('fmt')));
-      WHEN 'field' THEN l_id := field(p_ri, p_in, o.get_string('code'), r_fmt(o.get_object('fmt')));
-      WHEN 'tab' THEN l_id := tab(p_ri, p_in);
-      WHEN 'line_break' THEN l_id := line_break(p_ri, p_in);
-      WHEN 'image' THEN l_id := image(p_ri, p_in, o.get_number('res'), o.get_number('width'), o.get_number('height'));
-      WHEN 'fixed_box' THEN l_id := fixed_box(p_ri, p_in, o.get_number('res'), o.get_number('width'),
-                                              o.get_number('height'), o.get_string('keep_next'));
-      WHEN 'page_break' THEN l_id := page_break(p_ri, p_in);
-      WHEN 'tag' THEN l_id := tag(p_ri, p_in, o.get_string('op'), o.get_string('scope'), o.get_string('path'),
-                                  r_fmt(o.get_object('fmt')));
+      WHEN 'run'   THEN l.text := rs(o, 'text'); l.fmt := r_fmt(ro(o, 'fmt'));
+      WHEN 'field' THEN l.field_code := rs(o, 'code'); l.fmt := r_fmt(ro(o, 'fmt'));
+      WHEN 'image' THEN l.image_res := rn(o, 'res'); l.width := rn(o, 'width'); l.height := rn(o, 'height');
+      WHEN 'fixed_box' THEN
+        l.image_res := rn(o, 'res'); l.width := rn(o, 'width'); l.height := rn(o, 'height'); l.keep_next := rs(o, 'keep_next');
+      WHEN 'tag' THEN
+        l.tag_op := rs(o, 'op'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path'); l.fmt := r_fmt(ro(o, 'fmt'));
       WHEN 'table' THEN
-        a := o.get_array('grid');
-        FOR i IN 0 .. a.get_size - 1 LOOP g.EXTEND; g(g.COUNT) := a.get_number(i); END LOOP;
-        l_id := table_(p_ri, p_in, g, r_borders(o.get_object('borders')));
-      WHEN 'row' THEN l_id := row_(p_ri, p_in, o.get_string('header'), o.get_string('cant_split'));
+        l.grid := t_num_list();
+        a := ra(o, 'grid');
+        FOR i IN 0 .. a.get_size - 1 LOOP
+          IF NOT a.get(i).is_number THEN fail('grid column ' || i || ' is not a number'); END IF;
+          l.grid.EXTEND; l.grid(l.grid.COUNT) := a.get_number(i);
+        END LOOP;
+        l.borders := r_borders(ro(o, 'borders'));
+      WHEN 'row' THEN l.header := rs(o, 'header'); l.cant_split := rs(o, 'cant_split');
       WHEN 'cell' THEN
-        cf.grid_span := o.get_number('grid_span'); cf.borders := r_borders(o.get_object('borders'));
-        cf.shading := o.get_string('shading'); cf.mar_top := o.get_number('mar_top');
-        cf.mar_bottom := o.get_number('mar_bottom'); cf.mar_left := o.get_number('mar_left');
-        cf.mar_right := o.get_number('mar_right');
-        l_id := cell(p_ri, p_in, cf);
-      WHEN 'inline_region' THEN l_id := inline_region(p_ri, p_in, o.get_string('region'), o.get_string('scope'), o.get_string('path'));
-      WHEN 'block_region' THEN l_id := block_region(p_ri, p_in, o.get_string('region'), o.get_string('scope'), o.get_string('path'));
-      WHEN 'row_region' THEN l_id := row_region(p_ri, p_in, o.get_string('region'), o.get_string('scope'), o.get_string('path'));
-      ELSE fail('unknown node kind ' || k);
+        l.cell.grid_span := rn(o, 'grid_span'); l.cell.borders := r_borders(ro(o, 'borders'));
+        l.cell.shading := rs(o, 'shading', TRUE); l.cell.mar_top := rn(o, 'mar_top');
+        l.cell.mar_bottom := rn(o, 'mar_bottom'); l.cell.mar_left := rn(o, 'mar_left'); l.cell.mar_right := rn(o, 'mar_right');
+      WHEN 'inline_region' THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
+      WHEN 'block_region'  THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
+      WHEN 'row_region'    THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
+      ELSE NULL;                                          -- tab, line_break, page_break; unknown kinds: the dispatcher
     END CASE;
+    l_id := add_from_node(p_ri, p_in, l, p_seen);
     IF o.has('children') THEN
-      a := o.get_array('children');
-      FOR i IN 0 .. a.get_size - 1 LOOP
-        r_node(p_ri, l_id, treat(a.get(i) AS json_object_t));
-      END LOOP;
+      a := ra(o, 'children');
+      FOR i IN 0 .. a.get_size - 1 LOOP r_node(p_ri, l_id, ao(a, i, 'child'), p_seen); END LOOP;
     END IF;
   END r_node;
 
@@ -764,30 +861,30 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     l_ri t_ri;
     l_id t_id;
     l_bytes BLOB;
+    l_seen t_seen;
   BEGIN
     BEGIN
       o := json_object_t.parse(p_json);
     EXCEPTION WHEN OTHERS THEN fail('not JSON: ' || sqlerrm);
     END;
-    IF o.get_number('ri_version') IS NULL OR o.get_number('ri_version') <> c_ri_version THEN
-      fail('ri_version ' || o.get_number('ri_version') || ' (this engine reads ' || c_ri_version || ')');
+    IF rn(o, 'ri_version') <> c_ri_version THEN
+      fail('ri_version ' || rn(o, 'ri_version') || ' (this engine reads ' || c_ri_version || ')');
     END IF;
     l_ri := new_ri;
-    a := o.get_array('images');
+    a := ra(o, 'images');
     FOR i IN 0 .. a.get_size - 1 LOOP
-      t := treat(a.get(i) AS json_object_t);
-      l_bytes := unb64(t.get_clob('bytes'));
-      l_id := add_image(l_ri, l_bytes, t.get_string('format'), t.get_number('px_w'), t.get_number('px_h'));
+      t := ao(a, i, 'image');
+      l_bytes := unb64(rc(t, 'bytes'));
+      l_id := add_image(l_ri, l_bytes, rs(t, 'format'), rn(t, 'px_w'), rn(t, 'px_h'));
       dbms_lob.freetemporary(l_bytes);
-      IF l_id <> t.get_number('id') OR l_ri.images(l_id).sha256 <> t.get_string('sha256') THEN
-        fail('image ' || t.get_number('id') || ': id or hash do not match its bytes');
-      END IF;
+      IF rn(t, 'id') <> l_id THEN fail('image ' || l_id || ': its id is ' || rn(t, 'id')); END IF;
+      IF rs(t, 'sha256') <> l_ri.images(l_id).sha256 THEN fail('image ' || l_id || ': the hash does not match its bytes'); END IF;
     END LOOP;
-    d := o.get_object('document');
-    IF d IS NULL OR d.get_string('kind') <> 'document' THEN fail('no document node'); END IF;
+    d := ro(o, 'document');
+    IF rs(d, 'kind') <> 'document' THEN fail('the root is not a document node'); END IF;
     IF d.has('children') THEN
-      a := d.get_array('children');
-      FOR i IN 0 .. a.get_size - 1 LOOP r_node(l_ri, 1, treat(a.get(i) AS json_object_t)); END LOOP;
+      a := ra(d, 'children');
+      FOR i IN 0 .. a.get_size - 1 LOOP r_node(l_ri, 1, ao(a, i, 'child'), l_seen); END LOOP;
     END IF;
     seal(l_ri);
     RETURN l_ri;
@@ -796,8 +893,61 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       free(l_ri);
       IF l_bytes IS NOT NULL AND dbms_lob.istemporary(l_bytes) = 1 THEN dbms_lob.freetemporary(l_bytes); END IF;
       IF sqlcode = c_err_ri THEN RAISE; END IF;
-      fail('a malformed RI text: ' || sqlerrm);            -- a value of the wrong JSON type, a child not an object...
+      fail('a malformed RI text: ' || sqlerrm);
   END from_json;
+
+  -- ---------------------------------------------------------------------------
+  -- validate: an RI given to a consumer is replayed through the builder and sealed again (the same rules, once);
+  -- the sealed flag and the public record are never trusted
+  -- ---------------------------------------------------------------------------
+  PROCEDURE replay(p_src IN t_ri, p_dst IN OUT NOCOPY t_ri, p_from IN t_id, p_to IN t_id,
+                   p_seen IN OUT NOCOPY t_seen, p_count IN OUT NOCOPY PLS_INTEGER) IS
+    l_k  t_num_list;
+    l_id t_id;
+  BEGIN
+    IF NOT p_src.children.EXISTS(p_from) OR p_src.children(p_from) IS NULL THEN fail('node ' || p_from || ' has no child list'); END IF;
+    l_k := p_src.children(p_from);
+    FOR i IN 1 .. l_k.COUNT LOOP
+      IF l_k(i) IS NULL OR NOT p_src.nodes.EXISTS(l_k(i)) THEN fail('node ' || p_from || ': a child that is not a node'); END IF;
+      IF nvl(p_src.nodes(l_k(i)).parent, -1) <> p_from THEN fail('node ' || l_k(i) || ': its parent is not ' || p_from); END IF;
+      p_count := p_count + 1;
+      IF p_count > p_src.n THEN fail('the tree has more nodes than the RI counts (a cycle or a shared node)'); END IF;
+      l_id := add_from_node(p_dst, p_to, p_src.nodes(l_k(i)), p_seen);
+      replay(p_src, p_dst, l_k(i), l_id, p_seen, p_count);
+    END LOOP;
+  END replay;
+
+  PROCEDURE validate(p_ri IN t_ri) IS
+    q       t_ri;
+    l_seen  t_seen;
+    l_count PLS_INTEGER := 1;
+  BEGIN
+    IF p_ri.ri_version IS NULL OR p_ri.ri_version <> c_ri_version THEN fail('not an RI of version ' || c_ri_version); END IF;
+    IF nvl(p_ri.sealed, 'N') <> 'Y' THEN fail('the RI is not sealed'); END IF;
+    IF NOT p_ri.nodes.EXISTS(1) OR p_ri.nodes(1).kind <> 'document' OR p_ri.nodes(1).parent IS NOT NULL THEN
+      fail('node 1 is not the document');
+    END IF;
+    IF p_ri.nodes.COUNT <> p_ri.n OR p_ri.children.COUNT <> p_ri.n THEN fail('the node count is not ' || p_ri.n); END IF;
+    FOR i IN 1 .. p_ri.images.COUNT LOOP
+      IF NOT p_ri.images.EXISTS(i) THEN fail('images not numbered 1..' || p_ri.images.COUNT); END IF;
+      check_image(p_ri.images(i).bytes, p_ri.images(i).format, p_ri.images(i).px_w, p_ri.images(i).px_h);
+      IF nvl(p_ri.images(i).sha256, '#') <> lower(rad_pdf_codec.sha256_hex(p_ri.images(i).bytes)) THEN
+        fail('image ' || i || ': the hash does not match its bytes');
+      END IF;
+    END LOOP;
+    q := new_ri;
+    q.images := p_ri.images;                              -- the same locators, checked above; q owns nothing to free
+    replay(p_ri, q, 1, 1, l_seen, l_count);
+    IF l_count <> p_ri.n THEN fail((p_ri.n - l_count) || ' node(s) outside the tree'); END IF;
+    IF p_ri.section_id IS NULL OR NOT p_ri.nodes.EXISTS(p_ri.section_id) OR p_ri.nodes(p_ri.section_id).kind <> 'section' THEN
+      fail('section_id is not the section');
+    END IF;
+    seal(q);
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF sqlcode = c_err_ri THEN RAISE; END IF;
+      fail('not a valid RI: ' || sqlerrm);
+  END validate;
 
   -- ---------------------------------------------------------------------------
   -- helpers

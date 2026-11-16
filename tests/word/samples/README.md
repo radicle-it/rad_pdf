@@ -6,6 +6,8 @@
 | `sal_quote_v1.json` | data conforming to the quote schema v1 (96a §5.3): 40 lines, values already formatted |
 | `sal_quote_v1_neg_*.json` | negative cases: `lines` not an array, a required object missing (`totals`), `has_discount` of the wrong type |
 | `sal_quote_v1_merged.docx` | the same document with the data substituted by `make_quote_sample.py` (plain substitution, only to let Word render it) |
+| `sal_quote_v1_ri.json` | step B1: the RI of the template built by hand (`tests/word/quote_ri.sql`), canonical dump |
+| `sal_quote_v1_ri.pdf` | step B1: that RI rendered with the data through the existing engine by a test-only bridge (fixed clock: same bytes at every run); 3 pages like Word |
 | `sal_quote_v1_word.pdf` | **Word's own export** of the merged document: the fidelity reference |
 
 Fixed for the reference: Microsoft Word for Mac **16.111.2**, *Save as → PDF* with default options, font **Arial**

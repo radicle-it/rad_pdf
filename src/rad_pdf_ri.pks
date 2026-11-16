@@ -147,6 +147,11 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
   -- the global invariants, then the RI is immutable (every builder call raises after it)
   PROCEDURE seal(p_ri IN OUT NOCOPY t_ri);
 
+  -- the CONSUME BOUNDARY: the record is public, so neither the sealed flag nor the fields are trusted. Every consumer
+  -- (to_json, the data merge, the paginator) calls validate first: the RI is replayed through the builder and sealed
+  -- again (the same rules, in one place); a record altered after seal raises [PDF_RI].
+  PROCEDURE validate(p_ri IN t_ri);
+
   -- ---------------------------------------------------------------------------
   -- Reading
   -- ---------------------------------------------------------------------------
@@ -155,8 +160,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
   FUNCTION fonts(p_ri IN t_ri) RETURN t_font_reqs;
 
   -- ---------------------------------------------------------------------------
-  -- Serialization: canonical JSON (same RI → same text); from_json rebuilds through the builder and seals, so a
-  -- text that breaks an invariant is refused like a builder call
+  -- Serialization: canonical JSON (same RI → same text; validate first); from_json reads strictly (every member
+  -- present and of its JSON type) and rebuilds through the builder and seals, so a text that breaks an invariant is
+  -- refused like a builder call
   -- ---------------------------------------------------------------------------
   FUNCTION to_json  (p_ri   IN t_ri) RETURN CLOB;
   FUNCTION from_json(p_json IN CLOB) RETURN t_ri;

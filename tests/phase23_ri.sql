@@ -7,7 +7,9 @@
 --      a sealed RI is immutable;
 --   4. serialization: to_json → from_json → to_json identical, image bytes included; a text breaking an invariant, a
 --      wrong ri_version or an image whose hash does not match its bytes refused;
---   5. two RIs built interleaved stay independent (a value, not package state).
+--   5. two RIs built interleaved stay independent (a value, not package state);
+--   6. resolved paths (96a §6.3): every [] read by a LOOP around, the scope fixed by the path; nested loops;
+--   7. the consume boundary: a sealed record altered by hand is refused by validate and to_json.
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
@@ -41,6 +43,8 @@ DECLARE
   j2     CLOB;
   fr     rad_pdf_ri.t_font_reqs;
   l_msg  VARCHAR2(4000);
+  l_run  rad_pdf_ri.t_id;
+  ri3    rad_pdf_ri.t_ri;
 
   PROCEDURE assert_ok(p_ok BOOLEAN, p_message VARCHAR2) IS
   BEGIN
@@ -156,6 +160,24 @@ DECLARE
       WHEN 35 THEN pp := rad_pdf_ri.paragraph(q, rad_pdf_ri.zone(q, 'header_first'), pf);
                    y := rad_pdf_ri.tag(q, pp, 'PAGEBREAK', NULL, 'page_break', f);              -- a PAGEBREAK tag in a header
       WHEN 36 THEN rad_pdf_ri.free(q); pp := rad_pdf_ri.paragraph(q, b, pf);                    -- an RI after free
+      WHEN 37 THEN pp := rad_pdf_ri.paragraph(q, b, pf);
+                   y := rad_pdf_ri.tag(q, pp, 'FIELD', NULL, 'lines[].code', f);                 -- [] with the root scope
+      WHEN 38 THEN tt := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100), bd);
+                   rg := rad_pdf_ri.row_region(q, tt, 'LOOP', NULL, 'lines');
+                   rw := rad_pdf_ri.row_(q, rg); cc := rad_pdf_ri.cell(q, rw, cf2); pp := rad_pdf_ri.paragraph(q, cc, pf);
+                   y := rad_pdf_ri.tag(q, pp, 'FIELD', 'lines', 'lines[].parts[].name', f);      -- scope not the last []
+      WHEN 39 THEN tt := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100), bd);
+                   rg := rad_pdf_ri.row_region(q, tt, 'LOOP', NULL, 'lines');
+                   rw := rad_pdf_ri.row_(q, rg); cc := rad_pdf_ri.cell(q, rw, cf2); pp := rad_pdf_ri.paragraph(q, cc, pf);
+                   y := rad_pdf_ri.tag(q, pp, 'FIELD', 'lines[].parts', 'lines[].parts[].name', f);
+                   rad_pdf_ri.seal(q);                                                           -- the inner loop missing
+      WHEN 40 THEN tt := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100), bd);
+                   rg := rad_pdf_ri.row_region(q, tt, 'LOOP', NULL, 'lines');
+                   rw := rad_pdf_ri.row_(q, rg); cc := rad_pdf_ri.cell(q, rw, cf2);
+                   rg := rad_pdf_ri.block_region(q, cc, 'LOOP', 'lines', 'lines[].parts');
+                   pp := rad_pdf_ri.paragraph(q, rg, pf);
+                   y := rad_pdf_ri.tag(q, pp, 'FIELD', 'items', 'items[].name', f);
+                   rad_pdf_ri.seal(q);                                                           -- [] of a loop not around
     END CASE;
     RETURN FALSE;
   EXCEPTION
@@ -165,6 +187,31 @@ DECLARE
       END IF;
       RAISE;
   END refused;
+
+  FUNCTION validate_refused(p_ri IN rad_pdf_ri.t_ri) RETURN BOOLEAN IS
+  BEGIN
+    rad_pdf_ri.validate(p_ri);
+    RETURN FALSE;
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLCODE = rad_pdf_ri.c_err_ri THEN
+        l_msg := REGEXP_SUBSTR(SQLERRM, '\[PDF_RI\][^' || CHR(10) || ']*'); RETURN TRUE;
+      END IF;
+      RAISE;
+  END validate_refused;
+
+  FUNCTION to_json_refused(p_ri IN rad_pdf_ri.t_ri) RETURN BOOLEAN IS
+    l CLOB;
+  BEGIN
+    l := rad_pdf_ri.to_json(p_ri);
+    RETURN FALSE;
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLCODE = rad_pdf_ri.c_err_ri THEN
+        l_msg := REGEXP_SUBSTR(SQLERRM, '\[PDF_RI\][^' || CHR(10) || ']*'); RETURN TRUE;
+      END IF;
+      RAISE;
+  END to_json_refused;
 
   FUNCTION json_refused(p_json IN CLOB) RETURN BOOLEAN IS
     q rad_pdf_ri.t_ri;
@@ -204,7 +251,7 @@ BEGIN
   p := rad_pdf_ri.paragraph(ri, body, pf, tabs);
   x := rad_pdf_ri.tag(ri, p, 'FIELD', NULL, 'quote.no', fb);
   x := rad_pdf_ri.tab(ri, p);
-  x := rad_pdf_ri.run(ri, p, 'Totale', f);
+  l_run := rad_pdf_ri.run(ri, p, 'Totale', f);
   x := rad_pdf_ri.line_break(ri, p);
   ir := rad_pdf_ri.inline_region(ri, p, 'SECTION', NULL, 'has_discount');
   x := rad_pdf_ri.run(ri, ir, 'Sconto applicato', f);
@@ -307,6 +354,66 @@ BEGIN
             'from_json refuses a child that is not an object, with [PDF_RI]');
   assert_ok(json_refused(REPLACE(j1, '"grid":[120,240,120]', '"grid":"wide"')),
             'from_json refuses a value of the wrong JSON type, with [PDF_RI]');
+  assert_ok(json_refused(REPLACE(j1, '"id":1,', '')), 'from_json refuses an image without its id');
+  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{64}",', '')), 'from_json refuses an image without its hash');
+  assert_ok(json_refused(REPLACE(j1, '"document":{"kind":"document",', '"document":{')), 'from_json refuses a document node without its kind');
+  assert_ok(json_refused(REPLACE(j1, '{"kind":"zone","name":"header_default"}',
+                                     '{"kind":"zone","name":"header_default"},{"kind":"zone","name":"header_default"}')),
+            'from_json refuses an empty zone given twice');
+  assert_ok(json_refused(REPLACE(j1, '{"kind":"zone","name":"header_first"', '{"kind":"zone","name":"header_first"},{"kind":"zone","name":"header_first"')),
+            'from_json refuses an empty zone followed by the same zone populated');
+  assert_ok(json_refused(REPLACE(j1, '"grid_span":1', '"grid_span":null')), 'from_json refuses a required member that is null');
+  assert_ok(json_refused(REPLACE(j1, '"text":"Totale"', '"text":7')), 'from_json refuses a run text that is not a string');
+  assert_ok(json_refused(REPLACE(j1, '"scope":"lines","path":"lines[].code"', '"scope":null,"path":"lines[].code"')),
+            'from_json refuses a scope incoherent with its path');
+
+  -- 6. resolved paths ---------------------------------------------------------------
+  assert_ok(refused(37), 'refused: a [] path with the root scope (no loop element to read)');
+  assert_ok(refused(38), 'refused: a scope that is not the part before the last []');
+  assert_ok(refused(39), 'refused at seal: a nested [] whose inner loop is missing');
+  assert_ok(refused(40), 'refused at seal: a [] of a loop that is not around the tag');
+  DECLARE
+    q  rad_pdf_ri.t_ri;
+    b  rad_pdf_ri.t_id;
+    tt rad_pdf_ri.t_id;
+    rg rad_pdf_ri.t_id;
+    rw rad_pdf_ri.t_id;
+    cc rad_pdf_ri.t_id;
+    pp rad_pdf_ri.t_id;
+    y  rad_pdf_ri.t_id;
+    cf2 rad_pdf_ri.t_cell_fmt;
+  BEGIN
+    b := base(q);
+    tt := rad_pdf_ri.table_(q, b, rad_pdf_ri.t_num_list(100), bd);
+    rg := rad_pdf_ri.row_region(q, tt, 'LOOP', NULL, 'lines');
+    rw := rad_pdf_ri.row_(q, rg); cc := rad_pdf_ri.cell(q, rw, cf2);
+    rg := rad_pdf_ri.block_region(q, cc, 'LOOP', 'lines', 'lines[].parts');
+    pp := rad_pdf_ri.paragraph(q, rg, pf);
+    y := rad_pdf_ri.tag(q, pp, 'FIELD', 'lines[].parts', 'lines[].parts[].name', f);   -- the inner element
+    y := rad_pdf_ri.tag(q, pp, 'FIELD', 'lines', 'lines[].code', f);                   -- the outer element
+    y := rad_pdf_ri.tag(q, pp, 'FIELD', NULL, 'quote.no', f);                          -- the root
+    y := rad_pdf_ri.tag(q, pp, 'FIELD', NULL, 'lines.0.code', f);                      -- a numeric index from the root
+    rad_pdf_ri.seal(q);
+    assert_ok(DBMS_LOB.COMPARE(rad_pdf_ri.to_json(rad_pdf_ri.from_json(rad_pdf_ri.to_json(q))), rad_pdf_ri.to_json(q)) = 0,
+              'nested loops: inner, outer, root and indexed paths accepted, and read back identical');
+  END;
+
+  -- 7. the consume boundary ---------------------------------------------------------
+  rad_pdf_ri.validate(ri);
+  assert_ok(TRUE, 'validate accepts the sealed RI built by the builder');
+  ri3 := ri; ri3.nodes(c).cell.grid_span := 99;
+  assert_ok(validate_refused(ri3), 'validate refuses a sealed record whose grid_span was changed by hand');
+  assert_ok(to_json_refused(ri3), 'to_json refuses it too (it validates first)');
+  ri3 := ri; ri3.nodes(l_run).text := 'a' || CHR(9) || 'b';
+  assert_ok(validate_refused(ri3), 'validate refuses a run text changed by hand to hold a tab');
+  ri3 := ri; ri3.nodes(c).parent := body;
+  assert_ok(validate_refused(ri3), 'validate refuses a node whose parent does not match the tree');
+  ri3 := ri; ri3.n := ri3.n + 1; ri3.nodes(ri3.n) := ri3.nodes(l_run); ri3.children(ri3.n) := rad_pdf_ri.t_num_list();
+  assert_ok(validate_refused(ri3), 'validate refuses a node outside the tree');
+  ri3 := ri; ri3.images(1).sha256 := RPAD('0', 64, '0');
+  assert_ok(validate_refused(ri3), 'validate refuses an image hash changed by hand');
+  ri3 := ri; ri3.sealed := 'N';
+  assert_ok(to_json_refused(ri3), 'to_json refuses a record whose sealed flag was reset');
 
   -- 5. two RIs interleaved --------------------------------------------------------
   body := base(r3);
