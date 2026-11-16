@@ -506,12 +506,8 @@ END;
 
 | Field | Default | Description |
 |---|---|---|
-| `unit` | `'pt'` | Unit for `start_x`, `start_y`, column widths |
-| `start_x` | 0 | Left edge (0 = use margin) |
-| `start_y` | 0 | Top edge (0 = current cursor) |
-| `bulk_size` | 200 | Rows fetched per batch |
+| `unit` | `'pt'` | Unit of the column widths |
 | `max_rows` | NULL | Row limit (NULL = all) |
-| `break_field` | 0 | Column index to group-break on (0 = none) |
 
 ### REF CURSOR
 
@@ -1488,7 +1484,7 @@ reapplies the budget. Close unused documents promptly.
 | [sample03.sql](sample03.sql) | Canvas-only: text, lines, rectangles, polygon at absolute positions |
 | [sample04.sql](sample04.sql) | Table report: `query2table` with column defs and custom color scheme |
 | [sample05.sql](sample05.sql) | Full report: page template (header/footer), metadata, table, `save` |
-| [sample06.sql](sample06.sql) | Grouped report: `refcursor2table` with `break_field` (group separators) |
+| [sample06.sql](sample06.sql) | Report from a cursor: `refcursor2table`, rows sorted by group |
 | [sample07.sql](sample07.sql) | Label sheet: `query2labels` with `t_label_def` (peel-off label grid) |
 | [sample08.sql](sample08.sql) | Wide table in landscape orientation (`set_page_orientation`) |
 | [sample09.sql](sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |

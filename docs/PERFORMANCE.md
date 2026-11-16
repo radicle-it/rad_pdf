@@ -36,8 +36,7 @@ compression disabled. The byte sizes for `batch_50` are the sum of 50 PDFs.
 - `rad_pdf_table` fetches each source once. It prepares alternating text styles
   per column, formats each data cell once and prepares wrapping once per row.
   Painting reuses that row's plans across page breaks. The renderer no longer
-  measures the entire wrapped table before drawing it. Explicit `measure_table`
-  remains available for callers that need the total height.
+  measures the entire wrapped table before drawing it.
 - `rad_pdf_fonts` caches the 256 encoded-byte metrics per simple font and static
   byte escaping. Conversion is bounded by chunks; safe printable ASCII uses a
   direct encoding path. CID glyph mapping and usage tracking are retained.

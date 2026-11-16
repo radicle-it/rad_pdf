@@ -127,7 +127,7 @@ can be stored in a database table and updated without redeploying code.
 | [docs/sample03.sql](docs/sample03.sql) | Canvas-only: text, lines, rectangles, polygon at absolute positions |
 | [docs/sample04.sql](docs/sample04.sql) | Table report: `query2table` with column defs and color scheme |
 | [docs/sample05.sql](docs/sample05.sql) | Full report: page template (header/footer), metadata, save to directory |
-| [docs/sample06.sql](docs/sample06.sql) | Grouped report: `refcursor2table` with `break_field` |
+| [docs/sample06.sql](docs/sample06.sql) | Report from a cursor: `refcursor2table`, rows sorted by group |
 | [docs/sample07.sql](docs/sample07.sql) | Label sheet: `query2labels` with `t_label_def` |
 | [docs/sample08.sql](docs/sample08.sql) | Wide table in landscape orientation |
 | [docs/sample09.sql](docs/sample09.sql) | Image embedding: load from directory / BLOB / HTTPS URL |

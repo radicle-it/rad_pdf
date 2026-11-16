@@ -1,5 +1,5 @@
 -- =============================================================================
--- sample06.sql  -  Grouped report: refcursor2table with break_field
+-- sample06.sql  -  Report from a cursor: refcursor2table, rows sorted by group
 -- =============================================================================
 --
 -- WHAT THIS SHOWS
@@ -10,17 +10,9 @@
 --         plain VARCHAR2 string
 --       - Protection against SQL injection (the query is pre-parsed by Oracle
 --         before the BLOB is generated)
---   • t_table_options.break_field - inserts a visual separator row each time
---     the value in the nominated column changes.  Column numbering is 1-based.
---     The nominated column must be the primary ORDER BY column.
---
--- GROUPING MECHANICS
---   Setting break_field = 1 tells the table engine to watch column 1 and
---   insert a blank separator row whenever its value changes.  This visually
---   groups rows without hiding the group label.
---
---   IMPORTANT: the query must already be sorted by the break column.
---   RAD_PDF does not sort the data for you.
+--   • rows sorted by their group (ORDER BY dept): the table shows them in the
+--     cursor's order. (t_table_options.break_field was documented here but never
+--     implemented -- removed 2026-11-16, doc 96 E2.)
 --
 -- NOTE: refcursor2table is on rad_pdf_table, not on the rad_pdf facade.
 --   rad_pdf.query2table only accepts VARCHAR2 / CLOB queries.
@@ -75,13 +67,8 @@ BEGIN
   l_clr.even_border   := 'C8E6C9';
 
   -- =========================================================================
-  -- Table options - activate grouping by column 1 (Department)
-  -- =========================================================================
-  l_opts.break_field := 1;   -- insert separator when column 1 value changes
-
-  -- =========================================================================
   -- Open the cursor
-  -- ORDER BY dept is required for break_field to produce correct separators.
+  -- ORDER BY dept keeps the rows of a department together.
   -- In a real application the FROM clause would reference actual tables.
   -- =========================================================================
   OPEN l_rc FOR

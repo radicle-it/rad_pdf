@@ -517,7 +517,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
     l_def.col_defs      := p_columns;
     l_def.color_scheme  := p_colors;
     l_def.options       := p_options;
-    l_def.streaming     := TRUE;
     l_ref               := rad_pdf_layout.register_table(p_doc, l_def);
     l_flow.flow_type    := rad_pdf_types.c_flow_table;
     l_flow.table_ref_id := l_ref;
@@ -710,8 +709,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
   END refcursor2labels;
 
 -- ---------------------------------------------------------------------------
--- measure_table: fetch data into cache, return total height.
--- ---------------------------------------------------------------------------
   PROCEDURE prepare_table(p_doc IN rad_pdf_types.t_doc_handle,
                           p_table_ref IN PLS_INTEGER) IS
     l_def rad_pdf_types.t_table_def;
@@ -744,52 +741,6 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_table IS
       END;
     END IF;
   END prepare_table;
-
-  FUNCTION measure_table(p_doc       IN rad_pdf_types.t_doc_handle,
-                         p_table_ref IN PLS_INTEGER,
-                         p_width     IN NUMBER) RETURN NUMBER IS
-    l_def    rad_pdf_types.t_table_def;
-    l_row_nr PLS_INTEGER := 0;
-    l_hdr_h  NUMBER;
-    l_row_h  NUMBER;
-    l_ws     rad_pdf_types.t_number_list;
-  BEGIN
-    l_def := rad_pdf_layout.get_table_def(p_doc,p_table_ref);
-    prepare_table(p_doc,p_table_ref);
-    l_row_nr := g_table_cache(p_doc)(p_table_ref).row_count;
-
-    -- Resolve auto-width columns from cache before any height measurement
-    IF l_def.col_defs IS NOT NULL
-       AND has_auto_width_cols(l_def.col_defs)
-    THEN
-      resolve_auto_widths(p_doc, p_table_ref, l_def.col_defs,
-                          NVL(l_def.options.unit, 'pt'));
-    END IF;
-
-    -- Height = header + data rows
-    IF l_def.col_defs IS NOT NULL AND l_def.col_defs.COUNT > 0 THEN
-      l_hdr_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).header_fmt,
-                             l_def.options.h_row_height);
-      IF has_wrap_cols(l_def) THEN
-        -- Sum actual per-row heights when any column wraps
-        l_ws    := col_widths(l_def.col_defs, p_width, NVL(l_def.options.unit, 'pt'));
-        l_row_h := 0;
-        FOR r IN 1 .. l_row_nr LOOP
-          l_row_h := l_row_h +
-            wrapped_row_height(p_doc, l_def, l_ws,
-                               g_table_cache(p_doc)(p_table_ref).data(r));
-        END LOOP;
-        RETURN l_hdr_h + l_row_h;
-      ELSE
-        l_row_h := row_height(l_def.col_defs(l_def.col_defs.FIRST).data_fmt,
-                               l_def.options.t_row_height);
-      END IF;
-    ELSE
-      l_hdr_h := 14;
-      l_row_h := 12;
-    END IF;
-    RETURN l_hdr_h + l_row_nr * l_row_h;
-  END measure_table;
 
 -- ---------------------------------------------------------------------------
 -- draw_table: draw header + data rows using cached data.

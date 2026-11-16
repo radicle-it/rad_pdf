@@ -9,8 +9,7 @@
 --                                 for each column
 --   • rad_pdf_types.t_color_scheme - six color fields controlling the header row
 --                                 and alternating data row backgrounds/borders
---   • rad_pdf_types.t_table_options - positioning overrides (start_x / start_y)
---                                 and row-height settings
+--   • rad_pdf_types.t_table_options - row-height settings
 --   • The layout engine handles page breaks automatically when the table is
 --     taller than the printable area - no manual page management needed
 --
@@ -51,7 +50,7 @@ DECLARE
   -- t_color_scheme holds header and two alternating row styles (odd / even).
   l_clr  rad_pdf_types.t_color_scheme;
 
-  -- t_table_options controls positioning, row heights, break groups, etc.
+  -- t_table_options controls the units and the row heights.
   l_opts rad_pdf_types.t_table_options;
 BEGIN
   rad_pdf_styles.load_defaults;
@@ -101,12 +100,9 @@ BEGIN
 
   -- =========================================================================
   -- Table options
-  -- start_x = 0 / start_y = 0 means follow the layout engine cursor.
-  -- Override these to place the table at a fixed absolute position (in pt).
+  -- The table follows the layout engine cursor.
   -- =========================================================================
   l_opts.unit    := 'pt';
-  l_opts.start_x := 0;
-  l_opts.start_y := 0;
 
   -- =========================================================================
   -- Document metadata and opening content

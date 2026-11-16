@@ -6,7 +6,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
   table_flow / query2table build a t_table_def and register it with rad_pdf_layout;
   they return / add a t_flowable of type TABLE.
 
-  measure_table and draw_table are called by rad_pdf_layout.render (not user code).
+  draw_table is called by rad_pdf_layout.render (not user code).
 */
 
 -- ---------------------------------------------------------------------------
@@ -92,12 +92,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_table AUTHID CURRENT_USER IS
 -- ---------------------------------------------------------------------------
 
   PROCEDURE prepare_table(p_doc IN rad_pdf_types.t_doc_handle,p_table_ref IN PLS_INTEGER);
-
-  -- Fetch data (unless streaming), cache it, return total height in pt.
-  FUNCTION measure_table(
-    p_doc       IN rad_pdf_types.t_doc_handle,
-    p_table_ref IN PLS_INTEGER,
-    p_width     IN NUMBER) RETURN NUMBER;
 
   -- Draw header + data rows using cached data. Handles row-level page breaks.
   PROCEDURE draw_table(

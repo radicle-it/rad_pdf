@@ -78,8 +78,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     margin_rgt  NUMBER        := 1,
     cell_height NUMBER        := NULL,
     num_format  VARCHAR2(100) := NULL,
-    spacing     VARCHAR2(10)  := NULL,
-    interline   VARCHAR2(10)  := NULL
+    spacing     VARCHAR2(10)  := NULL
   );
 
 -- ---------------------------------------------------------------------------
@@ -105,14 +104,9 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 -- ---------------------------------------------------------------------------
   TYPE t_table_options IS RECORD (
     unit          t_unit      := 'pt',
-    start_x       NUMBER      := 0,
-    start_y       NUMBER      := 0,
     h_row_height  NUMBER      := NULL,
     t_row_height  NUMBER      := NULL,
-    interline     NUMBER      := 1.2,
-    break_field   PLS_INTEGER := 0,
     max_rows      PLS_INTEGER := NULL,
-    bulk_size     PLS_INTEGER := 200,
     frame         VARCHAR2(20):= NULL
   );
 
@@ -236,7 +230,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     spacer_h         NUMBER,         -- SPACER
     table_ref_id     PLS_INTEGER,    -- TABLE: handle into rad_pdf_table's cache
     para_runs_ref_id PLS_INTEGER,    -- PARA_RUNS: ref into layout's runs registry
-    page_break_before BOOLEAN := FALSE,  -- set by measure pass
     measured_h        NUMBER  := 0,       -- set by measure pass
     keep_with_next    BOOLEAN := FALSE,  -- keep the next text line with this block
     bookmark          BOOLEAN := FALSE,   -- HEADING: register a PDF outline
@@ -256,7 +249,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     width  NUMBER := 0,
     height NUMBER := 0
   );
-  TYPE t_frame_list IS TABLE OF t_frame INDEX BY PLS_INTEGER;
 
 -- ---------------------------------------------------------------------------
 -- Page template — structure of a page for the layout engine.
@@ -282,7 +274,6 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
 
 -- ---------------------------------------------------------------------------
 -- Table definition — shared between rad_pdf_layout and rad_pdf_table.
--- cache_ref_id is populated during the measure pass; do not set manually.
 -- ---------------------------------------------------------------------------
   -- Real SQL bind variables used by deferred table queries.
   TYPE t_query_binds IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(30);
@@ -292,9 +283,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_types AUTHID DEFINER IS
     query_clob   CLOB            := NULL,
     col_defs     t_columns,
     color_scheme t_color_scheme,
-    options      t_table_options,
-    streaming    BOOLEAN         := FALSE,
-    cache_ref_id PLS_INTEGER     := NULL
+    options      t_table_options
   );
 
 -- ---------------------------------------------------------------------------
