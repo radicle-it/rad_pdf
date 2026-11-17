@@ -215,18 +215,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     FOR id IN 1 .. rad_pdf_ri.node_count(p_ri) LOOP
       n := p_ri.nodes(id);
       IF n.kind IN ('tag', 'inline_region', 'block_region', 'row_region') THEN
-        sp := schema_path(n.ref_path);
-        IF NOT p_sch.EXISTS(sp) THEN fail(c_err_schema, n.kind || ' ' || id || ': unknown path ' || n.ref_path); END IF;
+        sp := schema_path(n.bind_path);
+        IF NOT p_sch.EXISTS(sp) THEN fail(c_err_schema, n.kind || ' ' || id || ': unknown path ' || n.bind_path); END IF;
         l_need := CASE
                     WHEN n.kind = 'tag' THEN CASE n.tag_op WHEN 'FIELD' THEN 'TEXT' WHEN 'IMAGE' THEN 'IMAGE' ELSE 'BOOLEAN' END
                     WHEN n.region_kind = 'LOOP' THEN 'ARRAY'
                   END;
         IF l_need IS NOT NULL AND p_sch(sp).type <> l_need THEN
-          fail(c_err_schema, n.kind || ' ' || id || ': ' || n.ref_path || ' is ' || p_sch(sp).type || ', the '
+          fail(c_err_schema, n.kind || ' ' || id || ': ' || n.bind_path || ' is ' || p_sch(sp).type || ', the '
                || CASE WHEN n.kind = 'tag' THEN n.tag_op || ' tag' ELSE 'LOOP' END || ' needs ' || l_need);
         END IF;
         IF n.kind <> 'tag' AND n.region_kind = 'SECTION' AND p_sch(sp).type = 'ARRAY' THEN
-          fail(c_err_schema, n.kind || ' ' || id || ': ' || n.ref_path || ' is an ARRAY: a LOOP, not a SECTION');
+          fail(c_err_schema, n.kind || ' ' || id || ': ' || n.bind_path || ' is an ARRAY: a LOOP, not a SECTION');
         END IF;
         IF n.kind <> 'tag' AND n.region_kind = 'LOOP' AND loop_depth(p_ri, id) > c_max_loop_depth THEN
           fail(c_err_budget, n.kind || ' ' || id || ': loops nested deeper than ' || c_max_loop_depth);
@@ -673,22 +673,22 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
         WHEN 'line_break' THEN x := rad_pdf_ri.line_break(m.out, p_par);
         WHEN 'image'      THEN x := rad_pdf_ri.image(m.out, p_par, n.image_res, n.width, n.height);
         WHEN 'tag' THEN
-          l := locate(m, n.ref_scope, n.ref_path);
+          l := locate(m, n.bind_scope, n.bind_path);
           IF l.found THEN
             e := elem(l);
             IF NOT e.is_null THEN
               CASE n.tag_op
                 WHEN 'FIELD' THEN
-                  IF NOT e.is_string THEN fail(c_err_data, n.ref_path || ': a text is expected'); END IF;
-                  t := take_text(m, l, n.ref_path, 'its text', h);
+                  IF NOT e.is_string THEN fail(c_err_data, n.bind_path || ': a text is expected'); END IF;
+                  t := take_text(m, l, n.bind_path, 'its text', h);
                   BEGIN
                     emit_text(m, p_par, t, n.fmt);
                   EXCEPTION WHEN OTHERS THEN drop_text(m, t, h); RAISE;
                   END;
                   drop_text(m, t, h);
-                WHEN 'IMAGE' THEN emit_image(m, p_par, l, p_avail, n.ref_path);
+                WHEN 'IMAGE' THEN emit_image(m, p_par, l, p_avail, n.bind_path);
                 ELSE                                     -- PAGEBREAK: BOOLEAN only; true splits the paragraph
-                  IF NOT e.is_boolean THEN fail(c_err_data, n.ref_path || ': a page break needs true or false'); END IF;
+                  IF NOT e.is_boolean THEN fail(c_err_data, n.bind_path || ': a page break needs true or false'); END IF;
                   IF bool_of(l) THEN
                     x := rad_pdf_ri.page_break(m.out, p_container);
                     p_par := rad_pdf_ri.paragraph(m.out, p_container, p_para.para, p_para.tabs);
@@ -698,15 +698,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
           END IF;
         WHEN 'inline_region' THEN
           IF n.region_kind = 'LOOP' THEN
-            a := elements(m, n.ref_scope, n.ref_path);
-            s := loop_enter(m, n.ref_path);
+            a := elements(m, n.bind_scope, n.bind_path);
+            s := loop_enter(m, n.bind_path);
             FOR i IN 0 .. a.get_size - 1 LOOP
-              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.ref_path) := i;
+              m.ctx(n.bind_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.bind_path) := i;
               m_inlines(m, k(j), p_par, p_container, p_para, p_avail);
               budget(m);
             END LOOP;
-            loop_leave(m, n.ref_path, s);
-          ELSIF truthy(m, n.ref_scope, n.ref_path) THEN
+            loop_leave(m, n.bind_path, s);
+          ELSIF truthy(m, n.bind_scope, n.bind_path) THEN
             m_inlines(m, k(j), p_par, p_container, p_para, p_avail);
           END IF;
       END CASE;
@@ -727,8 +727,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     n rad_pdf_ri.t_node := m.src.nodes(p_item);
   BEGIN
     IF n.kind = 'row' THEN RETURN 1; END IF;
-    IF n.region_kind = 'LOOP' THEN RETURN elements(m, n.ref_scope, n.ref_path).get_size; END IF;
-    RETURN CASE WHEN truthy(m, n.ref_scope, n.ref_path) THEN 1 ELSE 0 END;
+    IF n.region_kind = 'LOOP' THEN RETURN elements(m, n.bind_scope, n.bind_path).get_size; END IF;
+    RETURN CASE WHEN truthy(m, n.bind_scope, n.bind_path) THEN 1 ELSE 0 END;
   END rows_of;
 
   PROCEDURE m_row(m IN OUT NOCOPY t_m, p_src IN rad_pdf_ri.t_id, p_table IN rad_pdf_ri.t_id, p_grid IN rad_pdf_ri.t_num_list) IS
@@ -771,15 +771,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
       rn := m.src.nodes(k(j));
       IF rn.kind = 'row' THEN m_row(m, k(j), l_t, n.grid);
       ELSIF rn.region_kind = 'LOOP' THEN
-        a := elements(m, rn.ref_scope, rn.ref_path);
-        s := loop_enter(m, rn.ref_path);
+        a := elements(m, rn.bind_scope, rn.bind_path);
+        s := loop_enter(m, rn.bind_path);
         FOR i IN 0 .. a.get_size - 1 LOOP
-          m.ctx(rn.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(rn.ref_path) := i;
+          m.ctx(rn.bind_path) := treat(a.get(i) AS json_object_t); m.ctxi(rn.bind_path) := i;
           m_row(m, rad_pdf_ri.kids(m.src, k(j))(1), l_t, n.grid);
           budget(m);
         END LOOP;
-        loop_leave(m, rn.ref_path, s);
-      ELSIF truthy(m, rn.ref_scope, rn.ref_path) THEN
+        loop_leave(m, rn.bind_path, s);
+      ELSIF truthy(m, rn.bind_scope, rn.bind_path) THEN
         m_row(m, rad_pdf_ri.kids(m.src, k(j))(1), l_t, n.grid);
       END IF;
     END LOOP;
@@ -801,15 +801,15 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
         WHEN 'fixed_box'  THEN x := rad_pdf_ri.fixed_box(m.out, p_dst, n.image_res, n.width, n.height, n.keep_next);
         WHEN 'block_region' THEN
           IF n.region_kind = 'LOOP' THEN
-            a := elements(m, n.ref_scope, n.ref_path);
-            s := loop_enter(m, n.ref_path);
+            a := elements(m, n.bind_scope, n.bind_path);
+            s := loop_enter(m, n.bind_path);
             FOR i IN 0 .. a.get_size - 1 LOOP
-              m.ctx(n.ref_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.ref_path) := i;
+              m.ctx(n.bind_path) := treat(a.get(i) AS json_object_t); m.ctxi(n.bind_path) := i;
               m_blocks(m, k(j), p_dst, p_avail);
               budget(m);
             END LOOP;
-            loop_leave(m, n.ref_path, s);
-          ELSIF truthy(m, n.ref_scope, n.ref_path) THEN
+            loop_leave(m, n.bind_path, s);
+          ELSIF truthy(m, n.bind_scope, n.bind_path) THEN
             m_blocks(m, k(j), p_dst, p_avail);
           END IF;
       END CASE;

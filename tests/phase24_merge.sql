@@ -384,7 +384,7 @@ BEGIN
     assert_ok(template_refused(q, s2, rad_pdf_merge.c_err_schema, '%an instance is not a template%'), 'an instance is never merged again');
     rad_pdf_ri.free(q);
     t2 := loop_t('lines[].code', 'lines');
-    t2.nodes(rad_pdf_ri.node_count(t2)).ref_path := 'colour';
+    t2.nodes(rad_pdf_ri.node_count(t2)).bind_path := 'colour';
     assert_ok(merge_refused(t2, s2, '{"quote":{"no":"Q"},"lines":[]}', rad_pdf_ri.c_err_ri, '[PDF_RI]%'),
               'merge validates the template first: a sealed template altered by hand refused with [PDF_RI]');
     DBMS_LOB.CREATETEMPORARY(l_big, TRUE);

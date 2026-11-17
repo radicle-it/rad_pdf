@@ -158,7 +158,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     require_in(p_ri, p_in, p_what, p_family);
     IF p_kind IS NULL OR p_kind NOT IN ('LOOP', 'SECTION') THEN fail(p_what || ': kind LOOP or SECTION'); END IF;
     check_ref(p_what, p_scope, p_path);
-    l.kind := p_what; l.region_kind := p_kind; l.ref_scope := p_scope; l.ref_path := p_path;
+    l.kind := p_what; l.region_kind := p_kind; l.bind_scope := p_scope; l.bind_path := p_path;
     RETURN add_node(p_ri, p_in, l);
   END region;
 
@@ -380,7 +380,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     check_ref('tag', p_scope, p_path);
     IF p_op = 'PAGEBREAK' THEN check_break_place(p_ri, p_in, 'a PAGEBREAK tag'); END IF;
     check_fmt(p_fmt);
-    l.kind := 'tag'; l.tag_op := p_op; l.ref_scope := p_scope; l.ref_path := p_path; l.fmt := p_fmt;
+    l.kind := 'tag'; l.tag_op := p_op; l.bind_scope := p_scope; l.bind_path := p_path; l.fmt := p_fmt;
     RETURN add_node(p_ri, p_in, l);
   END tag;
 
@@ -434,7 +434,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
     WHILE l_id IS NOT NULL LOOP
       IF p_ri.nodes(l_id).kind IN ('inline_region', 'block_region', 'row_region')
          AND p_ri.nodes(l_id).region_kind = 'LOOP' THEN
-        l_s := l_s || p_ri.nodes(l_id).ref_path || ',';
+        l_s := l_s || p_ri.nodes(l_id).bind_path || ',';
       END IF;
       l_id := p_ri.nodes(l_id).parent;
     END LOOP;
@@ -497,12 +497,12 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
         ELSE NULL;
       END CASE;
       -- every [] of a resolved path reads the current element of a LOOP around the node (the scope is the last one)
-      IF l.kind IN ('tag', 'inline_region', 'block_region', 'row_region') AND instr(l.ref_path, '[]') > 0 THEN
+      IF l.kind IN ('tag', 'inline_region', 'block_region', 'row_region') AND instr(l.bind_path, '[]') > 0 THEN
         l_loops := loops_around(p_ri, id);
-        FOR k IN 1 .. regexp_count(l.ref_path, '\[\]') LOOP
-          l_pre := substr(l.ref_path, 1, instr(l.ref_path, '[]', 1, k) - 1);
+        FOR k IN 1 .. regexp_count(l.bind_path, '\[\]') LOOP
+          l_pre := substr(l.bind_path, 1, instr(l.bind_path, '[]', 1, k) - 1);
           IF instr(l_loops, ',' || l_pre || ',') = 0 THEN
-            fail(l.kind || ' ' || id || ': ' || l.ref_path || ' reads an element of ' || l_pre
+            fail(l.kind || ' ' || id || ': ' || l.bind_path || ' reads an element of ' || l_pre
                  || ', which no loop around it opens');
           END IF;
         END LOOP;
@@ -614,7 +614,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       WHEN 'image' THEN o.put('res', l.image_res); o.put('width', l.width); o.put('height', l.height);
       WHEN 'fixed_box' THEN o.put('res', l.image_res); o.put('width', l.width); o.put('height', l.height);
                              o.put('keep_next', l.keep_next);
-      WHEN 'tag' THEN o.put('op', l.tag_op); o.put('scope', l.ref_scope); o.put('path', l.ref_path);
+      WHEN 'tag' THEN o.put('op', l.tag_op); o.put('scope', l.bind_scope); o.put('path', l.bind_path);
                       o.put('fmt', j_fmt(l.fmt));
       WHEN 'table' THEN
         a := json_array_t();
@@ -627,7 +627,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
         o.put('mar_left', l.cell.mar_left); o.put('mar_right', l.cell.mar_right);
       ELSE
         IF l.kind IN ('inline_region', 'block_region', 'row_region') THEN
-          o.put('region', l.region_kind); o.put('scope', l.ref_scope); o.put('path', l.ref_path);
+          o.put('region', l.region_kind); o.put('scope', l.bind_scope); o.put('path', l.bind_path);
         END IF;
     END CASE;
     IF kk.COUNT > 0 THEN
@@ -690,16 +690,16 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       WHEN 'table'         THEN RETURN table_(p_ri, p_in, l.grid, l.borders);
       WHEN 'page_break'    THEN RETURN page_break(p_ri, p_in);
       WHEN 'fixed_box'     THEN RETURN fixed_box(p_ri, p_in, l.image_res, l.width, l.height, l.keep_next);
-      WHEN 'block_region'  THEN RETURN block_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'block_region'  THEN RETURN block_region(p_ri, p_in, l.region_kind, l.bind_scope, l.bind_path);
       WHEN 'run'           THEN RETURN run(p_ri, p_in, l.text, l.fmt);
       WHEN 'field'         THEN RETURN field(p_ri, p_in, l.field_code, l.fmt);
       WHEN 'tab'           THEN RETURN tab(p_ri, p_in);
       WHEN 'line_break'    THEN RETURN line_break(p_ri, p_in);
       WHEN 'image'         THEN RETURN image(p_ri, p_in, l.image_res, l.width, l.height);
-      WHEN 'tag'           THEN RETURN tag(p_ri, p_in, l.tag_op, l.ref_scope, l.ref_path, l.fmt);
-      WHEN 'inline_region' THEN RETURN inline_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'tag'           THEN RETURN tag(p_ri, p_in, l.tag_op, l.bind_scope, l.bind_path, l.fmt);
+      WHEN 'inline_region' THEN RETURN inline_region(p_ri, p_in, l.region_kind, l.bind_scope, l.bind_path);
       WHEN 'row'           THEN RETURN row_(p_ri, p_in, l.header, l.cant_split);
-      WHEN 'row_region'    THEN RETURN row_region(p_ri, p_in, l.region_kind, l.ref_scope, l.ref_path);
+      WHEN 'row_region'    THEN RETURN row_region(p_ri, p_in, l.region_kind, l.bind_scope, l.bind_path);
       WHEN 'cell'          THEN RETURN cell(p_ri, p_in, l.cell);
       ELSE fail('unknown node kind ' || nvl(l.kind, 'NULL'));
     END CASE;
@@ -820,7 +820,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
       WHEN 'fixed_box' THEN
         l.image_res := rn(o, 'res'); l.width := rn(o, 'width'); l.height := rn(o, 'height'); l.keep_next := rs(o, 'keep_next');
       WHEN 'tag' THEN
-        l.tag_op := rs(o, 'op'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path'); l.fmt := r_fmt(ro(o, 'fmt'));
+        l.tag_op := rs(o, 'op'); l.bind_scope := rs(o, 'scope', TRUE); l.bind_path := rs(o, 'path'); l.fmt := r_fmt(ro(o, 'fmt'));
       WHEN 'table' THEN
         l.grid := t_num_list();
         a := ra(o, 'grid');
@@ -834,9 +834,9 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
         l.cell.grid_span := rn(o, 'grid_span'); l.cell.borders := r_borders(ro(o, 'borders'));
         l.cell.shading := rs(o, 'shading', TRUE); l.cell.mar_top := rn(o, 'mar_top');
         l.cell.mar_bottom := rn(o, 'mar_bottom'); l.cell.mar_left := rn(o, 'mar_left'); l.cell.mar_right := rn(o, 'mar_right');
-      WHEN 'inline_region' THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
-      WHEN 'block_region'  THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
-      WHEN 'row_region'    THEN l.region_kind := rs(o, 'region'); l.ref_scope := rs(o, 'scope', TRUE); l.ref_path := rs(o, 'path');
+      WHEN 'inline_region' THEN l.region_kind := rs(o, 'region'); l.bind_scope := rs(o, 'scope', TRUE); l.bind_path := rs(o, 'path');
+      WHEN 'block_region'  THEN l.region_kind := rs(o, 'region'); l.bind_scope := rs(o, 'scope', TRUE); l.bind_path := rs(o, 'path');
+      WHEN 'row_region'    THEN l.region_kind := rs(o, 'region'); l.bind_scope := rs(o, 'scope', TRUE); l.bind_path := rs(o, 'path');
       ELSE NULL;                                          -- tab, line_break, page_break; unknown kinds: the dispatcher
     END CASE;
     l_id := add_from_node(p_ri, p_in, l, p_seen);

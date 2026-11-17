@@ -78,8 +78,8 @@ CREATE OR REPLACE PACKAGE rad_pdf_ri AUTHID DEFINER AS
     width       NUMBER, height NUMBER,                   -- image fixed_box
     keep_next   t_flag,                                  -- fixed_box
     tag_op      VARCHAR2(9),                             -- tag: FIELD | IMAGE | PAGEBREAK
-    ref_scope   VARCHAR2(400),                           -- tag, regions: NULL = the root, else the path of the loop
-    ref_path    VARCHAR2(400),                           -- tag, regions: the resolved absolute path (96a §6.3)
+    bind_scope  VARCHAR2(400),                           -- tag, regions: NULL = the root, else the path of the loop
+    bind_path   VARCHAR2(400),                           -- tag, regions: the resolved absolute path (96a §6.3)
     region_kind VARCHAR2(7),                             -- regions: LOOP | SECTION
     grid        t_num_list,                              -- table: column widths
     borders     t_borders,                               -- table: default borders
