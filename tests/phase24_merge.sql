@@ -1,9 +1,9 @@
 -- phase24_merge.sql - the data merge (rad_pdf_merge; middleware-docs 96a §5, §6.3; doc 96 §14.8 "unione dei dati")
 -- Run from repo root in SQL*Plus after src/install.sql. The quote and the negative samples of 96a §10 are run by
 -- tests/word/quote_ri.py; here, the rules one by one:
---   1. the schema refused when malformed ([PRT_SCHEMA]);
---   2. the template against the schema at publication ([PRT_SCHEMA], loop depth [PDF_BUDGET]);
---   3. the data at every print ([PRT_DATA] with the path);
+--   1. the schema refused when malformed ([PDF_SCHEMA]);
+--   2. the template against the schema at publication ([PDF_SCHEMA], loop depth [PDF_BUDGET]);
+--   3. the data at every print ([PDF_DATA] with the path);
 --   4. the runtime reading of 96a §6.3, its normative examples one by one, regions, page breaks, text control
 --      characters, images in the Oracle form;
 --   5. the instance: sealed, validated, read back; no tag nor region; budgets; a template altered by hand refused;
@@ -219,31 +219,31 @@ BEGIN
   END;
 
   -- 3. the data --------------------------------------------------------------------------------
-  assert_ok(data_refused(sch, '{"lines":[],"has_discount":true}', '[PRT_DATA] quote.no: required, missing'),
+  assert_ok(data_refused(sch, '{"lines":[],"has_discount":true}', '[PDF_DATA] quote.no: required, missing'),
             'data refused: a required field missing, with its path');
-  assert_ok(data_refused(sch, '{"quote":{"no":null},"lines":[],"has_discount":true}', '[PRT_DATA] quote.no: null is not allowed'),
+  assert_ok(data_refused(sch, '{"quote":{"no":null},"lines":[],"has_discount":true}', '[PDF_DATA] quote.no: null is not allowed'),
             'data refused: a required non-nullable field null');
-  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":null,"has_discount":true}', '[PRT_DATA] lines: null is not allowed'),
+  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":null,"has_discount":true}', '[PDF_DATA] lines: null is not allowed'),
             'data refused: lines null (96a: an ARRAY is never nullable)');
-  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":null}', '[PRT_DATA] has_discount: null is not allowed'),
+  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":null}', '[PDF_DATA] has_discount: null is not allowed'),
             'data refused: has_discount null');
-  assert_ok(data_refused(sch, '{"quote":{"no":7},"lines":[],"has_discount":true}', '[PRT_DATA] quote.no: a TEXT must be a string'),
+  assert_ok(data_refused(sch, '{"quote":{"no":7},"lines":[],"has_discount":true}', '[PDF_DATA] quote.no: a TEXT must be a string'),
             'data refused: a number where a TEXT is');
-  assert_ok(data_refused(sch, '{"quote":"Q1","lines":[],"has_discount":true}', '[PRT_DATA] quote: an object is expected%'),
+  assert_ok(data_refused(sch, '{"quote":"Q1","lines":[],"has_discount":true}', '[PDF_DATA] quote: an object is expected%'),
             'data refused: a string where an object holds quote.no');
-  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[{"code":"a"},3],"has_discount":true}', '[PRT_DATA] lines[1]: an element is an object'),
+  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[{"code":"a"},3],"has_discount":true}', '[PDF_DATA] lines[1]: an element is an object'),
             'data refused: an array element that is not an object');
-  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[{"code":5}],"has_discount":true}', '[PRT_DATA] lines[0].code: a TEXT must be a string'),
+  assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[{"code":5}],"has_discount":true}', '[PDF_DATA] lines[0].code: a TEXT must be a string'),
             'data refused: an element field of the wrong type, with the index in the path');
   assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":true,"logo":{"source":"FILE","url":"x"}}',
-                         '[PRT_DATA] logo: an IMAGE has source "URL"'), 'data refused: an IMAGE whose source is not URL');
+                         '[PDF_DATA] logo: an IMAGE has source "URL"'), 'data refused: an IMAGE whose source is not URL');
   assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":true,"logo":{"source":"URL","url":"data:image/gif' || CHR(59) || 'base64,R0lG"}}',
-                         '[PRT_DATA] logo: only data:image/png or data:image/jpeg%'), 'data refused: a GIF data-URL');
+                         '[PDF_DATA] logo: only data:image/png or data:image/jpeg%'), 'data refused: a GIF data-URL');
   assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":true,"logo":{"source":"URL","url":"' || c_png || '","width":"4pt"}}',
-                         '[PRT_DATA] logo.width: a positive size%'), 'data refused: an image width with an unknown unit');
+                         '[PDF_DATA] logo.width: a positive size%'), 'data refused: an image width with an unknown unit');
   assert_ok(data_refused(sch, '{"quote":{"no":"1"},"lines":[],"has_discount":true,"logo":{"source":"URL","url":"' || c_png || '","height":"0cm"}}',
-                         '[PRT_DATA] logo.height: a positive size%'), 'data refused: an image height of 0');
-  assert_ok(data_refused(sch, '[1,2]', '[PRT_DATA] the data is not a JSON object%'), 'data refused: not a JSON object');
+                         '[PDF_DATA] logo.height: a positive size%'), 'data refused: an image height of 0');
+  assert_ok(data_refused(sch, '[1,2]', '[PDF_DATA] the data is not a JSON object%'), 'data refused: not a JSON object');
   rad_pdf_merge.check_data('{"quote":{"no":"1","extra":{"x":1}},"lines":[{"code":null,"more":[1]}],"has_discount":false,"other":1,"logo":null}', sch);
   assert_ok(TRUE, 'data accepted: extra fields ignored, an optional TEXT and an IMAGE null');
   DBMS_LOB.CREATETEMPORARY(l_big, TRUE);
@@ -306,7 +306,7 @@ BEGIN
               AND merged(t, s3, '{"has_discount":true,"brk":false}') = '|AB'
               AND merged(t, s3, '{"has_discount":true}') = '|AB',
               '{?brk}: true breaks the page (the paragraph goes on after it), false or absent nothing');
-    assert_ok(merge_refused(t, s3, '{"has_discount":true,"brk":"yes"}', rad_pdf_merge.c_err_data, '[PRT_DATA] brk: a BOOLEAN must be true or false'),
+    assert_ok(merge_refused(t, s3, '{"has_discount":true,"brk":"yes"}', rad_pdf_merge.c_err_data, '[PDF_DATA] brk: a BOOLEAN must be true or false'),
               '{?brk} with "yes" refused (96a normative example)');
     assert_ok(merged(one_tag('FIELD', NULL, 'note'), s3, '{"has_discount":true,"note":"a' || '\t' || 'b' || '\n' || 'c' || '\r\n' || 'd"}')
               = '|a<T>b<BR>c<BR>d', 'a tab and a line break of the data become their nodes (a run holds neither); CR dropped');
@@ -338,7 +338,7 @@ BEGIN
     assert_ok(merged(one_tag('IMAGE', NULL, 'logo'), s6, '{"logo":null}') = '|' AND merged(one_tag('IMAGE', NULL, 'logo'), s6, '{}') = '|',
               'an IMAGE null or absent: no image');
     assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s6, '{"logo":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}',
-                            rad_pdf_merge.c_err_data, '[PRT_DATA] logo: the bytes are not a PNG image'),
+                            rad_pdf_merge.c_err_data, '[PDF_DATA] logo: the bytes are not a PNG image'),
               'an IMAGE whose bytes are not the declared format refused');
     q := rad_pdf_merge.merge(one_tag('IMAGE', NULL, 'logo'), s6, '{"logo":{"source":"URL","url":"' || c_png || '"}}');
     assert_ok(q.images.COUNT = 1 AND q.images(1).format = 'PNG' AND q.images(1).px_w = 1,
@@ -540,15 +540,15 @@ BEGIN
               'R4: exactly 5242880 bytes accepted, one byte more refused');
     DBMS_LOB.FREETEMPORARY(l_t);
     -- R6: the IMAGE boundary, every value checked with its concrete path, used by the template or not
-    assert_ok(data_refused(s9, '{"lines":[],"logo":{"source":"","url":"' || c_png || '"}}', '[PRT_DATA] logo.source: empty'),
+    assert_ok(data_refused(s9, '{"lines":[],"logo":{"source":"","url":"' || c_png || '"}}', '[PDF_DATA] logo.source: empty'),
               'R6: an IMAGE with source "" refused');
     assert_ok(data_refused(s9, '{"lines":[],"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}',
-                           '[PRT_DATA] unused: the bytes are not a PNG image'),
+                           '[PDF_DATA] unused: the bytes are not a PNG image'),
               'R6: an IMAGE of the schema that no tag uses is still decoded: bytes not PNG refused');
     assert_ok(data_refused(s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,iVBO@@@@"}}',
-                           '[PRT_DATA] logo: the url is not valid base64%'), 'R6: malformed base64 refused as [PRT_DATA], no raw ORA');
+                           '[PDF_DATA] logo: the url is not valid base64%'), 'R6: malformed base64 refused as [PDF_DATA], no raw ORA');
     assert_ok(data_refused(s9, '{"lines":[{"logo":{"source":"URL","url":"' || c_png || '"}},{"logo":{"source":"URL","url":"data:image/png'
-                           || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}]}', '[PRT_DATA] lines[1].logo: the bytes are not a PNG image'),
+                           || CHR(59) || 'base64,AAAAAAAAAAAAAAAAAAAAAAAA"}}]}', '[PDF_DATA] lines[1].logo: the bytes are not a PNG image'),
               'R6: a wrong image in a loop element named with its index (lines[1].logo)');
     -- R5: the temporaries released on every image failure, then a valid print in the same session
     l_png := png(4001);
@@ -566,10 +566,10 @@ BEGIN
       assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, l_t, rad_pdf_merge.c_err_budget, '[PDF_BUDGET] logo: an image over 4000x4000 pixels'),
                 'R5: an image of 4001 pixels refused ([PDF_BUDGET])');
       assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59)
-                              || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}}', rad_pdf_merge.c_err_data, '[PRT_DATA] logo: not a valid PNG image%'),
-                'R5: a truncated PNG refused ([PRT_DATA])');
+                              || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}}', rad_pdf_merge.c_err_data, '[PDF_DATA] logo: not a valid PNG image%'),
+                'R5: a truncated PNG refused ([PDF_DATA])');
       assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s9, '{"lines":[],"logo":{"source":"URL","url":"data:image/png' || CHR(59)
-                              || 'base64,iVBO@@@@"}}', rad_pdf_merge.c_err_data, '[PRT_DATA] logo: the url is not valid base64%'),
+                              || 'base64,iVBO@@@@"}}', rad_pdf_merge.c_err_data, '[PDF_DATA] logo: the url is not valid base64%'),
                 'R5: malformed base64 refused in merge');
     END LOOP;
     assert_ok(tmp_lobs <= l_n0, 'R5: ten rounds of the three failures leave no temporary LOB (' || tmp_lobs || ' <= ' || l_n0 || ')');
@@ -652,7 +652,7 @@ BEGIN
     DBMS_LOB.FREETEMPORARY(l_d);
     -- R6: the decoders' structure, for an IMAGE no tag uses too
     assert_ok(data_refused(s10, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1Pe"}}',
-                           '[PRT_DATA] unused: not a valid PNG image%no IDAT%'),
+                           '[PDF_DATA] unused: not a valid PNG image%no IDAT%'),
               'R6: a PNG of signature and IHDR only (codex-049 fixture) refused: no IDAT');
     l_png := TO_BLOB(HEXTORAW('89504E470D0A1A0A0000000D4948445200000001000000010802000000907753DE0000000C4944415408D763F8CFC000000301010018DD8DB0'));
     l_u := rad_pdf_codec.base64_encode(l_png);
@@ -660,15 +660,15 @@ BEGIN
     DBMS_LOB.APPEND(l_t, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,');
     DBMS_LOB.APPEND(l_t, l_u);
     DBMS_LOB.APPEND(l_t, '"}}');
-    assert_ok(data_refused(s10, l_t, '[PRT_DATA] unused: not a valid PNG image%no IEND%'),
+    assert_ok(data_refused(s10, l_t, '[PDF_DATA] unused: not a valid PNG image%no IEND%'),
               'R6: a PNG with IDAT but without IEND refused');
     assert_ok(merge_refused(one_tag('IMAGE', NULL, 'logo'), s10, REPLACE(l_t, '"unused"', '"logo"'), rad_pdf_merge.c_err_data,
-                            '[PRT_DATA] logo: not a valid PNG image%no IEND%'), 'R6: and in merge');
+                            '[PDF_DATA] logo: not a valid PNG image%no IEND%'), 'R6: and in merge');
     DBMS_LOB.FREETEMPORARY(l_t); DBMS_LOB.FREETEMPORARY(l_u); DBMS_LOB.FREETEMPORARY(l_png);
     assert_ok(data_refused(s10, '{"logo":{"source":"' || RPAD('U', 4001, 'U') || '","url":"' || c_png || '"}}',
-                           '[PRT_DATA] logo.source: too long (4001 characters)'), 'R6: a source of 4001 characters refused with its path, no ORA-06502');
+                           '[PDF_DATA] logo.source: too long (4001 characters)'), 'R6: a source of 4001 characters refused with its path, no ORA-06502');
     assert_ok(data_refused(s10, '{"logo":{"source":"URL","url":"' || c_png || '","width":"' || RPAD('9', 4001, '9') || 'cm"}}',
-                           '[PRT_DATA] logo.width: too long (4003 characters)'), 'R6: a width of 4003 characters refused');
+                           '[PDF_DATA] logo.width: too long (4003 characters)'), 'R6: a width of 4003 characters refused');
     -- P3: a long FIELD over the node budget, ten times: no temporary LOB left
     DBMS_LOB.CREATETEMPORARY(l_t, TRUE);
     DBMS_LOB.APPEND(l_t, '{"note":"');
@@ -751,7 +751,7 @@ BEGIN
               'R3: a long IMAGE member near the cap refused before its CLOB is read');
     rad_pdf_ri.free(t);
     t := tpl(c_cap - 2 * l_jb, 'I');
-    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_data, '[PRT_DATA] logo.source: too long (4001 characters)'),
+    assert_ok(merge_refused(t, s11, l_d, rad_pdf_merge.c_err_data, '[PDF_DATA] logo.source: too long (4001 characters)'),
               'R3: with room for its bound, the same member refused as data (too long), with its path');
     rad_pdf_ri.free(t);
     -- the template built once (a record returned by a function copies its LOBs: the test's own temporaries), then only
@@ -767,7 +767,7 @@ BEGIN
     -- R6: an image stream made of empty IDAT chunks
     assert_ok(data_refused(s11, '{"unused":{"source":"URL","url":"data:image/png' || CHR(59)
                            || 'base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAAElEQVQ1rwYeAAAAAElFTkSuQmCC"}}',
-                           '[PRT_DATA] unused: not a valid PNG image%IDAT data is empty%'),
+                           '[PDF_DATA] unused: not a valid PNG image%IDAT data is empty%'),
               'R6: a PNG whose only IDAT is empty refused (codex-050 fixture), for an IMAGE no tag uses');
     q := rad_pdf_merge.merge(one_tag('IMAGE', NULL, 'logo'), s11, '{"logo":{"source":"URL","url":"data:image/png' || CHR(59) || 'base64,'
            || TRANSLATE(UTL_RAW.CAST_TO_VARCHAR2(UTL_ENCODE.BASE64_ENCODE(HEXTORAW(

@@ -21,7 +21,7 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
   no tag nor region). Checks the schema, the template against it (publication)
   and the data (every print), reading only the resolved references; images in the
   Oracle data-URL form decoded by the shared PNG/JPEG decoders; budgets of 96a §8.
-  Errors `[PRT_SCHEMA]` (-20843), `[PRT_DATA]` (-20841) with the path,
+  Errors `[PDF_SCHEMA]` (-20843), `[PDF_DATA]` (-20841) with the path (named PRT_* until 2026-11-17: the engine knows no print module),
   `[PDF_BUDGET]` (-20842). Tests: `tests/phase24_merge.sql`; the quote and its
   negative samples through the merge: `tests/word/quote_ri.py`.
 - `rad_pdf_codec.base64_encode` / `base64_decode` for LOBs (shared by the RI and

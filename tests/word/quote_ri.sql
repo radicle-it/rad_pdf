@@ -4,7 +4,7 @@
 -- page count with Word's export (sal_quote_v1_word.pdf: 3 pages; lines 1-18 on page 1, 19-40 on page 2).
 --
 -- Since B2 the bridge renders the INSTANCE given by rad_pdf_merge (template + sal_quote_v1_schema.json + data); the
--- negative samples sal_quote_v1_neg_*.json go through the same merge and must be refused with [PRT_DATA].
+-- negative samples sal_quote_v1_neg_*.json go through the same merge and must be refused with [PDF_DATA].
 -- Run by tests/word/quote_ri.py (it puts the data, the schema and the negatives in place of @@DATA@@, @@SCHEMA@@ and
 -- @@NEG@@, and reads RIJSON:/INSTNODES:/NEG:/PDFHEX: lines). The code
 -- and the data are ASCII (UNISTR, JSON \u escapes): SQLcl does not read its standard input as UTF-8.
@@ -428,7 +428,7 @@ BEGIN
   rad_pdf_merge.check_template(ri, l_sch);
   inst := rad_pdf_merge.merge(ri, l_sch, l_data);
   DBMS_OUTPUT.PUT_LINE('INSTNODES:' || rad_pdf_ri.node_count(inst));
-  -- the negative samples (96a section 10): each refused with [PRT_DATA] and its path
+  -- the negative samples (96a section 10): each refused with [PDF_DATA] and its path
 @@NEG@@
   FOR i IN 1 .. l_neg.COUNT LOOP
     DECLARE

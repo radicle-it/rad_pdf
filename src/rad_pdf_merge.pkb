@@ -34,8 +34,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
 
   PROCEDURE fail(p_code IN PLS_INTEGER, p_msg IN VARCHAR2) IS
   BEGIN
-    raise_application_error(p_code, CASE p_code WHEN c_err_data THEN '[PRT_DATA] ' WHEN c_err_budget THEN '[PDF_BUDGET] '
-                                                ELSE '[PRT_SCHEMA] ' END || substr(p_msg, 1, 1900));
+    raise_application_error(p_code, CASE p_code WHEN c_err_data THEN '[PDF_DATA] ' WHEN c_err_budget THEN '[PDF_BUDGET] '
+                                                ELSE '[PDF_SCHEMA] ' END || substr(p_msg, 1, 1900));
   END fail;
 
   PROCEDURE free_lob(p_lob IN OUT NOCOPY BLOB) IS

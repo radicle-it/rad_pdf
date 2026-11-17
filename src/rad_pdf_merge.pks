@@ -12,13 +12,13 @@ CREATE OR REPLACE PACKAGE rad_pdf_merge AUTHID DEFINER AS
 --   merge           validate (rad_pdf_ri) + the three checks + the expansion, reading ONLY the resolved references
 --                   (96a §6.3: no search in the data, no fallback outwards)
 --
--- Errors: [PRT_SCHEMA] the schema or the template against it; [PRT_DATA] the data (always with the path);
+-- Errors: [PDF_SCHEMA] the schema or the template against it; [PDF_DATA] the data (always with the path);
 -- [PDF_BUDGET] a budget of 96a §8 exceeded.
 -- =============================================================================
 
-  c_err_data   CONSTANT PLS_INTEGER := -20841;          -- [PRT_DATA]
+  c_err_data   CONSTANT PLS_INTEGER := -20841;          -- [PDF_DATA]
   c_err_budget CONSTANT PLS_INTEGER := -20842;          -- [PDF_BUDGET]
-  c_err_schema CONSTANT PLS_INTEGER := -20843;          -- [PRT_SCHEMA]
+  c_err_schema CONSTANT PLS_INTEGER := -20843;          -- [PDF_SCHEMA]
 
   -- the budgets of 96a §8 that the merge enforces
   c_max_json_bytes  CONSTANT PLS_INTEGER := 5 * 1024 * 1024;   -- of the JSON text in the database character set

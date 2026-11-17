@@ -8,7 +8,7 @@ of its rendering through the existing engine against Word's export.
                                               - the bridge's PDF with samples/sal_quote_v1_ri.pdf (same bytes: the
                                                 clock is fixed); since B2 the bridge renders the instance of the merge
                                                 (template + samples/sal_quote_v1_schema.json + data);
-                                              - each negative sample refused by the merge with its [PRT_DATA] message;
+                                              - each negative sample refused by the merge with its [PDF_DATA] message;
                                               - the reader (rad_pdf_docx, B4) on samples/sal_quote_v1.docx: the SAME RI
                                                 text as the one built by hand, no error, the expected warnings;
                                               - the paginator's PDF (rad_pdf_pager, B3) with samples/sal_quote_v1_pager.pdf
@@ -41,9 +41,9 @@ REF_PAGER = SAMPLES / 'sal_quote_v1_pager.pdf'
 SCHEMA = SAMPLES / 'sal_quote_v1_schema.json'
 # the negative samples of 96a section 10 and the refusal each must give (B2: the merge, with the path)
 NEGATIVES = {
-    'lines_not_array': '[PRT_DATA] lines: an ARRAY must be an array',
-    'missing_required': '[PRT_DATA] totals.net: required, missing',
-    'wrong_type': '[PRT_DATA] has_discount: a BOOLEAN must be true or false',
+    'lines_not_array': '[PDF_DATA] lines: an ARRAY must be an array',
+    'missing_required': '[PDF_DATA] totals.net: required, missing',
+    'wrong_type': '[PDF_DATA] has_discount: a BOOLEAN must be true or false',
 }
 
 

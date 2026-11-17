@@ -44,7 +44,7 @@ CREATE OR REPLACE PACKAGE rad_pdf_docx AUTHID DEFINER AS
     errors   PLS_INTEGER := 0,
     warnings PLS_INTEGER := 0);
 
-  -- the reader; p_schema is checked first (rad_pdf_merge.check_schema raises [PRT_SCHEMA])
+  -- the reader; p_schema is checked first (rad_pdf_merge.check_schema raises [PDF_SCHEMA])
   FUNCTION read(p_docx IN BLOB, p_schema IN rad_pdf_merge.t_schema) RETURN t_result;
 
   -- the report as JSON: {"errors":n,"warnings":n,"issues":[{"severity","code","part","position","near","message"}]}
