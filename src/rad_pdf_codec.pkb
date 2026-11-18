@@ -525,7 +525,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_codec IS
     DBMS_LOB.CREATETEMPORARY(l_out, TRUE);
     WHILE l_pos <= l_len LOOP
       l_txt := DBMS_LOB.SUBSTR(p_clob, l_chunk, l_pos);
-      IF NOT REGEXP_LIKE(l_txt, CASE WHEN l_pos + l_chunk > l_len THEN '^[A-Za-z0-9+/]*={0,2}$' ELSE '^[A-Za-z0-9+/]*$' END) THEN
+      IF NOT REGEXP_LIKE(l_txt, CASE WHEN l_pos + l_chunk > l_len THEN '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9+/]*={0,2}$' ELSE '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9+/]*$' END) THEN
         RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation, 'base64: a character outside the alphabet or misplaced padding');
       END IF;
       l_raw := UTL_ENCODE.BASE64_DECODE(UTL_RAW.CAST_TO_RAW(l_txt));

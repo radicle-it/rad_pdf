@@ -125,7 +125,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 -- ---------------------------------------------------------------------------
   PROCEDURE assert_dir_and_file(p_dir IN VARCHAR2, p_filename IN VARCHAR2) IS
   BEGIN
-    IF NOT REGEXP_LIKE(UPPER(p_dir), '^[A-Z0-9_$#]+$') THEN
+    IF NOT REGEXP_LIKE(UPPER(p_dir), '^[ABCDEFGHIJKLMNOPQRSTUVWXYZ0-9_$#]+$') THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_fonts: invalid Oracle directory name "' || p_dir || '"', TRUE);
     END IF;
@@ -606,6 +606,24 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
   END parse_ttf_tables;
 
 -- ---------------------------------------------------------------------------
+-- PRIVATE: p_name kept as a PDF name token: printable ASCII ('!' .. '~') without the delimiters ( ) < > [ ] { } / % #,
+-- character by character. Not a regular expression: a range such as [^!-~] follows NLS_SORT, and under a linguistic
+-- sort (an Italian APEX session) it matched every letter, so every font became 'Font<n>'.
+-- ---------------------------------------------------------------------------
+  FUNCTION pdf_name_token(p_name IN VARCHAR2) RETURN VARCHAR2 IS
+    l_out VARCHAR2(4000);
+    l_c   VARCHAR2(4 CHAR);
+  BEGIN
+    FOR k IN 1 .. nvl(length(p_name), 0) LOOP
+      l_c := substr(p_name, k, 1);
+      IF ascii(l_c) BETWEEN 33 AND 126 AND instr('()<>[]{}/%#', l_c) = 0 THEN
+        l_out := l_out || l_c;
+      END IF;
+    END LOOP;
+    RETURN l_out;
+  END pdf_name_token;
+
+-- ---------------------------------------------------------------------------
 -- PRIVATE: the subset tag of an embedded subset font (ISO 32000-1 §9.6.4): six uppercase letters and '+' before the
 -- PostScript name, in /BaseFont and /FontName. Deterministic, never random (the golden bench compares bytes): the
 -- SHA-256 of the font name, its index and the glyph ids of this document's subset, six bytes mapped to A-Z, so
@@ -940,8 +958,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_fonts IS
 
     -- /BaseFont must be a clean PDF name token: strip spaces/delimiters
     -- and any non-ASCII byte that survived the name-table decode.
-    g_fonts(l_idx).name := REGEXP_REPLACE(g_fonts(l_idx).name,
-                                          '[^!-~]|[()<>\[\]{}/%#]', '');
+    g_fonts(l_idx).name := pdf_name_token(g_fonts(l_idx).name);
     IF g_fonts(l_idx).name IS NULL THEN
       g_fonts(l_idx).name := 'Font' || l_idx;
     END IF;

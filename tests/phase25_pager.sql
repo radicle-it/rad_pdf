@@ -104,7 +104,7 @@ DECLARE
     d := rad_pdf_pager.layout_dump(q, fonts);
     RETURN FALSE;
   EXCEPTION WHEN OTHERS THEN
-    l_msg := REGEXP_SUBSTR(SQLERRM, '\[[A-Z_]+\][^' || CHR(10) || ']*');
+    l_msg := REGEXP_SUBSTR(SQLERRM, '\[[ABCDEFGHIJKLMNOPQRSTUVWXYZ_]+\][^' || CHR(10) || ']*');
     RETURN SQLCODE = p_code AND l_msg LIKE p_like;
   END;
 
@@ -306,7 +306,7 @@ BEGIN
       d := rad_pdf_pager.layout_dump(q, l_bad);
       assert_ok(FALSE, 'fsType');
     EXCEPTION WHEN OTHERS THEN
-      l_msg := REGEXP_SUBSTR(SQLERRM, '\[[A-Z_]+\][^' || CHR(10) || ']*');
+      l_msg := REGEXP_SUBSTR(SQLERRM, '\[[ABCDEFGHIJKLMNOPQRSTUVWXYZ_]+\][^' || CHR(10) || ']*');
       assert_ok(SQLCODE = rad_pdf_pager.c_err_font AND l_msg LIKE '%fsType forbids embedding', 'a font whose fsType forbids embedding refused');
     END;
     DBMS_LOB.WRITE(l_b, 2, l_os2 + 8, HEXTORAW('0100'));              -- fsType = no subsetting
@@ -315,7 +315,7 @@ BEGIN
       d := rad_pdf_pager.layout_dump(q, l_bad);
       assert_ok(FALSE, 'fsType');
     EXCEPTION WHEN OTHERS THEN
-      l_msg := REGEXP_SUBSTR(SQLERRM, '\[[A-Z_]+\][^' || CHR(10) || ']*');
+      l_msg := REGEXP_SUBSTR(SQLERRM, '\[[ABCDEFGHIJKLMNOPQRSTUVWXYZ_]+\][^' || CHR(10) || ']*');
       assert_ok(SQLCODE = rad_pdf_pager.c_err_font AND l_msg LIKE '%fsType forbids subsetting (not in v1)', 'a font whose fsType forbids subsetting refused');
     END;
     DBMS_LOB.FREETEMPORARY(l_b);

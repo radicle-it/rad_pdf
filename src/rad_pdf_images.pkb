@@ -74,7 +74,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_images IS
 -- ---------------------------------------------------------------------------
   PROCEDURE assert_dir_and_file(p_dir IN VARCHAR2, p_filename IN VARCHAR2) IS
   BEGIN
-    IF NOT REGEXP_LIKE(UPPER(p_dir), '^[A-Z0-9_$#]+$') THEN
+    IF NOT REGEXP_LIKE(UPPER(p_dir), '^[ABCDEFGHIJKLMNOPQRSTUVWXYZ0-9_$#]+$') THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_images: invalid directory name "' || p_dir || '"', TRUE);
     END IF;

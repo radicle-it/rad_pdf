@@ -12,6 +12,8 @@ writer that can lie) and one expected outcome:
   - WARNS {codes}      no error, at least these WARNING codes, an RI;
   - RI [texts]         no error, an RI whose canonical JSON holds every text;
   - RAISE (code, text) the package is refused: [PDF_DOCX] or [PDF_BUDGET], the message holding the text.
+Every batch runs under NLS_SORT = ITALIAN and NLS_COMP = LINGUISTIC, the session of an Italian APEX application,
+where Oracle reads the ranges of a regular expression in the Italian collation (2026-11-18: ORA-12728 on [ -~]).
 The last cases read two templates in one session, the second after a refused package, and compare the results with
 the first reads (no state left behind).
 """
@@ -583,6 +585,21 @@ case('pkg_strict', docx('', doc_xml='<?xml version="1.0"?><w:document xmlns:w="h
                         '<w:body><w:p/></w:body></w:document>'), 'RAISE', ('PDF_DOCX', 'Strict'))
 
 
+# ---- the APEX session (2026-11-18): every case runs under NLS_SORT = ITALIAN, NLS_COMP = LINGUISTIC (see script()),
+# where Oracle reads a regular expression range in the Italian collation: [ -~] raised ORA-12728 on every ASCII
+# entry name without the UTF-8 flag (each of the packages above), [A-Za-z]: refused 'é:' as a drive letter, and
+# [0-9A-Fa-f] took Æ for a hex digit
+case('pkg_name_not_utf8', with_entries([{'name': 'word/città.xml', 'data': b'<a/>'}]),
+     'RAISE', ('PDF_DOCX', 'non-ASCII name without the UTF-8 flag'))
+case('pos_name_utf8', with_entries([{'name': 'word/città.xml', 'data': b'<a/>', 'flags': 2048}]),
+     'RI', ['"text":"Hello "'])
+case('pos_name_accent_colon', with_entries([{'name': 'é:a.xml', 'data': b'<a/>', 'flags': 2048}]),
+     'RI', ['"text":"Hello "'])
+case('pkg_name_drive', with_entries([{'name': 'C:a.xml', 'data': b'<a/>'}]),
+     'RAISE', ('PDF_DOCX', 'entry name not allowed'))
+case('pos_color_not_hex', docx(P(R('x', '<w:color w:val="ÆÆÆÆÆÆ"/>'))), 'RI', [fmt_is('x', color='000000')])
+
+
 # ---- codex-062 R5: the integrity of every entry and of the local headers (APPNOTE 4.4) ------------------------
 def with_entry(name, **over):
     """BASE rebuilt with one entry changed (or added when absent)"""
@@ -669,6 +686,8 @@ def script(names):
     sch = json.dumps(SCHEMA, ensure_ascii=True)
     return f"""SET SERVEROUTPUT ON SIZE UNLIMITED
 SET PAGESIZE 0 FEEDBACK OFF
+ALTER SESSION SET NLS_SORT = 'ITALIAN';
+ALTER SESSION SET NLS_COMP = 'LINGUISTIC';
 {LOBS.format('before')}
 DECLARE
   l_sch rad_pdf_merge.t_schema := rad_pdf_merge.schema_from_json(q'~{sch}~');

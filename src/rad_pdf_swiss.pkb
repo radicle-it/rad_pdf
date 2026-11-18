@@ -68,7 +68,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
   FUNCTION creditor_reference(p_base IN VARCHAR2) RETURN VARCHAR2 IS
     l_base VARCHAR2(21);
   BEGIN
-    IF p_base IS NULL OR LENGTH(p_base)>21 OR NOT REGEXP_LIKE(p_base,'^[A-Za-z0-9]+$','c') THEN
+    IF p_base IS NULL OR LENGTH(p_base)>21 OR NOT REGEXP_LIKE(p_base,'^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9]+$','c') THEN
       fail('Creditor reference base must contain 1 to 21 alphanumeric characters');
     END IF;
     l_base := UPPER(p_base);
@@ -78,7 +78,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
     l_qr BOOLEAN;
   BEGIN
     IF p_bill.account IS NULL OR LENGTH(p_bill.account)!=21
-      OR NOT REGEXP_LIKE(p_bill.account,'^(CH|LI)[0-9]{7}[A-Z0-9]{12}$','c')
+      OR NOT REGEXP_LIKE(p_bill.account,'^(CH|LI)[0-9]{7}[ABCDEFGHIJKLMNOPQRSTUVWXYZ0-9]{12}$','c')
       OR mod97(SUBSTR(p_bill.account,5)||SUBSTR(p_bill.account,1,4))!=1 THEN fail('Invalid CH/LI IBAN checksum or syntax'); END IF;
     l_qr := TO_NUMBER(SUBSTR(p_bill.account,5,5)) BETWEEN 30000 AND 31999;
     address_check(p_bill.creditor,'creditor');
@@ -94,13 +94,13 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
       IF p_bill.reference IS NULL OR NOT REGEXP_LIKE(p_bill.reference,'^[0-9]{27}$','c')
         OR qr_reference(SUBSTR(p_bill.reference,1,26))!=p_bill.reference THEN fail('Invalid QR reference checksum or syntax'); END IF;
     ELSIF p_bill.reference_type='SCOR' THEN
-      IF p_bill.reference IS NULL OR NOT REGEXP_LIKE(p_bill.reference,'^RF[0-9]{2}[A-Za-z0-9]{1,21}$','c')
+      IF p_bill.reference IS NULL OR NOT REGEXP_LIKE(p_bill.reference,'^RF[0-9]{2}[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9]{1,21}$','c')
         OR mod97(UPPER(SUBSTR(p_bill.reference,5)||SUBSTR(p_bill.reference,1,4)))!=1 THEN fail('Invalid ISO 11649 creditor reference'); END IF;
     ELSIF p_bill.reference IS NOT NULL THEN fail('NON must have an empty reference'); END IF;
     field(p_bill.message,'message',140);
     field(p_bill.billing_information,'billing_information',140);
     IF NVL(LENGTH(p_bill.message),0)+NVL(LENGTH(p_bill.billing_information),0)>140 THEN fail('message + billing_information exceed 140 characters'); END IF;
-    IF p_bill.billing_information IS NOT NULL AND NOT REGEXP_LIKE(p_bill.billing_information,'^//[A-Za-z0-9]{2}') THEN
+    IF p_bill.billing_information IS NOT NULL AND NOT REGEXP_LIKE(p_bill.billing_information,'^//[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9]{2}') THEN
       fail('billing_information must start with // and a two-character syntax identifier'); END IF;
     field(p_bill.alternative_1,'alternative_1',100);
     field(p_bill.alternative_2,'alternative_2',100);
@@ -369,7 +369,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_swiss IS
       l_width NUMBER;
     BEGIN
       IF p_value IS NULL THEN RETURN; END IF;
-      l_prefix := REGEXP_SUBSTR(p_value,'^[A-Za-z0-9]+');
+      l_prefix := REGEXP_SUBSTR(p_value,'^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9]+');
       l_pos := NVL(LENGTH(l_prefix),0)+1;
       l_suffix := SUBSTR(p_value,l_pos);
       l_width := rad_pdf_fonts.text_width(l_prefix,l_bold,7);

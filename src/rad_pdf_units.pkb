@@ -113,7 +113,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_units IS
   PROCEDURE assert_rgb(p_rgb IN rad_pdf_types.t_rgb) IS
   BEGIN
     IF p_rgb IS NULL OR LENGTH(p_rgb) != 6 OR
-       NOT REGEXP_LIKE(p_rgb, '^[0-9A-Fa-f]{6}$') THEN
+       NOT REGEXP_LIKE(p_rgb, '^[0-9ABCDEFabcdef]{6}$') THEN
       RAISE_APPLICATION_ERROR(rad_pdf_types.c_err_validation,
         'rad_pdf_units.assert_rgb: "' || NVL(p_rgb,'<null>') ||
         '" is not a valid hex RGB', TRUE);

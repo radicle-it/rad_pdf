@@ -24,6 +24,18 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
     RETURN to_number(rawtohex(utl_raw.reverse(l_r)), 'XXXXXXXX');
   END u;
 
+  -- every byte of p_raw printable ASCII (0x20 .. 0x7E), read as bytes: a regular expression range such as [ -~] follows
+  -- NLS_SORT, and under a linguistic sort (an Italian APEX session) it raises ORA-12728
+  FUNCTION printable_ascii(p_raw IN RAW) RETURN BOOLEAN IS
+    l_b PLS_INTEGER;
+  BEGIN
+    FOR k IN 1 .. nvl(utl_raw.length(p_raw), 0) LOOP
+      l_b := to_number(rawtohex(utl_raw.substr(p_raw, k, 1)), 'XX');
+      IF l_b < 32 OR l_b > 126 THEN RETURN FALSE; END IF;
+    END LOOP;
+    RETURN TRUE;
+  END printable_ascii;
+
   -- a safe OPC part name: relative, '/' separated, no '\', no '.' or '..' or empty segment, no control character
   PROCEDURE check_name(p_name IN VARCHAR2) IS
     l_seg VARCHAR2(400);
@@ -33,7 +45,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
     l_b    PLS_INTEGER;
   BEGIN
     IF p_name IS NULL OR instr(p_name, '\') > 0 OR substr(p_name, 1, 1) = '/' OR regexp_like(p_name, '[[:cntrl:]]')
-       OR regexp_like(p_name, '^[A-Za-z]:') THEN
+       OR regexp_like(p_name, '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]:') THEN
       refuse('entry name not allowed: "' || substr(p_name, 1, 100) || '"');
     END IF;
     l_body := l_body || '/';
@@ -109,7 +121,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_zip AS
       IF u(p_zip, l_p + 34, 2) <> 0 THEN refuse('multi-disk archive'); END IF;
       IF l_nlen = 0 OR l_nlen > 400 THEN refuse('entry ' || i || ': name length ' || l_nlen); END IF;
       l_raw := dbms_lob.substr(p_zip, l_nlen, l_p + 46);
-      IF bitand(l_flags, 2048) = 0 AND NOT regexp_like(utl_raw.cast_to_varchar2(l_raw), '^[ -~]*$') THEN
+      IF bitand(l_flags, 2048) = 0 AND NOT printable_ascii(l_raw) THEN
         refuse('entry ' || i || ': a non-ASCII name without the UTF-8 flag');
       END IF;
       l_e.name := utl_i18n.raw_to_char(l_raw, 'AL32UTF8');

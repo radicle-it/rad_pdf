@@ -299,7 +299,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
 
   FUNCTION color(p_v IN VARCHAR2) RETURN VARCHAR2 IS
   BEGIN
-    IF p_v IS NULL OR lower(p_v) = 'auto' OR NOT regexp_like(p_v, '^[0-9A-Fa-f]{6}$') THEN RETURN '000000'; END IF;
+    IF p_v IS NULL OR lower(p_v) = 'auto' OR NOT regexp_like(p_v, '^[0-9ABCDEFabcdef]{6}$') THEN RETURN '000000'; END IF;
     RETURN upper(p_v);
   END color;
 
@@ -482,7 +482,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
     l_a    PLS_INTEGER := 1;
     l_b    PLS_INTEGER;
   BEGIN
-    IF p_target IS NULL OR instr(p_target, '\') > 0 OR regexp_like(p_target, '^[A-Za-z][A-Za-z0-9+.-]*:') THEN
+    IF p_target IS NULL OR instr(p_target, '\') > 0 OR regexp_like(p_target, '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9+.-]*:') THEN
       refuse('relationship target not allowed: "' || substr(p_target, 1, 100) || '"');
     END IF;
     IF substr(p_target, 1, 1) = '/' THEN l_path := substr(p_target, 2);
@@ -1137,7 +1137,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_docx AS
   -- straddle two atoms or two pieces of a long w:t
   PROCEDURE scan_span(c IN OUT NOCOPY t_ctx, a IN t_atoms, p_from IN PLS_INTEGER, p_to IN PLS_INTEGER,
                       p_para IN PLS_INTEGER) IS
-    c_tag   CONSTANT VARCHAR2(100) := '^\{[#/%?]?[A-Za-z_][A-Za-z0-9_]*(\.([A-Za-z_][A-Za-z0-9_]*|[0-9]+))*\}';
+    c_tag   CONSTANT VARCHAR2(400) := '^\{[#/%?]?[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*(\.([ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*|[0-9]+))*\}';
     c_reach CONSTANT PLS_INTEGER := 500;                -- the longest tag looked for after a "{"
     l_s     VARCHAR2(32767);                             -- the window: text not emitted yet
     TYPE t_offs IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;

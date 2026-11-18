@@ -122,7 +122,7 @@ FUNCTION is_valid_rgb(p_rgb IN VARCHAR2) RETURN BOOLEAN IS
 BEGIN
   RETURN p_rgb IS NOT NULL
          AND LENGTH(p_rgb) = 6
-         AND REGEXP_LIKE(p_rgb, '^[0-9A-F]{6}$');
+         AND REGEXP_LIKE(p_rgb, '^[0-9ABCDEF]{6}$');
 END is_valid_rgb;
 
 -- ---------------------------------------------------------------------------
@@ -407,7 +407,7 @@ BEGIN
     ELSIF SUBSTR(l_tag, 1, 7) = '<color ' THEN
       l_rgb := UPPER(TRIM(extract_attr(l_tag, 'rgb')));
       IF l_rgb IS NOT NULL AND LENGTH(l_rgb) = 6
-         AND REGEXP_LIKE(l_rgb, '^[0-9A-F]{6}$')
+         AND REGEXP_LIKE(l_rgb, '^[0-9ABCDEF]{6}$')
       THEN
         l_clr_depth              := l_clr_depth + 1;
         l_color_stk(l_clr_depth) := l_color;   -- push current colour

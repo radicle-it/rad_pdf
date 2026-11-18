@@ -57,7 +57,7 @@ DECLARE
   -- TRUE when the error raised has this code and this text (the reason, not just the code)
   FUNCTION is_err(p_code PLS_INTEGER, p_like VARCHAR2) RETURN BOOLEAN IS
   BEGIN
-    l_msg := REGEXP_SUBSTR(SQLERRM, '\[[A-Z_]+\][^' || CHR(10) || ']*');
+    l_msg := REGEXP_SUBSTR(SQLERRM, '\[[ABCDEFGHIJKLMNOPQRSTUVWXYZ_]+\][^' || CHR(10) || ']*');
     RETURN SQLCODE = p_code AND l_msg LIKE p_like;
   END;
 

@@ -69,6 +69,20 @@ Format: [Keep a Changelog](https://keepachangelog.com) - Versioning: [SemVer](ht
 
 ### Fixed
 
+- No regular expression range depends on the session's collation any more.
+  Oracle reads a range such as `[A-Z]` or `[ -~]` with NLS_SORT. Under ITALIAN
+  with NLS_COMP = LINGUISTIC, which is what an Italian APEX application uses:
+  - `rad_pdf_zip` raised ORA-12728 on every entry name without the UTF-8 flag,
+    so no .docx could be read. The name is now checked byte by byte (0x20..0x7E).
+  - `rad_pdf_fonts` stripped every letter from the font name (`[^!-~]`), so the
+    name fell back to `Font<n>`. The name is now filtered character by character.
+  - The letter and hex classes accepted lowercase and accented letters (`[A-Z]`
+    matches `à` and `ß`; `[0-9A-F]` matches `Æ`). These cover colours, data
+    paths, tags, base64, directories, the drive-letter refusal and the Swiss
+    QR-bill fields. They now list the ASCII letters.
+  The digit ranges are exact and stay. `tests/lint/check_regexp_ranges.py`
+  refuses any other range. `tests/word/docx_cases.py` runs every case under
+  that session, with new cases for entry names and for a non-hex colour.
 - Embedded subset fonts (CID/Type0) carry the six-letter subset tag of ISO 32000-1
   §9.6.4 in `/BaseFont` and `/FontName` (`TAG+Name`). The tag is deterministic: a
   hash of the font and of the document's glyph set, so documents stay reproducible.

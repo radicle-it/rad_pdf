@@ -3,8 +3,8 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   TYPE t_seen IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(16);       -- the zones already read back
   TYPE t_visited IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;          -- the source node ids already replayed
 
-  c_path_re CONSTANT VARCHAR2(200) :=
-    '^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.([A-Za-z_][A-Za-z0-9_]*(\[\])?|[0-9]+))*$';
+  c_path_re CONSTANT VARCHAR2(400) :=
+    '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*(\[\])?(\.([ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*(\[\])?|[0-9]+))*$';
 
   PROCEDURE fail(p_msg IN VARCHAR2) IS
   BEGIN
@@ -98,7 +98,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_ri AS
   PROCEDURE check_color(p_name IN VARCHAR2, p_v IN VARCHAR2, p_nullable IN BOOLEAN DEFAULT FALSE) IS
   BEGIN
     IF p_v IS NULL AND p_nullable THEN RETURN; END IF;
-    IF p_v IS NULL OR NOT regexp_like(p_v, '^[0-9A-Fa-f]{6}$') THEN fail(p_name || ' must be RRGGBB'); END IF;
+    IF p_v IS NULL OR NOT regexp_like(p_v, '^[0-9ABCDEFabcdef]{6}$') THEN fail(p_name || ' must be RRGGBB'); END IF;
   END check_color;
 
   PROCEDURE check_border(p_name IN VARCHAR2, p_b IN t_border) IS

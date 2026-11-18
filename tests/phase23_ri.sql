@@ -345,7 +345,7 @@ BEGIN
   assert_ok(DBMS_LOB.COMPARE(ri2.images(1).bytes, c_png) = 0, 'the image bytes survive the round trip');
   assert_ok(json_refused(REPLACE(j1, '"grid_span":2', '"grid_span":3')), 'from_json refuses a text whose grid spans break the invariant');
   assert_ok(json_refused(REPLACE(j1, '"ri_version":1', '"ri_version":2')), 'from_json refuses another ri_version');
-  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{8}', '"sha256":"00000000')), 'from_json refuses an image whose hash does not match its bytes');
+  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9abcdef]{8}', '"sha256":"00000000')), 'from_json refuses an image whose hash does not match its bytes');
   assert_ok(json_refused(REPLACE(j1, '"kind":"row_region"', '"kind":"block_region"')), 'from_json refuses a region in the wrong container');
   assert_ok(json_refused('not json'), 'from_json refuses a text that is not JSON');
   assert_ok(json_refused(REPLACE(j1, '"kind":"zone","name":"footer_default"', '"kind":"zone","name":"body"')),
@@ -355,9 +355,9 @@ BEGIN
   assert_ok(json_refused(REPLACE(j1, '"grid":[120,240,120]', '"grid":"wide"')),
             'from_json refuses a value of the wrong JSON type, with [PDF_RI]');
   assert_ok(json_refused(REPLACE(j1, '"id":1,', '')), 'from_json refuses an image without its id');
-  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{64}"', '"sha256":""')), 'from_json refuses an empty image hash');
+  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9abcdef]{64}"', '"sha256":""')), 'from_json refuses an empty image hash');
   assert_ok(json_refused(REPLACE(j1, '"document":{"kind":"document"', '"document":{"kind":""')), 'from_json refuses an empty document kind');
-  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9a-f]{64}",', '')), 'from_json refuses an image without its hash');
+  assert_ok(json_refused(REGEXP_REPLACE(j1, '"sha256":"[0-9abcdef]{64}",', '')), 'from_json refuses an image without its hash');
   assert_ok(json_refused(REPLACE(j1, '"document":{"kind":"document",', '"document":{')), 'from_json refuses a document node without its kind');
   assert_ok(json_refused(REPLACE(j1, '{"kind":"zone","name":"header_default"}',
                                      '{"kind":"zone","name":"header_default"},{"kind":"zone","name":"header_default"}')),

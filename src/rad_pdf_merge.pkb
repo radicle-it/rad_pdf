@@ -30,7 +30,7 @@ CREATE OR REPLACE PACKAGE BODY rad_pdf_merge AS
     lob_bytes NUMBER := 0,                               -- the temporary LOB bytes held now (reserved before allocation)
     json_bytes NUMBER := 0);                             -- the size of the data: a bound of any string read from it
 
-  c_path_re CONSTANT VARCHAR2(100) := '^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)*$';
+  c_path_re CONSTANT VARCHAR2(400) := '^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*(\[\])?(\.[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_][ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9_]*(\[\])?)*$';
 
   PROCEDURE fail(p_code IN PLS_INTEGER, p_msg IN VARCHAR2) IS
   BEGIN

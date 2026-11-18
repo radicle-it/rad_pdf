@@ -438,7 +438,7 @@ BEGIN
       DBMS_OUTPUT.PUT_LINE('NEG:' || l_negn(i) || ':ACCEPTED');
       rad_pdf_ri.free(x);
     EXCEPTION
-      WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('NEG:' || l_negn(i) || ':' || REGEXP_SUBSTR(SQLERRM, '\[[A-Z_]+\][^' || CHR(10) || ']*'));
+      WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('NEG:' || l_negn(i) || ':' || REGEXP_SUBSTR(SQLERRM, '\[[ABCDEFGHIJKLMNOPQRSTUVWXYZ_]+\][^' || CHR(10) || ']*'));
     END;
   END LOOP;
   render;
